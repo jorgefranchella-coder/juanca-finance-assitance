@@ -4,7 +4,7 @@ import {exact} from './money.ts';
 type Intake={id:string;owner_id:string;owner:string;original_text:string;received_at:string;fields:{side:string|null;instrument_code:string|null;quantity:string|null;trade_date:string|null}};
  type Movement={assertion_id:string;owner_id:string;custodian:string|null;institution_id:string|null;account_id:string|null;instrument_code:string;asserted_on:string;source_event_type:string|null;event_type:string|null;direction:string|null;quantity:string};
 const normalized=(value:unknown)=>String(value??'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toUpperCase().trim();
-const day=value=>Date.parse(String(value)+'T00:00:00Z');
+const day=(value:unknown)=>Date.parse(String(value)+'T00:00:00Z');
 
 /** Exact, read-only links between written evidence and B3 movement assertions. */
 export async function listManualB3Candidates(db:pg.Pool,household:string){
