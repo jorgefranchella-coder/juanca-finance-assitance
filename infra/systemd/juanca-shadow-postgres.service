@@ -1,0 +1,18 @@
+[Unit]
+Description=Juanca PostgreSQL shadow (private Unix socket)
+
+[Service]
+Type=forking
+PIDFile=/home/jorge/.local/share/juanca-shadow/postgres.pid
+ExecStart=/home/jorge/juanca/infra/postgres/local.sh start
+ExecStop=/home/jorge/juanca/infra/postgres/local.sh stop
+WorkingDirectory=/home/jorge/juanca
+Environment=PATH=/home/jorge/.local/bin:/usr/bin:/bin
+Restart=on-failure
+RestartSec=3
+UMask=0077
+TimeoutStartSec=30
+TimeoutStopSec=30
+
+[Install]
+WantedBy=default.target

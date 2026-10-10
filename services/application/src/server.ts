@@ -1,0 +1,81 @@
+import {createServer} from 'node:http';
+import {readFile} from 'node:fs/promises';
+import {createHash,randomUUID,timingSafeEqual} from 'node:crypto';
+import {pool} from './db.ts';
+import {portfolio,positionPage} from './queries.ts';
+import {Conflict} from './commands.ts';
+import {chatHistory,sendChat} from './conversation.ts';
+import {getPhotoContent,getPhotoStatus,getSourceStatus,listPhotoEvidence,listTextIntakes,putPhoto,putSourceDocument,readJson,recordText,startPhoto,startSourceDocument,textStatus} from './manual-intake.ts';
+import {listB3CandidateReports} from './b3-candidate-reports.ts';
+import {listManualB3Candidates} from './manual-b3-candidates.ts';
+import {recordManualB3Decision} from './manual-b3-decisions.ts';
+const config=JSON.parse(await readFile(process.env.JUANCA_SHADOW_CONFIG??'/home/jorge/.local/share/juanca-shadow/application.json','utf8')) as {token:string;household_id:string;cursor_key:string;port:number};
+if(config.token.length<32||config.cursor_key.length<32||!config.household_id)throw new Error('INVALID_CONFIGURATION');
+const db=pool();
+const server=createServer(async(req,res)=>{
+ const requestId=randomUUID();res.setHeader('Content-Type','application/json');res.setHeader('Cache-Control','no-store');res.setHeader('X-Content-Type-Options','nosniff');res.setHeader('X-Request-Id',requestId);
+ const reply=(status:number,value:unknown)=>{res.statusCode=status;res.end(JSON.stringify(value));};
+ try{
+  const url=new URL(req.url??'/','http://localhost');
+  if(url.pathname==='/health/ready'&&req.method==='GET'){await db.query('SELECT 1');reply(200,{status:'ready',mode:'shadow',authoritative:false});return;}
+  const provided=createHash('sha256').update(req.headers.authorization??'').digest();const expected=createHash('sha256').update('Bearer '+config.token).digest();
+  if(!timingSafeEqual(provided,expected))throw new Conflict('UNAUTHENTICATED',401);
+  if(url.pathname==='/v1/evidence/text'&&req.method==='POST'){reply(201,await recordText(db,config.household_id,await readJson(req)));return;}
+  if(url.pathname==='/v1/evidence/text'&&req.method==='GET'){
+   const limit=url.searchParams.has('limit')?Number(url.searchParams.get('limit')):50;if(!Number.isInteger(limit)||limit<1||limit>100)throw new Conflict('VALIDATION',422);
+   reply(200,await listTextIntakes(db,config.household_id,limit));return;
+  }
+  const textMatch=url.pathname.match(/^\/v1\/evidence\/text\/([0-9a-f-]{36})$/i);
+  if(textMatch&&req.method==='GET'){reply(200,await textStatus(db,config.household_id,textMatch[1]));return;}
+  if(url.pathname==='/v1/evidence/photos'&&req.method==='POST'){reply(202,await startPhoto(db,config.household_id,req,await readJson(req)));return;}
+  if(url.pathname==='/v1/evidence/photos'&&req.method==='GET'){
+   const limit=url.searchParams.has('limit')?Number(url.searchParams.get('limit')):50;if(!Number.isInteger(limit)||limit<1||limit>100)throw new Conflict('VALIDATION',422);
+   reply(200,await listPhotoEvidence(db,config.household_id,limit));return;
+  }
+  const photoContentMatch=url.pathname.match(/^\/v1\/evidence\/photos\/([0-9a-f-]{36})\/content$/i);
+  if(photoContentMatch&&req.method==='GET'){
+   const content=await getPhotoContent(config.household_id,photoContentMatch[1]);res.statusCode=200;res.setHeader('Content-Type',content.contentType);res.setHeader('Content-Length',String(content.bytes.length));res.setHeader('Content-Disposition','inline');res.end(content.bytes);return;
+  }
+  const photoMatch=url.pathname.match(/^\/v1\/evidence\/photos\/([0-9a-f-]{36})$/i);
+  if(photoMatch&&req.method==='GET'){reply(200,await getPhotoStatus(config.household_id,photoMatch[1]));return;}
+  const photoUploadContentMatch=url.pathname.match(/^\/v1\/evidence\/photos\/([0-9a-f-]{36})\/content$/i);
+  if(photoUploadContentMatch&&req.method==='PUT'){reply(201,await putPhoto(config.household_id,photoUploadContentMatch[1],req));return;}
+  if(url.pathname==='/v1/evidence/documents'&&req.method==='POST'){reply(202,await startSourceDocument(db,config.household_id,await readJson(req)));return;}
+  const sourceMatch=url.pathname.match(/^\/v1\/evidence\/documents\/([0-9a-f-]{36})$/i);
+  if(sourceMatch&&req.method==='GET'){reply(200,await getSourceStatus(config.household_id,sourceMatch[1]));return;}
+  const sourceContentMatch=url.pathname.match(/^\/v1\/evidence\/documents\/([0-9a-f-]{36})\/content$/i);
+  if(sourceContentMatch&&req.method==='PUT'){reply(201,await putSourceDocument(config.household_id,sourceContentMatch[1],req));return;}
+  if(url.pathname==='/v1/reconciliation/b3/candidates'&&req.method==='GET'){
+   const rawLimit=url.searchParams.has('limit')?Number(url.searchParams.get('limit')):50;if(!Number.isInteger(rawLimit)||rawLimit<1||rawLimit>100)throw new Conflict('VALIDATION',422);
+   reply(200,{...await listB3CandidateReports(config.household_id,rawLimit),mode:'shadow',authoritative:false,apply_enabled:false});return;
+  }
+  if(url.pathname==='/v1/reconciliation/manual-b3/candidates'&&req.method==='GET'){
+   reply(200,await listManualB3Candidates(db,config.household_id));return;
+  }
+  if(url.pathname==='/v1/reconciliation/manual-b3/decisions'&&req.method==='POST'){
+   const actor=String(req.headers['x-juanca-actor']??'');
+   reply(201,await recordManualB3Decision(db,config.household_id,actor,await readJson(req)));return;
+  }
+  if(url.pathname==='/v1/conversations/family/messages'){
+    if(req.method==='GET'){reply(200,{messages:await chatHistory(db,config.household_id),mode:'guided_shadow',hermes_required:false});return;}
+    if(req.method==='POST'){
+      if(req.headers.origin&&req.headers.origin!==`http://127.0.0.1:${config.port}`)throw new Conflict('ORIGIN_NOT_ALLOWED',403);
+      if(String(req.headers['content-type']??'').split(';')[0]!=='application/json'||req.headers['transfer-encoding'])throw new Conflict('INVALID_CONTENT_TYPE',415);
+      const bytes:Buffer[]=[];let size=0;
+      for await(const chunk of req){size+=chunk.length;if(size>40000)throw new Conflict('BODY_TOO_LARGE',413);bytes.push(chunk);}
+      let data:unknown;try{data=JSON.parse(Buffer.concat(bytes).toString('utf8'));}catch{throw new Conflict('INVALID_JSON',422);}
+      reply(200,await sendChat(db,config.household_id,data));return;
+    }
+  }
+  if(req.method!=='GET')throw new Conflict('SHADOW_READ_ONLY',405);
+  const version=url.searchParams.get('portfolio_version')??undefined;if(version&&!/^[0-9a-f]{64}$/.test(version))throw new Conflict('VALIDATION',422);
+  if(url.pathname==='/v1/portfolio'){reply(200,await portfolio(db,config.household_id,version));return;}
+  if(url.pathname==='/v1/positions'){reply(200,await positionPage(db,config.household_id,config.cursor_key,{version,cursor:url.searchParams.get('cursor')??undefined,owner:url.searchParams.get('owner_id')??undefined,limit:url.searchParams.has('limit')?Number(url.searchParams.get('limit')):undefined}));return;}
+  if(url.pathname==='/v1/owners'){const r=await db.query('SELECT id,display_name FROM app.owners WHERE household_id=$1 ORDER BY display_name',[config.household_id]);reply(200,{owners:r.rows});return;}
+  throw new Conflict('NOT_FOUND',404);
+ }catch(error){const code=error instanceof Conflict?error.code:'DEPENDENCY_UNAVAILABLE';const status=error instanceof Conflict?error.status:503;reply(status,{code,message:code,request_id:requestId,retryable:status===503,details:{}});}
+});
+server.requestTimeout=120000;server.headersTimeout=10000;
+server.listen(config.port,'127.0.0.1',()=>console.log('Juanca application shadow ready on loopback.'));
+async function stop(){server.close(async()=>{await db.end();process.exit(0);});setTimeout(()=>process.exit(1),10000).unref();}
+process.on('SIGTERM',stop);process.on('SIGINT',stop);

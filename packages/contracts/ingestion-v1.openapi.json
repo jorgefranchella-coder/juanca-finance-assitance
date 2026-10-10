@@ -1,0 +1,68 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Juanca ingestion service",
+    "version": "0.3.0",
+    "description": "Private document storage with content hash verification, durable upload intents, deterministic B3 parsing, and local OCR suggestions for manual photo evidence. OCR is versioned and never applies portfolio facts."
+  },
+  "servers": [{"url": "http://127.0.0.1:3052"}],
+  "components": {
+    "securitySchemes": {"serviceToken": {"type": "http", "scheme": "bearer"}},
+    "schemas": {
+      "UploadIntent": {
+        "type": "object", "additionalProperties": false,
+        "required": ["household_ref", "owner_ref", "account_ref", "source", "file_type", "reference_date", "file_name", "content_sha256", "byte_size", "content_type"],
+        "properties": {
+          "household_ref": {"type": "string", "minLength": 1, "maxLength": 100},
+          "owner_ref": {"type": "string", "minLength": 1, "maxLength": 100},
+          "account_ref": {"type": ["string", "null"], "maxLength": 128},
+          "source": {"enum": ["b3", "avenue", "pension", "manual"]},
+          "file_type": {"enum": ["positions", "movements", "avenue_statement", "avenue_confirmation", "pension_statement", "manual_evidence"]},
+          "reference_date": {"type": ["string", "null"], "format": "date"},
+          "file_name": {"type": "string", "minLength": 1, "maxLength": 180},
+          "content_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+          "byte_size": {"type": "integer", "minimum": 1, "maximum": 30000000},
+          "content_type": {"enum": ["application/pdf", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "text/csv", "application/csv", "image/jpeg", "image/png", "image/webp", "image/heic"]}
+        },
+        "allOf": [
+          {"if": {"properties": {"source": {"const": "b3"}}}, "then": {"properties": {"file_type": {"enum": ["positions", "movements"]}}}},
+          {"if": {"properties": {"source": {"const": "avenue"}}}, "then": {"properties": {"file_type": {"enum": ["avenue_statement", "avenue_confirmation"]}}}},
+          {"if": {"properties": {"source": {"const": "pension"}}}, "then": {"properties": {"file_type": {"const": "pension_statement"}}}},
+          {"if": {"properties": {"source": {"const": "manual"}}}, "then": {"properties": {"file_type": {"const": "manual_evidence"}}}},
+          {"if": {"properties": {"content_type": {"enum": ["image/jpeg", "image/png", "image/webp", "image/heic"]}}}, "then": {"properties": {"source": {"const": "manual"}, "file_type": {"const": "manual_evidence"}}}}
+        ]
+      },
+      "UploadAccepted": {"type": "object", "required": ["upload_id", "status", "content_url", "request_id"], "properties": {"upload_id": {"type": "string", "format": "uuid"}, "status": {"type": "string"}, "content_url": {"type": "string"}, "request_id": {"type": "string", "format": "uuid"}}},
+      "Error": {"type": "object", "required": ["code", "request_id"], "properties": {"code": {"type": "string"}, "request_id": {"type": "string", "format": "uuid"}, "retryable": {"type": "boolean"}}}
+    }
+  },
+  "paths": {
+    "/health/ready": {"get": {"security": [], "responses": {"200": {"description": "Database available"}}}},
+    "/v1/uploads": {"post": {
+      "security": [{"serviceToken": []}],
+      "parameters": [{"name": "Idempotency-Key", "in": "header", "required": true, "schema": {"type": "string", "minLength": 8, "maxLength": 128}}],
+      "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/UploadIntent"}}}},
+      "responses": {"202": {"description": "Upload intent durably recorded", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/UploadAccepted"}}}}, "409": {"description": "Idempotency key reused with a different intent"}, "422": {"description": "Invalid upload metadata"}}
+    }},
+    "/v1/uploads/{id}/content": {"put": {
+      "security": [{"serviceToken": []}], "parameters": [{"name": "id", "in": "path", "required": true, "schema": {"type": "string", "format": "uuid"}}],
+      "requestBody": {"required": true, "description": "Raw bytes; Content-Length, Content-Type and SHA-256 must match the durable intent.", "content": {"application/pdf": {"schema": {"type": "string", "format": "binary"}}, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": {"schema": {"type": "string", "format": "binary"}}, "text/csv": {"schema": {"type": "string", "format": "binary"}}, "application/csv": {"schema": {"type": "string", "format": "binary"}}, "image/jpeg": {"schema": {"type": "string", "format": "binary"}}, "image/png": {"schema": {"type": "string", "format": "binary"}}, "image/webp": {"schema": {"type": "string", "format": "binary"}}, "image/heic": {"schema": {"type": "string", "format": "binary"}}}},
+      "responses": {"201": {"description": "Bytes and metadata committed"}, "409": {"description": "Another upload owns the lease"}, "422": {"description": "Size, type or digest did not match"}}
+    }},
+    "/v1/uploads/{id}": {"get": {"security": [{"serviceToken": []}], "parameters": [{"name": "id", "in": "path", "required": true, "schema": {"type": "string", "format": "uuid"}}, {"name": "X-Household-Ref", "in": "header", "required": true, "schema": {"type": "string"}}], "responses": {"200": {"description": "Upload and parser job status"}, "404": {"description": "Unknown or out-of-scope upload"}}}},
+    "/v1/manual-evidence/photos": {
+      "get": {
+        "security": [{"serviceToken": []}],
+        "parameters": [
+          {"name": "X-Household-Ref", "in": "header", "required": true, "schema": {"type": "string"}},
+          {"name": "limit", "in": "query", "required": false, "schema": {"type": "integer", "minimum": 1, "maximum": 100, "default": 50}}
+        ],
+        "responses": {
+          "200": {"description": "Recent household scoped photo evidence metadata and optional local OCR interpretation; response includes ocr_status, ocr_parser_version, ocr_text and ocr_truncated when available. No photo bytes returned. OCR is a review suggestion and never an applied portfolio fact."},
+          "422": {"description": "Invalid household or limit"}
+        }
+      }
+    },
+    "/v1/documents/{id}/content": {"get": {"security": [{"serviceToken": []}], "parameters": [{"name": "id", "in": "path", "required": true, "schema": {"type": "string", "format": "uuid"}}, {"name": "X-Household-Ref", "in": "header", "required": true, "schema": {"type": "string"}}], "responses": {"200": {"description": "Private document bytes and SHA-256 header"}, "404": {"description": "Unknown or out-of-scope document"}}}}
+  }
+}

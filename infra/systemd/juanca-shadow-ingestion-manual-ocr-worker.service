@@ -1,0 +1,19 @@
+[Unit]
+Description=Juanca local OCR worker for manual photo evidence (shadow)
+Requires=juanca-shadow-postgres.service
+After=juanca-shadow-postgres.service
+
+[Service]
+WorkingDirectory=/home/jorge/juanca
+ExecStart=/home/jorge/.local/bin/node --experimental-strip-types services/ingestion/src/manual-ocr-worker.ts
+Environment=JUANCA_DATABASE=juanca_shadow
+Environment=JUANCA_INGESTION_CONFIG=/home/jorge/.local/share/juanca-shadow/ingestion.json
+Environment=JUANCA_TESSERACT_BIN=/home/jorge/.local/opt/juanca-tesseract/root/usr/bin/tesseract
+Environment=JUANCA_TESSDATA_PREFIX=/home/jorge/.local/opt/juanca-tesseract/root/usr/share/tesseract-ocr/5/tessdata
+Restart=on-failure
+RestartSec=3
+UMask=0077
+NoNewPrivileges=true
+
+[Install]
+WantedBy=default.target

@@ -1,0 +1,472 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://juanca.local/contracts/portfolio-v1",
+  "title": "Juanca shadow read contracts v1",
+  "$defs": {
+    "Position": {
+      "type": "object",
+      "required": [
+        "owner",
+        "owner_id",
+        "account_id",
+        "identity_status",
+        "instrument_code",
+        "currency",
+        "quantity",
+        "current_unit_price",
+        "market_value_minor",
+        "market_value_cents",
+        "base_reference_date",
+        "reference_date",
+        "price_as_of",
+        "source",
+        "asset_class",
+        "product_name",
+        "institution"
+      ],
+      "properties": {
+        "owner": {
+          "type": "string"
+        },
+        "owner_id": {
+          "type": "string"
+        },
+        "account_id": {
+          "type": "string"
+        },
+        "instrument_code": {
+          "type": "string"
+        },
+        "base_reference_date": {
+          "type": "string"
+        },
+        "reference_date": {
+          "type": "string"
+        },
+        "price_as_of": {
+          "type": "string"
+        },
+        "source": {
+          "type": "string"
+        },
+        "asset_class": {
+          "type": "string"
+        },
+        "product_name": {
+          "type": "string"
+        },
+        "institution": {
+          "type": "string"
+        },
+        "identity_status": {
+          "enum": [
+            "known",
+            "unresolved"
+          ]
+        },
+        "currency": {
+          "enum": [
+            "BRL",
+            "USD"
+          ]
+        },
+        "quantity": {
+          "type": "string",
+          "pattern": "^-?(0|[1-9][0-9]*)(\\.[0-9]{1,10})?$"
+        },
+        "current_unit_price": {
+          "type": "string",
+          "pattern": "^-?(0|[1-9][0-9]*)(\\.[0-9]{1,10})?$"
+        },
+        "market_value_minor": {
+          "type": "string",
+          "pattern": "^-?(0|[1-9][0-9]*)$"
+        },
+        "market_value_cents": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^-?(0|[1-9][0-9]*)$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "Portfolio": {
+      "type": "object",
+      "required": [
+        "portfolio_version",
+        "facts_revision",
+        "market_revision",
+        "calculation_version",
+        "effective_as_of",
+        "known_at",
+        "published_at",
+        "positions",
+        "count",
+        "mode",
+        "authoritative",
+        "total_value_cents",
+        "valuation_complete",
+        "identity_complete",
+        "issues",
+        "unvalued_count",
+        "reference_date",
+        "ptax"
+      ],
+      "properties": {
+        "portfolio_version": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "facts_revision": {
+          "type": "string",
+          "pattern": "^-?(0|[1-9][0-9]*)$"
+        },
+        "market_revision": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "calculation_version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "effective_as_of": {
+          "type": "string",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+        },
+        "known_at": {
+          "type": "string",
+          "minLength": 1
+        },
+        "published_at": {
+          "type": "string",
+          "minLength": 1
+        },
+        "positions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Position"
+          }
+        },
+        "count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "mode": {
+          "const": "shadow"
+        },
+        "authoritative": {
+          "const": false
+        },
+        "total_value_cents": {
+          "type": "string",
+          "pattern": "^-?(0|[1-9][0-9]*)$"
+        },
+        "valuation_complete": {
+          "type": "boolean"
+        },
+        "identity_complete": {
+          "type": "boolean"
+        },
+        "issues": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "code"
+            ],
+            "properties": {
+              "code": {
+                "type": "string",
+                "minLength": 1
+              },
+              "record_id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "owner": {
+                "type": "string",
+                "minLength": 1
+              },
+              "instrument_code": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "unvalued_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "reference_date": {
+          "type": "string"
+        },
+        "ptax": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "object",
+              "required": [
+                "rate",
+                "date",
+                "provider"
+              ],
+              "properties": {
+                "rate": {
+                  "type": "string",
+                  "pattern": "^-?(0|[1-9][0-9]*)(\\.[0-9]{1,10})?$"
+                },
+                "date": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "provider": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "additionalProperties": false
+            }
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "PositionPage": {
+      "type": "object",
+      "required": [
+        "portfolio_version",
+        "facts_revision",
+        "market_revision",
+        "calculation_version",
+        "effective_as_of",
+        "known_at",
+        "published_at",
+        "positions",
+        "count",
+        "mode",
+        "authoritative",
+        "next_cursor"
+      ],
+      "properties": {
+        "portfolio_version": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "facts_revision": {
+          "type": "string",
+          "pattern": "^-?(0|[1-9][0-9]*)$"
+        },
+        "market_revision": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "calculation_version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "effective_as_of": {
+          "type": "string",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+        },
+        "known_at": {
+          "type": "string",
+          "minLength": 1
+        },
+        "published_at": {
+          "type": "string",
+          "minLength": 1
+        },
+        "positions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Position"
+          }
+        },
+        "count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "mode": {
+          "const": "shadow"
+        },
+        "authoritative": {
+          "const": false
+        },
+        "next_cursor": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "Error": {
+      "type": "object",
+      "required": [
+        "code",
+        "message",
+        "request_id",
+        "retryable",
+        "details"
+      ],
+      "properties": {
+        "code": {
+          "type": "string",
+          "minLength": 1
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1
+        },
+        "request_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "retryable": {
+          "type": "boolean"
+        },
+        "details": {
+          "type": "object"
+        }
+      },
+      "additionalProperties": false
+    },
+    "ChatMessage": {
+      "type": "object",
+      "required": [
+        "id",
+        "role",
+        "content",
+        "origin",
+        "created_at"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "role": {
+          "enum": [
+            "user",
+            "assistant"
+          ]
+        },
+        "content": {
+          "type": "string"
+        },
+        "origin": {
+          "type": "string",
+          "minLength": 1
+        },
+        "created_at": {
+          "type": "string",
+          "minLength": 1
+        },
+        "actions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "type"
+            ],
+            "properties": {
+              "type": {
+                "enum": [
+                  "open_transactions",
+                  "prepare_transaction",
+                  "open_reviews"
+                ]
+              },
+              "message": {
+                "type": "string",
+                "minLength": 1
+              },
+              "owner": {
+                "enum": [
+                  "Jorge",
+                  "Julia"
+                ]
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "evidence": {
+          "type": "object"
+        },
+        "intent": {
+          "type": "string",
+          "minLength": 1
+        },
+        "archived": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false
+    },
+    "ChatInput": {
+      "type": "object",
+      "required": [
+        "request_id",
+        "message",
+        "owner"
+      ],
+      "properties": {
+        "request_id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]{8,100}$"
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 8000
+        },
+        "owner": {
+          "enum": [
+            "family",
+            "Jorge",
+            "Julia"
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "ChatResponse": {
+      "type": "object",
+      "required": [
+        "messages",
+        "mode",
+        "hermes_required"
+      ],
+      "properties": {
+        "messages": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ChatMessage"
+          }
+        },
+        "mode": {
+          "const": "guided_shadow"
+        },
+        "hermes_required": {
+          "const": false
+        },
+        "replayed": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

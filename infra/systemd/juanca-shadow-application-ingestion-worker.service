@@ -1,0 +1,18 @@
+[Unit]
+Description=Juanca application B3 evidence bridge (shadow)
+Requires=juanca-shadow-postgres.service juanca-shadow-ingestion.service
+After=juanca-shadow-postgres.service juanca-shadow-ingestion.service
+
+[Service]
+WorkingDirectory=/home/jorge/juanca
+ExecStart=/home/jorge/.local/bin/node --experimental-strip-types services/application/src/ingestion-worker.ts
+Environment=JUANCA_DATABASE=juanca_shadow
+Environment=JUANCA_SHADOW_CONFIG=/home/jorge/.local/share/juanca-shadow/application.json
+Environment=JUANCA_INGESTION_CONFIG=/home/jorge/.local/share/juanca-shadow/ingestion.json
+Restart=on-failure
+RestartSec=3
+UMask=0077
+NoNewPrivileges=true
+
+[Install]
+WantedBy=default.target

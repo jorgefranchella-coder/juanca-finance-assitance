@@ -1,0 +1,45 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Juanca market service",
+    "version": "0.2.0",
+    "description": "Provider observations and durable refresh jobs with retries limited to failed symbols; the service has no access to household holdings or approvals."
+  },
+  "servers": [{"url": "http://127.0.0.1:3051"}],
+  "components": {
+    "securitySchemes": {"serviceToken": {"type": "http", "scheme": "bearer"}},
+    "schemas": {
+      "RefreshRequest": {
+        "type": "object", "additionalProperties": false,
+        "required": ["b3_symbols", "us_symbols", "include_fx"],
+        "properties": {
+          "b3_symbols": {"type": "array", "maxItems": 100, "uniqueItems": true, "items": {"type": "string", "pattern": "^[A-Z]{4}[0-9]{1,2}[A-Z]?$"}},
+          "us_symbols": {"type": "array", "maxItems": 100, "uniqueItems": true, "items": {"type": "string", "pattern": "^[A-Z.]{1,10}$"}},
+          "include_fx": {"type": "boolean"}
+        }
+      },
+      "Quote": {
+        "type": "object", "additionalProperties": false,
+        "required": ["market_code", "symbol", "currency", "price", "provider", "observed_at", "received_at"],
+        "properties": {
+          "market_code": {"enum": ["B3", "US"]}, "symbol": {"type": "string"},
+          "currency": {"enum": ["BRL", "USD"]}, "price": {"type": "string", "pattern": "^[0-9]+(\\.[0-9]{1,10})?$"},
+          "provider": {"type": "string"}, "observed_at": {"type": "string", "format": "date-time"}, "received_at": {"type": "string", "format": "date-time"}
+        }
+      },
+      "Error": {"type": "object", "required": ["code", "request_id"], "properties": {"code": {"type": "string"}, "request_id": {"type": "string", "format": "uuid"}, "retryable": {"type": "boolean"}}}
+    }
+  },
+  "paths": {
+    "/health/ready": {"get": {"security": [], "responses": {"200": {"description": "Database available"}}}},
+    "/v1/refresh": {"post": {
+      "security": [{"serviceToken": []}],
+      "parameters": [{"name": "Idempotency-Key", "in": "header", "required": true, "schema": {"type": "string", "minLength": 8, "maxLength": 128}}],
+      "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/RefreshRequest"}}}},
+      "responses": {"202": {"description": "Durable job accepted"}, "401": {"description": "Service authentication required"}, "409": {"description": "Idempotency key reused with different request"}, "422": {"description": "Invalid request"}}
+    }},
+    "/v1/jobs/{id}": {"get": {"security": [{"serviceToken": []}], "parameters": [{"name": "id", "in": "path", "required": true, "schema": {"type": "string", "format": "uuid"}}], "responses": {"200": {"description": "Job status, cumulative successful quotes, and symbols/FX still pending after the latest attempt"}, "404": {"description": "Unknown job"}}}},
+    "/v1/quotes": {"get": {"security": [{"serviceToken": []}], "parameters": [{"name": "market", "in": "query", "required": true, "schema": {"enum": ["B3", "US"]}}, {"name": "symbols", "in": "query", "required": true, "schema": {"type": "string", "description": "Comma-separated list, up to 100 symbols"}}], "responses": {"200": {"description": "Latest persisted observations; never calls a provider"}, "422": {"description": "Invalid query"}}}},
+    "/v1/fx/USD-BRL": {"get": {"security": [{"serviceToken": []}], "responses": {"200": {"description": "Latest persisted PTAX observation or null"}}}}
+  }
+}

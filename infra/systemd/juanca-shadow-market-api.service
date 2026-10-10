@@ -1,0 +1,17 @@
+[Unit]
+Description=Juanca market API F4 shadow
+Requires=juanca-shadow-postgres.service
+After=juanca-shadow-postgres.service
+
+[Service]
+WorkingDirectory=/home/jorge/juanca
+ExecStart=/home/jorge/.local/bin/node --experimental-strip-types services/market/src/api.ts
+Environment=JUANCA_DATABASE=juanca_shadow
+Environment=JUANCA_MARKET_CONFIG=/home/jorge/.local/share/juanca-shadow/market.json
+Restart=on-failure
+RestartSec=3
+UMask=0077
+NoNewPrivileges=true
+
+[Install]
+WantedBy=default.target

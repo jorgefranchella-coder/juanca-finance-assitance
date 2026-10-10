@@ -1,0 +1,19 @@
+/** Compare two registered B3 position documents without applying financial changes. */
+import {writeFile,mkdir} from 'node:fs/promises';
+import {dirname,resolve} from 'node:path';
+import {pool} from '../../services/application/src/db.ts';
+import {compareB3Snapshots,type PositionEvidence,type MovementEvidence} from '../../services/application/src/b3-reconciliation.ts';
+
+const [priorId,currentId,target]=process.argv.slice(2);if(!priorId||!currentId||!target)throw new Error('Usage: compare_b3_snapshots.ts prior-document-id current-document-id private-report.json');
+const privateRoot='/home/jorge/.local/share/juanca-shadow/';const path=resolve(target);if(!path.startsWith(privateRoot))throw new Error('PRIVATE_REPORT_PATH_REQUIRED');
+const db=pool();try{
+ const docs=await db.query("SELECT household_id,id,owner_id,effective_as_of::text AS date FROM app.source_documents WHERE id=ANY($1::text[]) AND source_system='B3' AND report_kind='position'",[[priorId,currentId]]);
+ if(docs.rowCount!==2)throw new Error('TWO_POSITION_DOCUMENTS_REQUIRED');const before=docs.rows.find(row=>row.id===priorId),after=docs.rows.find(row=>row.id===currentId);if(before.household_id!==after.household_id||before.owner_id!==after.owner_id)throw new Error('SNAPSHOT_SCOPE_MISMATCH');
+ async function positions(id:string){const rows=await db.query(`SELECT a.id AS assertion_id,a.source_sheet AS sheet,a.raw_row->>'Produto' AS product,a.institution_id,a.custody_account_id AS account_id,COALESCE(i.instrument_code,a.instrument_code) AS instrument_code,a.quantity::text AS quantity FROM app.source_assertions a LEFT JOIN LATERAL(SELECT instrument_code FROM app.source_interpretations i WHERE i.household_id=a.household_id AND i.assertion_id=a.id ORDER BY i.interpreted_at DESC,i.parser_version DESC LIMIT 1)i ON true WHERE a.household_id=$1 AND a.document_id=$2 AND a.assertion_kind='position' ORDER BY a.source_sheet,a.source_row`,[before.household_id,id]);return rows.rows as PositionEvidence[];}
+ const [prior,current]=await Promise.all([positions(priorId),positions(currentId)]);
+ const movement=await db.query(`SELECT a.id AS assertion_id,a.institution_id,a.custody_account_id AS account_id,COALESCE(i.instrument_code,a.instrument_code) AS instrument_code,a.asserted_on::text,a.source_event_type,COALESCE(i.tentative_event_type,a.tentative_event_type) AS tentative_event_type,a.direction,a.quantity::text FROM app.source_assertions a JOIN app.source_documents d ON d.household_id=a.household_id AND d.id=a.document_id LEFT JOIN LATERAL(SELECT instrument_code,tentative_event_type FROM app.source_interpretations i WHERE i.household_id=a.household_id AND i.assertion_id=a.id ORDER BY i.interpreted_at DESC,i.parser_version DESC LIMIT 1)i ON true WHERE a.household_id=$1 AND a.owner_id=$2 AND d.source_system='B3' AND d.report_kind='movement' AND a.asserted_on>$3::date AND a.asserted_on<=$4::date ORDER BY a.asserted_on,a.id`,[before.household_id,before.owner_id,before.date,after.date]);
+ const coverage=await db.query(`SELECT coverage_start::text AS start,coverage_end::text AS end FROM app.source_documents WHERE household_id=$1 AND owner_id=$2 AND source_system='B3' AND report_kind='movement' ORDER BY coverage_end DESC NULLS LAST LIMIT 1`,[before.household_id,before.owner_id]);
+ const report=compareB3Snapshots(before.date,after.date,prior,current,movement.rows as MovementEvidence[],coverage.rows[0]??{start:null,end:null});
+ await mkdir(dirname(path),{recursive:true,mode:0o700});await writeFile(path,JSON.stringify({...report,household_id:before.household_id,owner_id:before.owner_id,prior_document_id:priorId,current_document_id:currentId},null,2),{mode:0o600});
+ console.log(JSON.stringify({status:report.status,prior_positions:report.prior_positions,new_positions:report.new_positions,differences:report.differences.length,movement_interval_complete:report.movement_interval_complete,portfolio_published:false}));
+}finally{await db.end();}

@@ -1,0 +1,9 @@
+node_modules/
+*.tsbuildinfo
+.env
+state/
+private/
+
+# Python runtime artifacts
+__pycache__/
+*.py[cod]

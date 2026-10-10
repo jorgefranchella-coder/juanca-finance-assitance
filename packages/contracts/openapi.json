@@ -1,0 +1,782 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Juanca application shadow API",
+    "version": "0.14.0",
+    "description": "F3/F4 shadow API: immutable portfolio, guided conversation, durable manual evidence with versioned local text and photo interpretations, and read-only review queues; financial application remains separate."
+  },
+  "servers": [
+    {
+      "url": "http://127.0.0.1:3050"
+    }
+  ],
+  "components": {
+    "securitySchemes": {
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer"
+      }
+    }
+  },
+  "paths": {
+    "/v1/reconciliation/b3/candidates": {
+      "get": {
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 50
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Private B3 reconciliation candidates; no financial changes are applied",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["reports", "count", "limit", "mode", "authoritative", "apply_enabled"],
+                  "properties": {
+                    "reports": {"type": "array", "items": {"type": "object"}},
+                    "count": {"type": "integer"},
+                    "limit": {"type": "integer"},
+                    "mode": {"const": "shadow"},
+                    "authoritative": {"const": false},
+                    "apply_enabled": {"const": false}
+                  }
+                }
+              }
+            }
+          },
+          "401": {"description": "Authentication required"},
+          "422": {"description": "Invalid limit"},
+          "503": {"description": "Private report storage unavailable"}
+        }
+      }
+    },
+    "/v1/reconciliation/manual-b3/candidates": {
+      "get": {
+        "security": [{"bearerAuth": []}],
+        "summary": "Suggest exact written-evidence to B3 movement matches for human review",
+        "responses": {
+          "200": {"description": "Derived candidates; household, instrument, exact quantity and date-window match; no link or portfolio change is applied"},
+          "401": {"description": "Authentication required"}
+        }
+      }
+    },
+    "/v1/reconciliation/manual-b3/decisions": {
+      "post": {
+        "security": [{"bearerAuth": []}],
+        "summary": "Record an audited human decision about one written-to-B3 evidence link",
+        "requestBody": {"required":true,"content":{"application/json":{"schema":{"type":"object","additionalProperties":false,"required":["request_key","intake_id","assertion_id","decision"],"properties":{"request_key":{"type":"string","minLength":8,"maxLength":128},"intake_id":{"type":"string","format":"uuid"},"assertion_id":{"type":"string","minLength":8,"maxLength":128},"decision":{"enum":["related","not_related"]}}}}}},
+        "responses": {
+          "201": {"description":"Audited evidence-only decision; no positions, cash, events or portfolio revision are changed"},
+          "403": {"description":"Actor lacks reviewer membership"},
+          "409": {"description":"Idempotency mismatch or candidate is stale"},
+          "422": {"description":"Invalid decision input"}
+        }
+      }
+    },
+    "/v1/portfolio": {
+      "get": {
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "portfolio_version",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Immutable shadow view; not financial authority",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "./portfolio-v1.schema.json#/$defs/Portfolio"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "./portfolio-v1.schema.json#/$defs/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Unknown scoped resource",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "./portfolio-v1.schema.json#/$defs/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid query or cursor",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "./portfolio-v1.schema.json#/$defs/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "./portfolio-v1.schema.json#/$defs/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/positions": {
+      "get": {
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "portfolio_version",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            }
+          },
+          {
+            "name": "owner_id",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "maxLength": 2048
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 200,
+              "default": 100
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Immutable shadow view; not financial authority",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "./portfolio-v1.schema.json#/$defs/PositionPage"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "./portfolio-v1.schema.json#/$defs/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Unknown scoped resource",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "./portfolio-v1.schema.json#/$defs/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid query or cursor",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "./portfolio-v1.schema.json#/$defs/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "./portfolio-v1.schema.json#/$defs/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/owners": {
+      "get": {
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Owners scoped to the authenticated household",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "owners"
+                  ],
+                  "properties": {
+                    "owners": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "required": [
+                          "id",
+                          "display_name"
+                        ],
+                        "properties": {
+                          "id": {
+                            "type": "string",
+                            "minLength": 1
+                          },
+                          "display_name": {
+                            "type": "string",
+                            "minLength": 1
+                          }
+                        },
+                        "additionalProperties": false
+                      }
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/conversations/family/messages": {
+      "get": {
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Household conversation and selected read-only archive",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "./portfolio-v1.schema.json#/$defs/ChatResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "./portfolio-v1.schema.json#/$defs/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "./portfolio-v1.schema.json#/$defs/Error"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "./portfolio-v1.schema.json#/$defs/ChatInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Guided reply; stores conversation only",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "./portfolio-v1.schema.json#/$defs/ChatResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "./portfolio-v1.schema.json#/$defs/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Origin not allowed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "./portfolio-v1.schema.json#/$defs/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Idempotency or busy conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "./portfolio-v1.schema.json#/$defs/Error"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Body too large",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "./portfolio-v1.schema.json#/$defs/Error"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "JSON required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "./portfolio-v1.schema.json#/$defs/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid message",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "./portfolio-v1.schema.json#/$defs/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "./portfolio-v1.schema.json#/$defs/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/evidence/text": {
+      "get": {
+        "security": [{"bearerAuth": []}],
+        "summary": "List recent written evidence and local interpretations for review",
+        "parameters": [{"name":"limit","in":"query","required":false,"schema":{"type":"integer","minimum":1,"maximum":100,"default":50}}],
+        "responses": {"200":{"description":"Recent evidence; read-only and does not change portfolio facts"},"422":{"description":"Invalid limit"}}
+      },
+      "post": {
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "Register original written movement as evidence pending review",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "request_id",
+                  "owner",
+                  "text"
+                ],
+                "properties": {
+                  "request_id": {
+                    "type": "string",
+                    "minLength": 8,
+                    "maxLength": 128
+                  },
+                  "owner": {
+                    "enum": [
+                      "Jorge",
+                      "Julia"
+                    ]
+                  },
+                  "text": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 8000
+                  },
+                  "occurred_on": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "format": "date"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Original text retained with deterministic local interpretation for human review; portfolio unchanged"
+          },
+          "409": {
+            "description": "Idempotency key reused for a different text"
+          },
+          "422": {
+            "description": "Invalid input"
+          }
+        }
+      }
+    },
+    "/v1/evidence/text/{id}": {
+      "get": {
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "Read the registered text and review status",
+        "responses": {
+          "200": {
+            "description": "Stored original evidence and any versioned local interpretation"
+          },
+          "404": {
+            "description": "Not found in this household"
+          }
+        }
+      }
+    },
+    "/v1/evidence/photos": {
+      "get": {
+        "security": [{"bearerAuth": []}],
+        "summary": "List recent manually uploaded photos and optional local OCR suggestions",
+        "parameters": [{"name":"limit","in":"query","required":false,"schema":{"type":"integer","minimum":1,"maximum":100,"default":50}}],
+        "responses": {"200":{"description":"Household-scoped photo metadata and optional versioned OCR suggestion; image contents remain in private ingestion storage. OCR is review-only and never applies portfolio facts."},"422":{"description":"Invalid limit"},"503":{"description":"Ingestion service unavailable"}}
+      },
+      "post": {
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "Start a manual photo upload through the application boundary",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "request_id",
+                  "owner",
+                  "file_name",
+                  "content_sha256",
+                  "byte_size",
+                  "content_type"
+                ],
+                "properties": {
+                  "request_id": {
+                    "type": "string"
+                  },
+                  "owner": {
+                    "enum": [
+                      "Jorge",
+                      "Julia"
+                    ]
+                  },
+                  "occurred_on": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "format": "date"
+                  },
+                  "file_name": {
+                    "type": "string"
+                  },
+                  "content_sha256": {
+                    "type": "string"
+                  },
+                  "byte_size": {
+                    "type": "integer",
+                    "maximum": 20000000
+                  },
+                  "content_type": {
+                    "enum": [
+                      "image/jpeg",
+                      "image/png",
+                      "image/webp",
+                      "image/heic"
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Durable upload intent; send bytes to returned content_url"
+          },
+          "409": {
+            "description": "Idempotency mismatch"
+          },
+          "422": {
+            "description": "Invalid metadata"
+          }
+        }
+      }
+    },
+    "/v1/evidence/photos/{id}/content": {
+      "get": {
+        "security": [{"bearerAuth": []}],
+        "summary": "Read a stored manual photo after household and content-hash verification",
+        "responses": {"200":{"description":"Verified image bytes from private ingestion storage"},"404":{"description":"Photo not found in this household"},"409":{"description":"Photo is not stored yet"},"502":{"description":"Image hash verification failed"}}
+      },
+      "put": {
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "Store photo bytes after SHA-256 and size verification",
+        "responses": {
+          "201": {
+            "description": "Document and assignment stored"
+          },
+          "422": {
+            "description": "Bytes differ from declared metadata"
+          }
+        }
+      }
+    },
+    "/v1/evidence/photos/{id}": {
+      "get": {
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "Read the upload, document and parser status",
+        "responses": {
+          "200": {
+            "description": "Scoped upload status"
+          },
+          "404": {
+            "description": "Not found in this household"
+          }
+        }
+      }
+    },
+    "/v1/evidence/documents": {
+      "post": {
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "Start a B3, Avenue or pension document upload as immutable evidence",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "request_id",
+                  "owner",
+                  "source",
+                  "file_type",
+                  "file_name",
+                  "content_sha256",
+                  "byte_size",
+                  "content_type"
+                ],
+                "properties": {
+                  "request_id": {
+                    "type": "string"
+                  },
+                  "owner": {
+                    "enum": [
+                      "Jorge",
+                      "Julia"
+                    ]
+                  },
+                  "source": {
+                    "enum": [
+                      "b3",
+                      "avenue",
+                      "pension"
+                    ]
+                  },
+                  "file_type": {
+                    "enum": [
+                      "positions",
+                      "movements",
+                      "avenue_statement",
+                      "avenue_confirmation",
+                      "pension_statement"
+                    ]
+                  },
+                  "reference_date": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "format": "date"
+                  },
+                  "file_name": {
+                    "type": "string"
+                  },
+                  "content_sha256": {
+                    "type": "string"
+                  },
+                  "byte_size": {
+                    "type": "integer",
+                    "maximum": 30000000
+                  },
+                  "content_type": {
+                    "enum": [
+                      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                      "application/pdf"
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Upload intent stored"
+          },
+          "409": {
+            "description": "Idempotency mismatch"
+          },
+          "422": {
+            "description": "Invalid metadata"
+          }
+        }
+      }
+    },
+    "/v1/evidence/documents/{id}/content": {
+      "put": {
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "Store document bytes with declared length and SHA-256 verification",
+        "responses": {
+          "201": {
+            "description": "Document and assignment stored"
+          },
+          "422": {
+            "description": "Bytes or type differ from intent"
+          }
+        }
+      }
+    },
+    "/v1/evidence/documents/{id}": {
+      "get": {
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "Read the document and parser job status within the configured household",
+        "responses": {
+          "200": {
+            "description": "Scoped status"
+          },
+          "404": {
+            "description": "Not found"
+          }
+        }
+      }
+    }
+  }
+}
