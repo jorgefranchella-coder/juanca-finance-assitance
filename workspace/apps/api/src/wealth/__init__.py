@@ -1,0 +1,1 @@
+"""Patrimônio domain package."""

@@ -1,8 +1,17 @@
-# Juanca — aplicación autónoma en sombra
+# Juanca — patrimonio familiar
 
-Aplicación independiente de Hermes en PostgreSQL. F3 tiene API patrimonial de lectura y chat guiado propio en sombra. F4 incorpora código inicial de mercado e ingesta documental; ambos están preparados en el repositorio, sin migración ni servicios activos. La fotografía financiera publicada de F3 concilia. Dos reportes B3 de Jorge del 09/10/2026 están archivados y estructurados como evidencia nueva en sombra, con cuentas internas por custodio e interpretaciones versionadas; aún no se publicaron en la cartera. La conciliación de movimientos, las cuentas de Julia y la posición de previsión siguen pendientes antes del cambio de fuente.
+Juanca es una aplicación patrimonial familiar en transición gradual hacia servicios autónomos de Hermes. Este repositorio reúne los microservicios y contratos actuales, la interfaz web y el código de integración previo para que la propuesta y su implementación estén disponibles en un solo lugar.
 
-Documentación funcional, técnica, operación y resultados: [Implementación F3](docs/IMPLEMENTACION_F3_SOMBRA.md).
+La especificación funcional y técnica está en [ESPECIFICACIONES_JUANCA_MICROSERVICIOS.md](docs/ESPECIFICACIONES_JUANCA_MICROSERVICIOS.md). El estado implementado, las decisiones y los pasos operativos están en [IMPLEMENTACION_F3_SOMBRA.md](docs/IMPLEMENTACION_F3_SOMBRA.md).
+
+## Código
+
+- `services/`, `packages/` e `infra/`: servicios de aplicación, ingesta y mercado, contratos y migraciones PostgreSQL.
+- `workspace/apps/web`: interfaz web/PWA existente y su API de integración.
+- `workspace/integration`: puente de compatibilidad con Hermes y utilidades del entorno anterior. Hermes no es requerido por los recorridos patrimoniales objetivo.
+- `workspace/docs`: documentos de contexto de la aplicación existente y de la migración.
+
+Los reportes patrimoniales, credenciales, tokens, respaldos y estado operativo son datos privados y no forman parte del repositorio.
 
 ```bash
 npm ci --ignore-scripts

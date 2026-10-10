@@ -1,0 +1,10 @@
+Generado con image_gen integrado.
+
+Use case: logo-brand
+Asset type: square website icon and favicon for Juanca.
+Primary request: Create an illustrated portrait icon of a man around 60 years old with the serious, meticulous expression of an experienced accountant.
+Subject: Front-facing older gentleman, short neatly combed gray hair, subtle receding hairline, rectangular eyeglasses, visible age lines, closed mouth, composed serious expression. White shirt, understated tie and suit jacket, only head and top of shoulders.
+Style/medium: polished editorial avatar illustration, simple bold shapes and clean outlines, restrained natural colors, enough character to feel memorable.
+Composition/framing: single large centered face filling most of a square image; compact silhouette readable at favicon sizes, generous safe margin around hair and glasses.
+Scene/backdrop: genuine transparent background.
+Constraints: one portrait only, no text, no lettering, no watermark, no props, no scene, no mockup. Serious and professional without looking angry.

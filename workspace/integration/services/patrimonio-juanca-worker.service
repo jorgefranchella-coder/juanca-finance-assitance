@@ -1,0 +1,16 @@
+[Unit]
+Description=patrimonio-juanca-worker
+After=network.target
+
+[Service]
+WorkingDirectory=/home/jorge/.hermes/profiles/juanca/workspace/patrimonio-familiar-source/apps/web
+ExecStart=/home/jorge/.local/bin/node /home/jorge/.hermes/profiles/juanca/workspace/patrimonio-familiar-source/apps/web/node_modules/wrangler/bin/wrangler.js dev --local --config dist/server/wrangler.json --ip 127.0.0.1 --port 3041 --persist-to /home/jorge/.hermes/profiles/juanca/workspace/patrimonio-familiar-source/integration/state
+Environment=PATH=/home/jorge/.local/bin:/usr/bin:/bin
+Environment=WRANGLER_SEND_METRICS=false
+Environment=WRANGLER_LOG_PATH=/home/jorge/.hermes/profiles/juanca/workspace/patrimonio-familiar-source/integration/logs/wrangler.log
+Restart=on-failure
+RestartSec=3
+UMask=0077
+
+[Install]
+WantedBy=default.target
