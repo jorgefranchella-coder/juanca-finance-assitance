@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Juanca ingestion service",
-    "version": "0.3.0",
+    "version": "0.4.0",
     "description": "Private document storage with content hash verification, durable upload intents, deterministic B3 parsing, and local OCR suggestions for manual photo evidence. OCR is versioned and never applies portfolio facts."
   },
   "servers": [{"url": "http://127.0.0.1:3052"}],
@@ -58,7 +58,7 @@
           {"name": "limit", "in": "query", "required": false, "schema": {"type": "integer", "minimum": 1, "maximum": 100, "default": 50}}
         ],
         "responses": {
-          "200": {"description": "Recent household scoped photo evidence metadata and optional local OCR interpretation; response includes ocr_status, ocr_parser_version, ocr_text and ocr_truncated when available. No photo bytes returned. OCR is a review suggestion and never an applied portfolio fact."},
+          "200": {"description": "Recent household scoped photo evidence metadata and optional local OCR interpretation; response includes occurred_on, ocr_status, ocr_parser_version, ocr_text and ocr_truncated when available. No photo bytes returned. OCR is a review suggestion and never an applied portfolio fact."},
           "422": {"description": "Invalid household or limit"}
         }
       }
