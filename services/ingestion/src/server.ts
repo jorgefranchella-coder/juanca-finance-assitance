@@ -83,10 +83,10 @@ export async function startIngestion(){
    }
    if(url.pathname==='/v1/manual-evidence/photos'&&req.method==='GET'){
     const household=String(req.headers['x-household-ref']??'');if(!household){reply(422,{code:'HOUSEHOLD_REQUIRED',request_id:requestId});return;}
-    const limit=Number(url.searchParams.get('limit')??'50');if(!Number.isInteger(limit)||limit<1||limit>100){reply(422,{code:'INVALID_LIMIT',request_id:requestId});return;}
-    const result=await db.query(`SELECT u.id AS upload_id,u.owner_ref,u.file_name,u.status,u.content_type,u.expected_size AS byte_size,u.document_id,u.content_sha256,u.last_error,u.created_at,u.updated_at,a.reference_date AS occurred_on,j.status AS processing_status,j.parser_version AS ocr_parser_version,j.result->>'ocr_status' AS ocr_status,j.result->>'ocr_text' AS ocr_text,COALESCE((j.result->>'ocr_truncated')::boolean,false) AS ocr_truncated
+    const limit=Number(url.searchParams.get('limit')??'50'),offset=Number(url.searchParams.get('offset')??'0');if(!Number.isInteger(limit)||limit<1||limit>100||!Number.isSafeInteger(offset)||offset<0||offset>1_000_000){reply(422,{code:'INVALID_LIMIT',request_id:requestId});return;}
+    const result=await db.query(`SELECT u.id AS upload_id,u.owner_ref,u.file_name,u.status,u.content_type,u.expected_size AS byte_size,u.document_id,u.content_sha256,u.last_error,u.created_at,u.updated_at,a.reference_date AS occurred_on,j.status AS processing_status,j.parser_version AS ocr_parser_version,j.result->>'ocr_status' AS ocr_status,j.result->>'ocr_text' AS ocr_text,j.result->>'ocr_text_sha256' AS ocr_text_sha256,COALESCE((j.result->>'ocr_truncated')::boolean,false) AS ocr_truncated
      FROM ingestion.upload_jobs u LEFT JOIN ingestion.document_assignments a ON a.id=u.assignment_id LEFT JOIN LATERAL(SELECT status,parser_version,result FROM ingestion.import_jobs j WHERE j.upload_job_id=u.id ORDER BY j.created_at DESC LIMIT 1)j ON true
-     WHERE u.household_ref=$1 AND u.source='manual' AND u.file_type='manual_evidence' ORDER BY u.created_at DESC,u.id LIMIT $2`,[household,limit]);
+     WHERE u.household_ref=$1 AND u.source='manual' AND u.file_type='manual_evidence' ORDER BY u.created_at DESC,u.id LIMIT $2 OFFSET $3`,[household,limit,offset]);
     reply(200,{items:result.rows,mode:'shadow',request_id:requestId});return;
    }
    if(url.pathname==='/v1/import-jobs/ready'&&req.method==='GET'){

@@ -3,6 +3,7 @@ import type pg from 'pg';
 import {exact} from './money.ts';
 import {Conflict} from './commands.ts';
 import {ingestionCall} from './manual-intake.ts';
+import {interpretManualTrade} from './manual-trade-parse.ts';
 
 const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const PARSER='b3-bridge-v1-2026-10-10';
@@ -17,6 +18,23 @@ function code(raw:Raw,treasury:Map<string,string|null>){const explicit=raw.Códi
 function tentative(value:unknown){const s=norm(value);if(s==='TRANSFERENCIA LIQUIDACAO')return 'settlement_observation';if(s.includes('TRANSFERENCIA SEM FINANCEIRO')||s.includes('RETIRADA DE CUSTODIA'))return 'custody_transfer_observation';if(s.includes('EXCLUIDO')||s.includes('REATIVADO'))return 'correction_observation';if(s.includes('ATUALIZACAO')||s.includes('BONIFICACAO')||s.includes('SUBSCRICAO'))return 'corporate_action_observation';if(s.includes('JUROS')||s.includes('DIVIDENDO')||s.includes('RENDIMENTO'))return 'income_observation';if(s.includes('VENCIMENTO')||s.includes('RESGATE'))return 'redemption_observation';if(s.includes('APLICACAO')||s==='COMPRA')return 'acquisition_observation';if(s.includes('COMPRA')||s.includes('VENDA'))return 'trade_observation';return 'unclassified_observation';}
 function validBatch(value:Record<string,unknown>,id:string){const job=value.job as IngestJob,records=value.records as IngestRecord[];if(!job||job.id!==id||!UUID.test(job.id)||!UUID.test(job.document_id)||!['positions','movements'].includes(job.file_type)||!Array.isArray(records)||!Number.isInteger(job.result?.record_count)||records.length!==job.result.record_count||!/^[0-9a-f]{64}$/.test(job.content_sha256)||typeof job.owner_ref!=='string'||typeof job.file_name!=='string'||!job.file_name||typeof job.parser_version!=='string')throw new Conflict('INVALID_INGESTION_BATCH',422);return{job,records};}
 export async function readyB3Jobs(household:string){const jobs:IngestJob[]=[];for(let offset=0;offset<=1_000_000;offset+=100){const response=await ingestionCall(`/v1/import-jobs/ready?offset=${offset}`,'GET',undefined,{'X-Household-Ref':household}),page=response.jobs as IngestJob[]??[];jobs.push(...page);if(page.length<100)break;}return jobs.map(job=>({id:job.id,status:'awaiting_review'}));}
+export async function interpretReadyManualPhotos(db:pg.Pool,household:string){
+ let scanned=0,inserted=0;
+ for(let offset=0;offset<=1_000_000;offset+=100){
+ const response=await ingestionCall(`/v1/manual-evidence/photos?limit=100&offset=${offset}`,'GET',undefined,{'X-Household-Ref':household});
+ const items=Array.isArray(response.items)?response.items as Array<Record<string,unknown>>:[];scanned+=items.length;
+ for(const item of items){
+  if(item.ocr_status!=='completed'||typeof item.upload_id!=='string'||!UUID.test(item.upload_id)||typeof item.owner_ref!=='string'||typeof item.ocr_text!=='string'||typeof item.ocr_text_sha256!=='string'||!/^[0-9a-f]{64}$/.test(item.ocr_text_sha256))continue;
+  const owner=await db.query('SELECT 1 FROM app.owners WHERE household_id=$1 AND id=$2',[household,item.owner_ref]);if(!owner.rowCount)continue;
+  const parsed=interpretManualTrade(item.ocr_text,typeof item.occurred_on==='string'?item.occurred_on:null);
+  const result=await db.query(`INSERT INTO app.manual_photo_trade_interpretations(household_id,upload_id,owner_id,ocr_text_sha256,parser_version,interpretation_status,fields,review_reasons)
+   VALUES($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT(household_id,upload_id,ocr_text_sha256,parser_version) DO NOTHING RETURNING upload_id`,[household,item.upload_id,item.owner_ref,item.ocr_text_sha256,parsed.parser_version,parsed.status,JSON.stringify(parsed.fields),parsed.review_reasons]);
+  inserted+=result.rowCount??0;
+ }
+ if(items.length<100)break;
+ }
+ return{scanned,inserted};
+}
 export async function ingestB3Batch(db:pg.Pool,household:string,id:string){
  if(!UUID.test(id))throw new Conflict('NOT_FOUND',404);
  const {job,records}=validBatch(await ingestionCall(`/v1/import-jobs/${id}/records`,'GET',undefined,{'X-Household-Ref':household}),id);

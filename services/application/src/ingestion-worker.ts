@@ -1,6 +1,6 @@
 import {readFile} from 'node:fs/promises';
 import {pool} from './db.ts';
-import {ingestB3Batch,readyB3Jobs} from './ingestion-bridge.ts';
+import {ingestB3Batch,interpretReadyManualPhotos,readyB3Jobs} from './ingestion-bridge.ts';
 import {generateB3CandidateReports} from './b3-candidate-reports.ts';
 
 const config=JSON.parse(await readFile(process.env.JUANCA_SHADOW_CONFIG??'/home/jorge/.local/share/juanca-shadow/application.json','utf8')) as {household_id:string};
@@ -12,6 +12,7 @@ try{while(!stopping){
  for(const job of jobs){if(stopping)break;const prior=await db.query('SELECT 1 FROM app.ingested_import_jobs WHERE household_id=$1 AND import_job_id=$2',[config.household_id,job.id]);if(prior.rowCount)continue;
   try{const result=await ingestB3Batch(db,config.household_id,job.id);console.log(JSON.stringify({import_job_id:job.id,rows:result.rows,new_rows:result.new_rows,status:'evidence_only'}));}catch(error){console.error(JSON.stringify({import_job_id:job.id,error:error instanceof Error?error.message:'BRIDGE_FAILED'}));if(once)throw error;}
  }
+ try{const photos=await interpretReadyManualPhotos(db,config.household_id);if(photos.inserted)console.log(JSON.stringify({manual_photo_interpretations_written:photos.inserted,scanned:photos.scanned}));}catch(error){console.error(JSON.stringify({manual_photo_interpretation_error:error instanceof Error?error.message:'PHOTO_INTERPRETATION_FAILED'}));if(once)throw error;}
  try{const reports=await generateB3CandidateReports(db,config.household_id);if(reports.length)console.log(JSON.stringify({b3_candidate_reports_written:reports.length}));}catch(error){console.error(JSON.stringify({b3_candidate_report_error:error instanceof Error?error.message:'REPORT_FAILED'}));if(once)throw error;}
  if(once)break;await new Promise(resolve=>setTimeout(resolve,30000));
 }}finally{await db.end();}

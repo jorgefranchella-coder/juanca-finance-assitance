@@ -2,8 +2,8 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Juanca application shadow API",
-    "version": "0.15.0",
-    "description": "F3/F4 shadow API: immutable portfolio, guided conversation, durable manual evidence with versioned local text and photo OCR, deterministic read-only trade suggestions, and review queues; financial application remains separate."
+    "version": "0.16.0",
+    "description": "F3/F4 shadow API: immutable portfolio, guided conversation, durable manual evidence with versioned local text and photo OCR/trade interpretations, and read-only review queues; financial application remains separate."
   },
   "servers": [
     {
@@ -532,9 +532,9 @@
     "/v1/evidence/photos": {
       "get": {
         "security": [{"bearerAuth": []}],
-        "summary": "List recent manually uploaded photos and optional local OCR/trade suggestions",
+        "summary": "List recent manually uploaded photos and saved OCR/trade interpretations",
         "parameters": [{"name":"limit","in":"query","required":false,"schema":{"type":"integer","minimum":1,"maximum":100,"default":50}}],
-        "responses": {"200":{"description":"Household-scoped photo metadata, versioned OCR, and deterministic manual-trade parser suggestions when OCR is available. Trade suggestions are computed for display, require review, are not persisted, and never apply portfolio facts."},"422":{"description":"Invalid limit"},"503":{"description":"Ingestion service unavailable"}}
+        "responses": {"200":{"description":"Household-scoped photo metadata, versioned OCR and append-only deterministic manual-trade parser interpretations when OCR is available. Interpretations require human review and never apply portfolio facts."},"422":{"description":"Invalid limit"},"503":{"description":"Ingestion service unavailable"}}
       },
       "post": {
         "security": [
