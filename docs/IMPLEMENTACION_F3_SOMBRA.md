@@ -64,7 +64,7 @@ Se reconstruyeron las 199 posiciones. La conciliación utiliza la misma exportac
 
 La diferencia inicial correspondía a la venta de SMAL11 de Jorge del 05/10/2026, recibida por chat sin cuenta de custodia. Jorge confirmó que fue en la misma cuenta identificada en la posición B3 importada. Después confirmó que el identificador del extracto Avenue de Jorge corresponde a la cuenta de custodia Avenue usada por sus confirmaciones; se vincularon tres registros mediante resolución auditable. También confirmó que la compra BAC del 28/08/2026, aunque la fuente la atribuye a Julia, pertenece a Jorge y a esa cuenta. La resolución específica conserva intacta la evidencia recibida. La revisión de hechos quedó en 3. No se alteraron documentos ni la base financiera vigente.
 
-Tras esas resoluciones, las 199 posiciones concilian con igualdad exacta de cantidades, valoraciones y total: cero diferencias y cero incidencias. `identity_complete=false` porque 148 posiciones B3 aún no tienen identificador de cuenta (127 de Jorge y 21 de Julia), y queda una posición de previsión de Jorge sin cuenta. En los snapshots más recientes, el pendiente se compone de renta fija y Tesouro Direto: Jorge tiene 123 y 4 filas respectivamente; Julia, 20 y 1. Las hojas originales de esas categorías no contienen la columna `Conta`; las filas de acciones, BDR, ETF y fondos sí traen cuenta. Jorge confirmó que las posiciones de cada titular proceden de cuentas diferentes, pero esa confirmación no asigna cada título de renta fija/Tesouro a una cuenta específica. Se requiere extracto por cuenta o una asignación fiable por producto. La posición de previsión queda aparte. La paridad de esta fotografía no implica identidad completa ni autoriza a conmutar la web.
+Al cerrar esa fotografía, `identity_complete=false` porque 148 posiciones B3 no tenían cuenta en la proyección (127 de Jorge y 21 de Julia), además de una posición de previsión de Jorge. Las hojas de renta fija y Tesouro Direto no traían `Conta`. La resolución posterior del 11/10, documentada al final, enlazó las 127 filas de Jorge con evidencia B3 del mismo corte y dejó pendientes las posiciones de Julia y previsión. La paridad de cantidades de aquella fotografía no autorizaba a conmutar la web.
 
 ## Pruebas y operación
 
@@ -95,13 +95,13 @@ Para retirar la sombra: detener y deshabilitar ambos servicios `juanca-shadow-*`
 
 ## Pendientes para completar F3 y avanzar
 
-1. Asignar las 148 posiciones B3 pendientes a sus cuentas concretas usando un extracto por cuenta o una asignación fiable por producto (las hojas originales de renta fija y Tesouro Direto no contienen `Conta`). Resolver por separado la identidad de la cuenta de previsión de Jorge. Son 149 posiciones pendientes en total.
+1. Resolver las 21 posiciones B3 de Julia y la cuenta de previsión de Jorge con evidencia de custodia; no se han inferido cuentas para ellas. Las 127 posiciones B3 de Jorge ya están enlazadas en la proyección de sombra con filas del snapshot del 19/09 y la confirmación de una cuenta por institución.
 2. Completar el núcleo normalizado y publicar desde saldos/cobertura verificados; por ahora el cálculo lee la copia recibida de fuentes.
 3. Llevar acceso/BFF y la interfaz React al servicio independiente, conservando contratos e identidad autorizada. El chat guiado y su archivo ya funcionan en la API de sombra; falta la conmutación de la web.
 4. Extender contratos/comandos para propuestas editables y versionadas, rechazo, revisiones y costo. La aprobación probada solo está disponible como módulo interno sintético.
 5. Preparar adaptación React, jobs durables y validación continua en sombra. Rechazo y resolución de revisiones versionadas siguen pendientes.
 6. F4: calificar frescura y cobertura de precios, reemplazar reintentos completos por reintentos de símbolos faltantes y diseñar valoración versionada antes de consumir mercado. Luego separar ingesta, mover documentos con manifest verificado y completar recuperación durable; no añadir consultas entre esquemas.
-7. Hacer F5 únicamente después de la conciliación final y prueba de restauración completa, manteniendo un único escritor.
+7. Aplicar cualquier corrección del snapshot B3 del 09/10 solo tras revisar diferencias, completar cobertura de movimientos y preservar un único escritor. Hacer F5 únicamente después de la conciliación final y prueba de restauración completa.
 
 ## Fuentes técnicas de las decisiones
 
@@ -225,6 +225,14 @@ El build de la web terminó correctamente y se reiniciaron el Worker web local y
 El worker `services/market/src/service.ts` ahora identifica por símbolo las respuestas B3 ausentes y errores estadounidenses individuales; si falla PTAX conserva solo esa tarea en espera. Cuando reintenta (límite actual de cinco intentos y espera exponencial), reduce el trabajo a esos símbolos/FX pendientes. El outbox publica las nuevas observaciones de cada intento una sola vez y el resultado del job acumula las cotizaciones exitosas previas junto con `pending_symbols` y `pending_fx`. El consumidor de aplicación sigue idempotente por evento.
 
 No había jobs en cola al desplegar el cambio (quedaban un job parcial antiguo y uno exitoso); no se repitieron consultas externas. Se reinició el worker y quedó activo. Los eventos parciales y duplicados históricos siguen intactos como evidencia; la mejora aplica a futuras solicitudes. El contrato de mercado cambió a 0.2.0. No se ejecutaron pruebas funcionales en este incremento.
+
+## Enlace auditable de cuentas B3 en la proyección sombra (11/10/2026)
+
+Se añadió `app.position_account_resolutions` (migración `015_b3_position_account_resolutions.sql`) con protección append-only. `infra/migration/resolve_b3_position_accounts.ts` primero ofrece dry-run y solo propone un enlace cuando coinciden titular, institución, corte, instrumento y cantidad entre la proyección histórica y el reporte B3 del mismo corte, y existe exactamente una cuenta de custodia para ese titular e institución. La base de datos confirmó 127 coincidencias únicas de Jorge contra el snapshot del 19/09; 22 posiciones ya tenían identidad y 21 de Julia no pudieron asignarse porque no hay evidencia/cuenta registrada para ella.
+
+La ejecución enlazó las 149 filas del snapshot de Jorge del 19/09: 49 de BTG, 95 de Itaú Corretora y 5 de Itaú Unibanco. Las 127 que aparecían sin identidad en la vista y las 22 que ya tenían una referencia de cuenta quedaron consolidadas bajo la cuenta confirmada de cada institución. La versión nueva es `8d2158f8d7df984350d2f44ed744d312acc26779c4fa284f3699ac4f5e6e9e3e`, revisión de hechos 5. Cambió únicamente `account_id` e `identity_status` de esas filas: los 199 renglones, cantidades, precios, valores, total y lista de incidencias son iguales a la versión anterior. La identidad sigue incompleta por las 21 posiciones de Julia y una de previsión de Jorge. La API autenticada respondió 200 con la nueva versión; no se modificó D1 ni la cartera vigente.
+
+El mapeo queda disponible también para futuras reconstrucciones de la versión sombra; una operación que use ese ámbito de cuenta requiere que su propia atribución esté confirmada. El dry-run posterior confirmó 149 coincidencias idempotentes y cero ambiguas. La verificación pasó 28 pruebas y TypeScript. El respaldo restaurado `full-shadow-final-position-account-resolution-20261011` comparó 40 tablas de aplicación, 8 de ingesta y 6 de mercado, y verificó cuatro XLSX B3 y dos objetos registrados. No se hizo una publicación financiera ni se aplicaron las diferencias del snapshot del 09/10.
 
 ## Confirmación de cuentas B3 para la evidencia estructurada (10/10/2026)
 

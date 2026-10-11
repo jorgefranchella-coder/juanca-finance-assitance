@@ -2,6 +2,7 @@ import { D, exact, integer, localized, minor } from './money.ts';
 export type Row=Record<string,unknown>;
 export type SourceRow={id:string;import_id:string;file_type:string;owner:string;reference_date:string|null;created_at:string;payload:string};
 export type Inputs={snapshots:SourceRow[];trades:SourceRow[];quotes:Row[];fx:Row|null;facts_revision:string};
+export type PositionAccountResolution={custody_account_id:string;institution_id:string;assertion_id:string};
 export type Position={owner:string;account_id:string;identity_status:string;instrument_code:string;currency:string;quantity:string;current_unit_price:string;market_value_minor:string;market_value_cents:string|null;asset_class:string;product_name:string;institution:string;base_reference_date:string;reference_date:string;price_as_of:string;source:string};
 export type Issue={code:string;record_id?:string;owner?:string;instrument_code?:string};
 export function codeOf(value:unknown){return String(value??'').trim().toUpperCase().replace(/^(BVMF|NASDAQ|NYSE|NYSEARCA):/,'');}
@@ -13,7 +14,7 @@ function documentValue(item:Row){
  return {value:integer(item.market_value_cents??item.market_value_minor??'0'),price:exact(item.unit_price??'0'),source:String(item.source??'document')};
 }
 export function accountScope(owner:string,type:string,item:Row){return JSON.stringify([owner,item.account?'account:'+String(item.account):'unresolved:'+type+':'+String(item.institution??'unknown')]);}
-export function buildPortfolio(input:Inputs,resolutions:Map<string,string>=new Map(),accountAliases:Map<string,string>=new Map(),tradeAttributions:Map<string,{owner:string;source_scope:string}>=new Map()){
+export function buildPortfolio(input:Inputs,resolutions:Map<string,string>=new Map(),accountAliases:Map<string,string>=new Map(),tradeAttributions:Map<string,{owner:string;source_scope:string}>=new Map(),positionAccountResolutions:Map<string,PositionAccountResolution>=new Map()){
  const positions:Position[]=[];const issues:Issue[]=[];const bases=new Map<string,string>();const legacyBases=new Map<string,string>();
  const quotes=new Map(input.quotes.map(q=>[String(q.market)+'\0'+codeOf(q.symbol),q]));
  const fx=input.fx?exact(input.fx.rate):null;
@@ -24,8 +25,10 @@ export function buildPortfolio(input:Inputs,resolutions:Map<string,string>=new M
   const val=documentValue(item);const quote=quotes.get((currency==='USD'?'US':'B3')+'\0'+code);const price=quote?exact(quote.price):val.price;
   const value=quote?minor(price.mul(quantity).mul(100)):currency==='USD'?integer(item.market_value_minor??'0'):val.value;
   const brl=currency==='USD'?fx?minor((quote?price.mul(quantity).mul(100):new D(value)).mul(fx)):null:value;
-  positions.push({owner,account_id:accountScope(owner,row.file_type,item),identity_status:item.account?'known':'unresolved',instrument_code:code,currency,quantity:quantity.toFixed(),current_unit_price:price.toFixed(),market_value_minor:value,market_value_cents:brl,asset_class:String(item.asset_class??'other'),product_name:String(item.product_name??code),institution:String(item.institution??''),base_reference_date:date,reference_date:date,price_as_of:String(quote?.quoted_at??date),source:String(quote?.provider??(row.file_type==='avenue_statement'?'avenue_statement':val.source))});
-  if(row.file_type!=='pension_statement'){bases.set(owner+'\0'+currency+'\0'+accountScope(owner,row.file_type,item),date);legacyBases.set(owner+'\0'+currency,date);}
+  const positionResolution=positionAccountResolutions.get(`${row.import_id}:${row.id}`);
+  const positionScope=positionResolution?JSON.stringify([owner,'custody:'+positionResolution.custody_account_id]):accountScope(owner,row.file_type,item);
+  positions.push({owner,account_id:positionScope,identity_status:item.account||positionResolution?'known':'unresolved',instrument_code:code,currency,quantity:quantity.toFixed(),current_unit_price:price.toFixed(),market_value_minor:value,market_value_cents:brl,asset_class:String(item.asset_class??'other'),product_name:String(item.product_name??code),institution:String(item.institution??''),base_reference_date:date,reference_date:date,price_as_of:String(quote?.quoted_at??date),source:String(quote?.provider??(row.file_type==='avenue_statement'?'avenue_statement':val.source))});
+  if(row.file_type!=='pension_statement'){bases.set(owner+'\0'+currency+'\0'+positionScope,date);legacyBases.set(owner+'\0'+currency,date);}
  }catch{issues.push({code:'invalid_source_row',record_id:row.id});}}
  for(const row of input.trades){try{
   const t=JSON.parse(row.payload) as Row;const attribution=tradeAttributions.get(row.id);const owner=attribution?.owner??String(t.owner??row.owner);const currency=String(t.currency??'BRL');const code=codeOf(t.instrument_code);const date=String(t.trade_date??'');const quantity=exact(t.quantity);const price=exact(t.unit_price);const side=String(t.side);

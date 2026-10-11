@@ -22,6 +22,13 @@ test('events on the snapshot day and without account proof remain unapplied',()=
 test('known account fractional trades are exact; no ticker merge across accounts',()=>{
  const i=input();i.snapshots=[source({owner:'Fixture',account:'a',currency:'BRL',instrument_code:'PETR4',quantity:'0.1',unit_price:'3',market_value_cents:'30',reference_date:'2026-08-01'})];i.trades=[source({owner:'Fixture',account:'a',instrument_code:'PETR4',quantity:'0.2',unit_price:'3',side:'buy',trade_date:'2026-08-02'})];assert.equal(buildPortfolio(i).positions[0].quantity,'0.3');i.snapshots.push(source({owner:'Fixture',account:'b',currency:'BRL',instrument_code:'PETR4',quantity:'5',unit_price:'3',market_value_cents:'1500',reference_date:'2026-08-01'},'3'));const v=buildPortfolio(i);assert.equal(v.positions[0].quantity,'0.3');assert.equal(v.positions[1].quantity,'5');assert.equal(v.issues.length,0);
 });
+test('confirmed B3 account evidence scopes a position and its linked trade without changing the snapshot quantity',()=>{
+ const i=input(),scope=JSON.stringify(['Fixture','custody:account-btg']);
+ i.snapshots=[source({owner:'Fixture',institution:'BTG',currency:'BRL',instrument_code:'PETR4',quantity:'10',unit_price:'3',market_value_cents:'3000',reference_date:'2026-08-01'})];
+ i.trades=[source({owner:'Fixture',instrument_code:'PETR4',quantity:'2',unit_price:'3',side:'sell',trade_date:'2026-08-02'},'2')];
+ const v=buildPortfolio(i,new Map([['2',scope]]),new Map(),new Map(),new Map([['i1:1',{custody_account_id:'account-btg',institution_id:'btg-pactual',assertion_id:'assertion-1'}]]));
+ assert.equal(v.positions[0].identity_status,'known');assert.equal(v.positions[0].account_id,scope);assert.equal(v.positions[0].quantity,'8');assert.equal(v.positions[0].market_value_cents,'2400');assert.equal(v.issues.length,0);
+});
 test('reference-date selection and knowledge cutoff exclude late and future data',()=>{
  const tables:Record<string,Row[]>={imports:[{id:'new',user_id:'fixture',owner:'Fixture',status:'processed',file_type:'positions',reference_date:'2026-08-01',created_at:'2026-08-02 00:00:00'},{id:'late',user_id:'fixture',owner:'Fixture',status:'processed',file_type:'positions',reference_date:'2026-07-01',created_at:'2026-08-10 00:00:00'}],import_records:[{id:1,import_id:'new',record_kind:'position',payload:'{}'},{id:2,import_id:'late',record_kind:'position',payload:'{}'}],market_quotes:[{user_id:'fixture',quoted_at:'2026-09-01',updated_at:'2026-08-01 00:00:00'},{user_id:'fixture',quoted_at:'2026-08-01',updated_at:'2026-08-20 00:00:00'}],fx_observations:[],portfolio_revisions:[]};const result=selectInputs(tables,'fixture','2026-08-15','2026-08-15T00:00:00.000Z');assert.equal(result.snapshots[0].import_id,'new');assert.equal(result.quotes.length,0);
 });

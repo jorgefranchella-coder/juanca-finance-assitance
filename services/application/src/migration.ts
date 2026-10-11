@@ -65,7 +65,13 @@ export async function publish(db:pg.Pool,run:string,h:string,effective:string,kn
  // Evidence is immutable, so building outside the publication transaction is safe.
  const tables=await loadEnvelopeTables(db,run,h);if(!tables.imports?.length)throw new Error('NOT_FOUND');
  const inputs=selectInputs(tables,h,effective,known);
- const resolutions=await db.query(`SELECT ar.source_record_id,a.source_scope FROM app.account_resolutions ar
+ const positionResolutions=await db.query(`SELECT DISTINCT ON(par.source_record_id) par.source_record_id,par.snapshot_id,par.assertion_id,par.custody_account_id,ci.id AS institution_id,o.display_name AS owner
+   FROM app.position_account_resolutions par JOIN app.custody_accounts ca ON ca.household_id=par.household_id AND ca.id=par.custody_account_id
+   JOIN app.custody_institutions ci ON ci.id=ca.institution_id JOIN app.owners o ON o.household_id=ca.household_id AND o.id=ca.owner_id
+   WHERE par.run_id=$1 AND par.household_id=$2 ORDER BY par.source_record_id,par.resolution_version DESC`,[run,h]);
+ const positionMap=new Map<string,{custody_account_id:string;institution_id:string;assertion_id:string}>(positionResolutions.rows.map(r=>[String(r.snapshot_id),{custody_account_id:String(r.custody_account_id),institution_id:String(r.institution_id),assertion_id:String(r.assertion_id)}]));
+ const resolvedScopes=new Map<string,string>(positionResolutions.rows.map(r=>[String(r.snapshot_id),JSON.stringify([String(r.owner),'custody:'+String(r.custody_account_id)])]));
+ const resolutions=await db.query(`SELECT ar.source_record_id,ar.snapshot_id,a.source_scope FROM app.account_resolutions ar
    JOIN app.accounts a ON a.household_id=ar.household_id AND a.id=ar.account_id
    WHERE ar.run_id=$1 AND ar.household_id=$2 ORDER BY ar.source_record_id`,[run,h]);
  const aliases=await db.query(`SELECT o.display_name AS owner,ar.source_account_ref,a.source_scope FROM app.account_alias_resolutions ar
@@ -79,10 +85,11 @@ export async function publish(db:pg.Pool,run:string,h:string,effective:string,kn
  const revision=await db.query('SELECT facts_revision FROM app.household_state WHERE household_id=$1',[h]);
  if(!revision.rowCount)throw new Error('NOT_FOUND');
  const factsRevision=String(revision.rows[0].facts_revision);
- const view=buildPortfolio(inputs,new Map(resolutions.rows.map(r=>[r.source_record_id,r.source_scope])),new Map(aliases.rows.map(r=>[r.owner+'\0'+r.source_account_ref,r.source_scope])),new Map(attributions.rows.map(r=>[r.source_record_id,{owner:r.owner,source_scope:r.source_scope}])));
+ const accountResolutionMap=new Map<string,string>(resolutions.rows.map(r=>[String(r.source_record_id),resolvedScopes.get(String(r.snapshot_id))??String(r.source_scope)]));
+ const view=buildPortfolio(inputs,accountResolutionMap,new Map(aliases.rows.map(r=>[r.owner+'\0'+r.source_account_ref,r.source_scope])),new Map(attributions.rows.map(r=>[r.source_record_id,{owner:r.owner,source_scope:r.source_scope}])),positionMap);
  view.positions=view.positions.map(p=>({...p,owner_id:ownerId(p.owner),account_id:accountId(p.account_id)}));
  const marketRevision=hash(JSON.stringify([inputs.quotes,inputs.fx]));const calculation='decimal-half-up-v1:'+hash((await readFile(new URL('./portfolio.ts',import.meta.url),'utf8'))+(await readFile(new URL('./money.ts',import.meta.url),'utf8')));
- const version=hash(JSON.stringify([run,h,effective,known,factsRevision,marketRevision,calculation,resolutions.rows,aliases.rows,attributions.rows]));
+ const version=hash(JSON.stringify([run,h,effective,known,factsRevision,marketRevision,calculation,resolutions.rows,aliases.rows,attributions.rows,positionResolutions.rows]));
  const c=await db.connect();try{
   await c.query('BEGIN');const state=await c.query('SELECT facts_revision FROM app.household_state WHERE household_id=$1 FOR UPDATE',[h]);
   if(String(state.rows[0]?.facts_revision)!==factsRevision)throw new Error('STALE_RECONCILIATION');
