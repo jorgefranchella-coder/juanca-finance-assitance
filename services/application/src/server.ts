@@ -6,9 +6,9 @@ import {portfolio,positionPage} from './queries.ts';
 import {Conflict} from './commands.ts';
 import {chatHistory,sendChat} from './conversation.ts';
 import {getPhotoContent,getPhotoStatus,getSourceStatus,listPhotoEvidence,listTextIntakes,putPhoto,putSourceDocument,readJson,recordText,startPhoto,startSourceDocument,textStatus} from './manual-intake.ts';
-import {listB3CandidateReports} from './b3-candidate-reports.ts';
 import {listManualB3Candidates} from './manual-b3-candidates.ts';
 import {recordManualB3Decision} from './manual-b3-decisions.ts';
+import {listB3SnapshotReviews,recordB3SnapshotReview} from './b3-snapshot-decisions.ts';
 const config=JSON.parse(await readFile(process.env.JUANCA_SHADOW_CONFIG??'/home/jorge/.local/share/juanca-shadow/application.json','utf8')) as {token:string;household_id:string;cursor_key:string;port:number};
 if(config.token.length<32||config.cursor_key.length<32||!config.household_id)throw new Error('INVALID_CONFIGURATION');
 const db=pool();
@@ -47,7 +47,10 @@ const server=createServer(async(req,res)=>{
   if(sourceContentMatch&&req.method==='PUT'){reply(201,await putSourceDocument(config.household_id,sourceContentMatch[1],req));return;}
   if(url.pathname==='/v1/reconciliation/b3/candidates'&&req.method==='GET'){
    const rawLimit=url.searchParams.has('limit')?Number(url.searchParams.get('limit')):50;if(!Number.isInteger(rawLimit)||rawLimit<1||rawLimit>100)throw new Conflict('VALIDATION',422);
-   reply(200,{...await listB3CandidateReports(config.household_id,rawLimit),mode:'shadow',authoritative:false,apply_enabled:false});return;
+   reply(200,await listB3SnapshotReviews(db,config.household_id,rawLimit));return;
+  }
+  if(url.pathname==='/v1/reconciliation/b3/decisions'&&req.method==='POST'){
+   const actor=String(req.headers['x-juanca-actor']??'');reply(201,await recordB3SnapshotReview(db,config.household_id,actor,await readJson(req)));return;
   }
   if(url.pathname==='/v1/reconciliation/manual-b3/candidates'&&req.method==='GET'){
    reply(200,await listManualB3Candidates(db,config.household_id));return;

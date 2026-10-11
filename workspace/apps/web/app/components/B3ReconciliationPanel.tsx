@@ -3,14 +3,18 @@
 import { useCallback, useEffect, useState } from "react";
 
 type Difference = {
+  key: string;
   kind: string;
   instrument_code: string | null;
   delta: string;
   unit_rollforward?: { status: string; net_quantity: string | null; expected_delta: string };
   candidate_movement_details?: Array<{ date: string | null; source_event_type: string | null }>;
   review_reasons?: string[];
+  review?: { decision: "confirmed" | "dismissed"; revision: number; stale: boolean } | null;
 };
 type Report = {
+  prior_document_id: string;
+  current_document_id: string;
   prior_snapshot_date: string;
   new_snapshot_date: string;
   prior_positions: number;
@@ -45,6 +49,7 @@ export default function B3ReconciliationPanel() {
   const [result, setResult] = useState<Result | null>(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState("");
   const load = useCallback(async () => {
     setLoading(true);
     setError("");
@@ -59,6 +64,25 @@ export default function B3ReconciliationPanel() {
     }
   }, []);
   useEffect(() => { void load(); }, [load]);
+
+  const decide = async (difference: Difference, decision: "confirmed" | "dismissed") => {
+    if (!report) return;
+    setSaving(difference.key);
+    setError("");
+    try {
+      const bytes = crypto.getRandomValues(new Uint8Array(16));
+      const request_key = Array.from(bytes, byte => byte.toString(16).padStart(2, "0")).join("");
+      const response = await fetch("/api/shadow/reconciliation/b3/decisions", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ request_key, prior_document_id: report.prior_document_id, current_document_id: report.current_document_id, candidate_key: difference.key, decision }),
+      });
+      const result = await response.json() as { code?: string };
+      if (!response.ok) throw new Error(result.code === "STALE_CANDIDATE" ? "La diferencia cambió; actualiza el informe antes de decidir." : "No se pudo guardar la revisión auditada.");
+      await load();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "No se pudo guardar la revisión.");
+    } finally { setSaving(""); }
+  };
 
   const report = result?.reports[0];
   return <article className="panel b3-reconciliation-panel" aria-live="polite">
@@ -79,6 +103,11 @@ export default function B3ReconciliationPanel() {
           <span>{rollforwardLabel[difference.unit_rollforward?.status ?? "not_available"] ?? "Rollforward pendiente"}.</span>
           {!!difference.review_reasons?.length && <span>{difference.review_reasons.map(reason => reasonLabel[reason] ?? "Pendiente de revisión").join(" · ")}</span>}
           {!!difference.candidate_movement_details?.length && <small>Movimientos candidatos: {difference.candidate_movement_details.map(movement => `${movement.date ?? "fecha pendiente"} ${movement.source_event_type ?? ""}`).join("; ")}</small>}
+          {difference.review?.stale ? <small>La revisión anterior corresponde a una versión distinta de esta diferencia.</small> : difference.review && <small>Revisión guardada: {difference.review.decision === "confirmed" ? "confirmada" : "descartada"} · revisión {difference.review.revision}</small>}
+          <div className="manual-b3-actions">
+            <button type="button" disabled={!!saving} onClick={() => void decide(difference, "confirmed")}>{saving === difference.key ? "Guardando…" : difference.review?.decision === "confirmed" && !difference.review.stale ? "Confirmada · cambiar" : "Confirmar diferencia"}</button>
+            <button type="button" disabled={!!saving} onClick={() => void decide(difference, "dismissed")}>{difference.review?.decision === "dismissed" && !difference.review.stale ? "Descartada · cambiar" : "Descartar diferencia"}</button>
+          </div>
         </li>)}
       </ul>}
       <p className="review-note">Solo lectura. Ninguna diferencia se acepta ni se aplica desde esta pantalla; la cartera vigente permanece sin cambios.</p>

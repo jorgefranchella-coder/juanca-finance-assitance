@@ -444,6 +444,8 @@ Reprocesar un documento con un parser nuevo conserva bytes y registros brutos, c
 | POST `/v1/movements/intake` | Texto y/o foto; guarda evidencia primero y devuelve afirmación/job para extracción y resolución de identidad | Aplicación + ingesta |
 | GET `/v1/movements/{id}`; POST `/v1/movements/{id}/decisions` | Consultar extracción, confirmar, corregir o dejar pendiente con versión y motivo | Núcleo |
 | POST `/v1/imports/{id}/reconcile` | Comparar snapshot/movimientos con la revisión aplicada y mostrar altas, cambios, bajas y diferencias antes de publicar | Núcleo |
+| GET `/v1/reconciliation/b3/candidates` | Comparar snapshots B3, movimientos y cobertura; salida candidata de solo lectura | Núcleo |
+| POST `/v1/reconciliation/b3/decisions` | Anotar confirmación/descarte auditado de una diferencia concreta; nunca aplica cantidades | Núcleo |
 | POST `/v1/proposals` | Borrador validado; 201/version | Núcleo |
 | GET `/v1/proposals/{id}`; PATCH `/v1/proposals/{id}` | Leer resumen/estado; editar borrador con versión esperada e invalidar resumen anterior | Núcleo |
 | POST `/v1/proposals/{id}/approve` | `version`, `summary_hash`, `expected_facts_revision`, idempotencia | Núcleo |
@@ -873,11 +875,11 @@ La copia privada `backups/full-shadow-b3-reconciliation-20261010` restauró y co
 
 ## 29. Consulta de conciliaciones candidatas por API — 10 de octubre de 2026
 
-La API de sombra incorpora `GET /v1/reconciliation/b3/candidates?limit=50`, requiere bearer token y limita `limit` a 1–100. La ruta devuelve informes de la familia configurada, de más reciente a más antiguo; declara `mode=shadow`, `authoritative=false` y `apply_enabled=false`. El contrato OpenAPI pasa a 0.7.0. La capacidad es solo lectura: las decisiones humanas y la aplicación de correcciones siguen pendientes. El BFF/web vigente aún no ofrece esta bandeja.
+La API de sombra incorpora `GET /v1/reconciliation/b3/candidates?limit=50`, requiere bearer token y limita `limit` a 1–100. La ruta devuelve informes de la familia configurada, de más reciente a más antiguo; declara `mode=shadow`, `authoritative=false` y `apply_enabled=false`. El POST de decisiones registra una anotación humana versionada e idempotente por diferencia y pareja de documentos. Si cambia la huella de la diferencia, la anotación anterior queda obsoleta y una decisión nueva genera otra revisión. Ninguna decisión modifica hechos patrimoniales.
 
 ## 30. Bandeja B3 de solo lectura en la interfaz — 10 de octubre de 2026
 
-La pestaña «Revisiones» añade una sección para comparar snapshots B3 a partir de informes de la API de sombra. El gateway web actúa como BFF autenticado y expone solo el GET de candidatos; las credenciales no llegan al navegador. La UI indica fechas/cobertura, diferencias de posición, cálculo de unidades y razones de incertidumbre. No permite aprobar, corregir ni publicar y advierte que la cartera vigente no cambia. El build se completó y los dos servicios web locales se reiniciaron. La bandeja complementa el flujo de revisiones actual, todavía basado en D1.
+La pestaña «Revisiones» compara snapshots B3 y permite confirmar o descartar la diferencia como anotación auditada. El gateway autentica al actor y agrega las credenciales de servicio; el navegador no recibe esos secretos. La UI muestra fechas/cobertura, diferencias, cálculo de unidades y razones de incertidumbre, además del estado de revisión y sus obsolescencias. No permite corregir cantidades ni publicar y advierte que la cartera vigente no cambia. La bandeja complementa el flujo de revisiones actual, todavía basado en D1.
 
 ## 31. Reintento de cotizaciones limitado a faltantes — 10 de octubre de 2026
 

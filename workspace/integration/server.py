@@ -26,6 +26,7 @@ SHADOW_ROUTES = {
     '/api/shadow/evidence/photos': {'GET', 'POST'},
     '/api/shadow/evidence/documents': {'POST'},
     '/api/shadow/reconciliation/b3/candidates': {'GET'},
+    '/api/shadow/reconciliation/b3/decisions': {'POST'},
     '/api/shadow/reconciliation/manual-b3/candidates': {'GET'},
     '/api/shadow/reconciliation/manual-b3/decisions': {'POST'},
 }
@@ -142,7 +143,7 @@ class Gateway(BaseHTTPRequestHandler):
             shadow = json.loads(SHADOW_CONFIG_PATH.read_text())
             target = '/v1' + path.removeprefix('/api/shadow')
             headers = {'Authorization': 'Bearer ' + shadow['token'], 'Accept-Encoding': 'identity'}
-            if path == '/api/shadow/reconciliation/manual-b3/decisions' and self.command == 'POST':
+            if path in {'/api/shadow/reconciliation/manual-b3/decisions', '/api/shadow/reconciliation/b3/decisions'} and self.command == 'POST':
                 headers['X-Juanca-Actor'] = CONFIG['user_id']
             if self.headers.get('Content-Type'):
                 headers['Content-Type'] = self.headers['Content-Type']
