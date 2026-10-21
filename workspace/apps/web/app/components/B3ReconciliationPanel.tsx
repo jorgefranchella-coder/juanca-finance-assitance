@@ -10,6 +10,8 @@ type Difference = {
   unit_rollforward?: { status: string; net_quantity: string | null; expected_delta: string };
   candidate_movement_details?: Array<{ date: string | null; source_event_type: string | null }>;
   review_reasons?: string[];
+  institution_id?: string | null;
+  account_id?: string | null;
   review?: { decision: "confirmed" | "dismissed"; revision: number; stale: boolean } | null;
 };
 type Report = {
@@ -21,6 +23,7 @@ type Report = {
   new_positions: number;
   movement_interval_complete: boolean;
   differences: Difference[];
+  owner?: string;
   portfolio_published: false;
 };
 type Result = { reports: Report[]; count: number; apply_enabled: false };
@@ -53,7 +56,47 @@ export default function B3ReconciliationPanel() {
   const load = useCallback(async () => {
     const response = await fetch("/api/shadow/reconciliation/b3/candidates", { cache: "no-store" });
     if (!response.ok) throw new Error("No se pudo consultar la conciliación en sombra.");
-    return await response.json() as Result;
+    const data = await response.json() as Result;
+    const intakeActions = [
+      { key: "confirm_owner_account", label: "Confirmar titular y cuenta de custodia", description: "Asignar la diferencia a Jorge o Julia y a la cuenta correcta." },
+      { key: "real_movement", label: "Registrar como compra, venta o rescate", description: "La diferencia corresponde a una operación patrimonial real." },
+      { key: "custody_transfer", label: "Registrar como transferencia de custodia", description: "El activo cambió de institución o cuenta." },
+      { key: "correct_snapshot", label: "Corregir la posición del snapshot", description: "La cantidad informada en el corte necesita corrección." },
+      { key: "informational", label: "Excluir por ser informativa o no patrimonial", description: "La fila no debe representar una posición patrimonial." },
+    ];
+    // Historical baseline questions were registered explicitly after review with the owner.
+    // Automatically queue only differences from snapshots received after that baseline.
+    const pending = data.reports.filter((report) => report.new_snapshot_date > "2026-10-19").flatMap((report) => report.differences
+      .filter((difference) => !difference.review || difference.review.stale)
+      .map((difference) => ({
+        owner: report.owner === "Jorge" || report.owner === "Julia" ? report.owner : "Sin identificar",
+        category: "Conciliación B3",
+        title: `${difference.instrument_code ?? "Instrumento sin identificar"}: ${kindLabel[difference.kind] ?? "diferencia"} (${difference.delta} unidades)`,
+        source_key: `b3:${report.prior_document_id}:${report.current_document_id}:${difference.key}`,
+        context: {
+          instrumento: difference.instrument_code ?? "pendiente",
+          tipo: difference.kind,
+          diferencia_unidades: difference.delta,
+          snapshot_anterior: report.prior_snapshot_date,
+          snapshot_actual: report.new_snapshot_date,
+          cuenta_custodia: difference.account_id ?? "sin identificar",
+          institucion: difference.institution_id ?? "sin identificar",
+          estado_movimientos: difference.unit_rollforward?.status ?? "sin calcular",
+        },
+        evidence: [
+          `Snapshot ${report.prior_snapshot_date} → ${report.new_snapshot_date}.`,
+          ...(difference.review_reasons ?? []).map((reason) => reasonLabel[reason] ?? reason),
+          ...(difference.candidate_movement_details ?? []).map((movement) => `Movimiento candidato ${movement.date ?? "sin fecha"}: ${movement.source_event_type ?? "tipo pendiente"}.`),
+        ],
+        actions: intakeActions,
+      })));
+    if (pending.length) {
+      await Promise.allSettled(pending.map((item) => fetch("/api/portfolio/confirmations", {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(item),
+      })));
+      window.dispatchEvent(new Event("confirmations-updated"));
+    }
+    return data;
   }, []);
   useEffect(() => {
     let active = true;

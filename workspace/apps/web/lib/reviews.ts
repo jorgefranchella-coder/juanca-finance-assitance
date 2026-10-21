@@ -5,6 +5,9 @@ export const REVIEW_DECISIONS = new Set([
   "custody_transfer",
   "position_adjustment",
   "ignored",
+  "buy",
+  "sell",
+  "early_redemption",
 ]);
 
 export async function ensureReviewDecisionsSchema() {

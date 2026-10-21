@@ -33,3 +33,27 @@ test("marks custody updates for review without inventing a cash movement", () =>
   assert.equal(rows[0].event_type, "corporate_action");
   assert.equal(rows[0].requires_review, true);
 });
+
+test("keeps subscription rights informational and out of the review queue", () => {
+  const bytes = workbook("Movimentação", [
+    ["Entrada/Saída", "Data", "Movimentação", "Produto", "Instituição", "Quantidade", "Preço unitário", "Valor da Operação"],
+    ["Credito", "04/03/2026", "Direito de Subscrição", "EXAMPLE11 - TESTE", "CORRETORA", 7, null, null],
+  ]);
+  const rows = parseMovements(bytes, "Jorge");
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].event_type, "informational");
+  assert.equal(rows[0].requires_review, false);
+});
+
+test("classifies applications and generic redemptions without review", () => {
+  const bytes = workbook("Movimentação", [
+    ["Entrada/Saída", "Data", "Movimentação", "Produto", "Instituição", "Quantidade", "Preço unitário", "Valor da Operação"],
+    ["Credito", "13/10/2026", "APLICAÇÃO", "CDB - CDBA266EQ1A", "ITAU", 3000000, null, 30000],
+    ["Credito", "08/10/2026", "Resgate", "AXIA17G - AXIA ENERGIA S.A.", "ITAU", 6, null, 330.9],
+  ]);
+  const rows = parseMovements(bytes, "Jorge");
+  assert.deepEqual(rows.map((row) => [row.event_type, row.requires_review]), [
+    ["buy", false],
+    ["early_redemption", false],
+  ]);
+});

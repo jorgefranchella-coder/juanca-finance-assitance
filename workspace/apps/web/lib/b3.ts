@@ -169,9 +169,12 @@ function normalized(value: string): string {
 function classifyMovement(name: string, direction: string): [string, boolean] {
   const movement = normalized(name);
   const incoming = normalized(direction).startsWith("CREDITO");
+  if (movement.includes("DIREITO DE SUBSCRICAO")) return ["informational", false];
+  if (movement.includes("APLICACAO")) return ["buy", false];
   if (movement.includes("TRANSFERENCIA")) return [incoming ? "transfer_in" : "transfer_out", false];
   if (movement.includes("VENCIMENTO/RESGATE")) return ["maturity", false];
   if (movement.includes("RESGATE ANTECIPADO")) return ["early_redemption", false];
+  if (movement === "RESGATE") return ["early_redemption", false];
   if (movement.includes("AMORTIZ")) return ["amortization", false];
   if (movement.includes("JUROS SOBRE CAPITAL")) return ["jcp", false];
   if (movement.includes("DIVIDENDO")) return ["dividend", false];

@@ -65,6 +65,9 @@ const decisionOptions = [
   ["corporate_action", "Evento corporativo"],
   ["custody_transfer", "Transferência de custódia"],
   ["position_adjustment", "Ajuste de posição"],
+  ["buy", "Compra"],
+  ["sell", "Venda"],
+  ["early_redemption", "Resgate"],
   ["ignored", "Ignorar este movimento"],
 ];
 

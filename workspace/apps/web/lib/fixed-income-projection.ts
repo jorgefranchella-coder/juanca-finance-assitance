@@ -88,9 +88,8 @@ export function buildFixedIncomeProjectionItems(groups: Iterable<FixedIncomeGrou
       observations.push({ date: cost.as_of, unitPrice: Number(cost.average_unit_cost), source: cost.source || "cost_basis" });
     }
     const projection = fixedIncomeProjection(observations, group.maturityDate, group.latestDate);
-    const projectedValueCents = projection.projectedUnitPrice === null || projection.annualizedReturn === null
-      || !Number.isSafeInteger(group.currentValueCents) || group.currentValueCents <= 0
-      ? null : Math.round(group.currentValueCents * Math.pow(1 + projection.annualizedReturn, projection.daysToMaturity / 365.25));
+    const projectedValueCents = projection.projectedUnitPrice === null
+      ? null : Math.round(projection.projectedUnitPrice * group.quantity * 100);
     const observationSources = [...new Set(observations.map((item) => item.source))].sort();
     const hasMixedValuationMethods = group.observations.some((item) => item.source === "b3_mtm")
       && group.observations.some((item) => item.source === "b3_curve");
@@ -116,7 +115,7 @@ export function buildFixedIncomeProjectionItems(groups: Iterable<FixedIncomeGrou
 
 export type ProjectionScheduleItem = {
   owner: string; issuer: string; quantity: number; reference_date: string; maturity_date: string;
-  current_unit_price: number; current_value_cents?: number; annualizedReturn: number | null; projected_value_cents: number | null;
+  current_unit_price: number; annualizedReturn: number | null; projected_value_cents: number | null;
   reason?: string | null;
 };
 export type ProjectionPeriodValue = {
@@ -174,8 +173,6 @@ export function buildFixedIncomeMatrixYears(items: ProjectionScheduleItem[]): Fi
 export function fixedIncomePeriodValue(item: ProjectionScheduleItem, start: string, end: string): ProjectionPeriodValue {
   const missing = (status: ProjectionPeriodValue["status"], reason: string): ProjectionPeriodValue =>
     ({ balance_cents: null, maturity_cents: null, status, partial: true, reason });
-  const currentValueCents = item.current_value_cents === undefined
-    ? Math.round(item.current_unit_price * item.quantity * 100) : item.current_value_cents;
   if (!validDate(start) || !validDate(end) || start >= end || !validDate(item.reference_date)) {
     return missing("insufficient_data", "Datas de referência ou período inválidas.");
   }
@@ -185,15 +182,14 @@ export function fixedIncomePeriodValue(item: ProjectionScheduleItem, start: stri
   if (item.projected_value_cents === null || !Number.isSafeInteger(item.projected_value_cents)
       || item.annualizedReturn === null || !Number.isFinite(item.annualizedReturn) || item.annualizedReturn <= -0.95
       || item.annualizedReturn > 2 || !Number.isFinite(item.quantity) || item.quantity <= 0
-      || !Number.isFinite(item.current_unit_price) || item.current_unit_price <= 0
-      || !Number.isSafeInteger(currentValueCents) || currentValueCents <= 0) {
+      || !Number.isFinite(item.current_unit_price) || item.current_unit_price <= 0) {
     return missing("insufficient_data", item.reason || "Taxa histórica, quantidade ou preço insuficientes para projetar.");
   }
   if (item.maturity_date <= start) return { balance_cents: 0, maturity_cents: 0, status: "matured", partial: false, reason: null };
   const matures = item.maturity_date <= end;
   const projectionDate = matures ? item.maturity_date : end;
   const days = (Date.parse(`${projectionDate}T00:00:00Z`) - Date.parse(`${item.reference_date}T00:00:00Z`)) / 86_400_000;
-  const value = Math.round(currentValueCents * Math.pow(1 + item.annualizedReturn, days / 365.25));
+  const value = Math.round(item.current_unit_price * item.quantity * Math.pow(1 + item.annualizedReturn, days / 365.25) * 100);
   if (!Number.isSafeInteger(value)) return missing("insufficient_data", "Projeção fora da precisão suportada.");
   const partial = item.reference_date > start;
   return { balance_cents: matures ? 0 : value, maturity_cents: matures ? value : 0,
