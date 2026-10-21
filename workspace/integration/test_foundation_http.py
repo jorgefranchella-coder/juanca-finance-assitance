@@ -130,4 +130,46 @@ class FoundationHttpTests(unittest.TestCase):
                 with urlopen(Request(WORKER+'/api/import/b3',data=b''.join(parts),headers=headers),timeout=20) as r:
                     result=json.load(r);self.assertEqual(r.status,200);self.assertEqual(result['duplicate'],duplicate);self.assertEqual(result['records'],1)
 
+    def test_08_confirmation_queue_is_idempotent_scoped_and_audited(self):
+        payload={
+            'owner':'Jorge','category':'Fixture','title':'Synthetic confirmation',
+            'context':{'instrumento':'FIXTURE'},'evidence':['synthetic evidence'],
+            'actions':[{'key':'resolve','label':'Resolve'},
+                       {'key':'later','label':'Check later','keeps_open':True}],
+            'source_key':'fixture:confirmation:1',
+        }
+        status,created=self.worker('/api/portfolio/confirmations',payload)
+        self.assertEqual(status,201);self.assertTrue(created['saved']);self.assertFalse(created['duplicate'])
+        status,duplicate=self.worker('/api/portfolio/confirmations',payload)
+        self.assertEqual(status,201);self.assertTrue(duplicate['duplicate']);self.assertEqual(duplicate['id'],created['id'])
+
+        status,other_family=self.worker('/api/portfolio/confirmations',user='other-family')
+        self.assertEqual(status,200);self.assertEqual(other_family['open_count'],0);self.assertEqual(other_family['items'],[])
+
+        item_path='/api/portfolio/confirmations/'+created['id']
+        status,updated=self.worker(item_path+'/context',{
+            'context':{'instrumento':'FIXTURE','account_id':'fixture-account'},
+            'evidence':['synthetic evidence','synthetic account attribution'],
+        })
+        self.assertEqual(status,200);self.assertTrue(updated['saved'])
+        status,invalid=self.worker(item_path,{'action_key':'missing','note':'fixture'})
+        self.assertEqual(status,400)
+        status,kept_open=self.worker(item_path,{'action_key':'later','note':'fixture follow-up'})
+        self.assertEqual(status,200);self.assertEqual(kept_open['status'],'open')
+        status,listed=self.worker('/api/portfolio/confirmations')
+        self.assertEqual(status,200);self.assertEqual(listed['open_count'],1)
+        saved=next(item for item in listed['items'] if item['id']==created['id'])
+        self.assertEqual(saved['context']['account_id'],'fixture-account')
+        self.assertEqual(saved['decision']['action_key'],'later')
+        self.assertEqual(saved['decision']['note'],'fixture follow-up')
+
+        status,resolved=self.worker(item_path,{'action_key':'resolve','note':'fixture resolved'})
+        self.assertEqual(status,200);self.assertEqual(resolved['status'],'resolved')
+        status,closed_context=self.worker(item_path+'/context',{
+            'context':{'instrumento':'FIXTURE'},'evidence':[],
+        })
+        self.assertEqual(status,409)
+        status,final=self.worker('/api/portfolio/confirmations')
+        self.assertEqual(status,200);self.assertEqual(final['open_count'],0)
+
 if __name__=='__main__':unittest.main()
