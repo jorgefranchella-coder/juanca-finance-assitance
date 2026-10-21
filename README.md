@@ -1,24 +1,11 @@
-# Juanca — patrimonio familiar
+# Juanca
 
-Juanca es una aplicación patrimonial familiar en transición gradual hacia servicios autónomos de Hermes. Este repositorio reúne los microservicios y contratos actuales, la interfaz web y el código de integración previo para que la propuesta y su implementación estén disponibles en un solo lugar.
+Aplicación privada para consultar y registrar el patrimonio familiar de Jorge y Julia. La web actual y D1 siguen siendo la autoridad financiera; la aplicación PostgreSQL y los servicios de ingesta y mercado funcionan en sombra mientras se verifica la migración.
 
-La especificación funcional y técnica está en [ESPECIFICACIONES_JUANCA_MICROSERVICIOS.md](docs/ESPECIFICACIONES_JUANCA_MICROSERVICIOS.md). El estado implementado, las decisiones y los pasos operativos están en [IMPLEMENTACION_F3_SOMBRA.md](docs/IMPLEMENTACION_F3_SOMBRA.md).
+La documentación vigente está consolidada en tres documentos:
 
-## Código
+- [Especificación funcional](docs/ESPECIFICACION_FUNCIONAL.md): reglas de negocio, fuentes, recorridos y condiciones de aceptación.
+- [Especificación técnica](docs/ESPECIFICACION_TECNICA.md): componentes, datos, contratos, seguridad, operación y migración.
+- [Especificación UX](docs/ESPECIFICACION_UX.md): navegación, matriz de renta fija, estados e interacciones.
 
-- `services/`, `packages/` e `infra/`: servicios de aplicación, ingesta y mercado, contratos y migraciones PostgreSQL.
-- `workspace/apps/web`: interfaz web/PWA existente y su API de integración.
-- `workspace/integration`: puente de compatibilidad con Hermes y utilidades del entorno anterior. Hermes no es requerido por los recorridos patrimoniales objetivo.
-- `workspace/docs`: documentos de contexto de la aplicación existente y de la migración.
-
-Los reportes patrimoniales, credenciales, tokens, respaldos y estado operativo son datos privados y no forman parte del repositorio.
-
-```bash
-npm ci --ignore-scripts
-npm test
-npm run typecheck
-```
-
-Las pruebas PostgreSQL requieren la instancia privada preparada con `infra/postgres/local.sh bootstrap` y `start`; crean y eliminan una base sintética. Los servicios systemd de ejemplo son específicos del entorno local de Jorge. Datos, respaldos y tokens viven fuera del código en un directorio privado.
-
-Contratos: [OpenAPI](packages/contracts/openapi.json) y [JSON Schema](packages/contracts/portfolio-v1.schema.json). No se han desplegado aún los servicios de ingesta y mercado.
+El código de la web vigente está en `workspace/apps/web`; los servicios nuevos en `services`; los contratos en `packages/contracts`; y las migraciones y utilidades en `infra`. Los datos, documentos originales, claves y respaldos son privados y no forman parte del repositorio.
