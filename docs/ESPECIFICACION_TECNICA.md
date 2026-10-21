@@ -69,6 +69,8 @@ Auditoría agregada del 21/10/2026: los tres extractos B3 de movimientos procesa
 
 Auditoría de la hoja de inversión del 21/10/2026: se inspeccionó únicamente la fila de encabezados de sus 19 pestañas. Ninguna tiene encabezados explícitos para fecha y precio de adquisición. En «Renda Fixa», G es «Data de Emissão» y L es «Preço Atualizado MTM»; en «Renda Fixa Julia», L es «Motivo». La revisión más antigua consultada, del 25/02/2026, conserva las etiquetas de emisión y MTM. Las referencias históricas a G/L permanecen sin verificar hasta identificar la pestaña/versión correcta; no se corrigen por posición de columna.
 
+Entrega incremental del 21/10/2026: las cuatro bandejas de revisión cargan datos después de iniciar la solicitud, la detección de instalación/red del PWA usa suscripciones externas y el parser Cotahist omite el campo interno de selección de mercado en su salida. Build aislado aprobado; lint global con cero errores y ocho advertencias; página y cuatro rutas de bandejas respondieron HTTP 200. No se ejecutaron pruebas automatizadas.
+
 La matriz de la UI genera cortes anuales y, al expandir un año, cortes mensuales hasta el último vencimiento. Para cada título y período `(inicio, fin]`, el cálculo presenta `V(fin)` como saldo si el título sigue vigente después del fin, o `V(vencimiento)` como vencimiento del período. Un título vencido deja de aportar al saldo de períodos posteriores. Los emisores se agregan dentro de cada titular; custodio y emisor no se intercambian. Los títulos sin proyección válida aparecen sin importe calculado. El cálculo es nominal, anterior a impuestos y sin flujos contractuales intermedios.
 
 ## 4. Interfaces y contratos

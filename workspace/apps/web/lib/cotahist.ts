@@ -37,7 +37,14 @@ export function parseCotahist(text: string, requestedSymbols: Iterable<string>):
     const current = selected.get(symbol);
     if (!current || (current.marketType !== "010" && marketType === "010")) selected.set(symbol, quote);
   }
-  return Array.from(selected.values(), ({ marketType: _marketType, ...quote }) => quote);
+  return Array.from(selected.values(), (quote) => ({
+    market: quote.market,
+    symbol: quote.symbol,
+    currency: quote.currency,
+    price: quote.price,
+    provider: quote.provider,
+    quotedAt: quote.quotedAt,
+  }));
 }
 
 export function cotahistBusinessDates(now = new Date(), count = 7) {

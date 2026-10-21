@@ -1,31 +1,50 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 
 type InstallEvent = Event & { prompt: () => Promise<void>; userChoice: Promise<{ outcome: string }> };
 
+const serverFalse = () => false;
+const subscribeNothing = () => () => {};
+function subscribeStandalone(onChange: () => void) {
+  const media = window.matchMedia("(display-mode: standalone)");
+  media.addEventListener("change", onChange);
+  window.addEventListener("appinstalled", onChange);
+  return () => {
+    media.removeEventListener("change", onChange);
+    window.removeEventListener("appinstalled", onChange);
+  };
+}
+function getStandaloneSnapshot() {
+  return window.matchMedia("(display-mode: standalone)").matches
+    || Boolean((navigator as Navigator & { standalone?: boolean }).standalone);
+}
+function subscribeNetwork(onChange: () => void) {
+  window.addEventListener("online", onChange);
+  window.addEventListener("offline", onChange);
+  return () => {
+    window.removeEventListener("online", onChange);
+    window.removeEventListener("offline", onChange);
+  };
+}
+const getOfflineSnapshot = () => !navigator.onLine;
+const getIosSnapshot = () => /iPhone|iPad|iPod/.test(navigator.userAgent)
+  || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+const getSecureSnapshot = () => window.isSecureContext;
+
 export default function MobileApp() {
   const [install, setInstall] = useState<InstallEvent | null>(null);
-  const [standalone, setStandalone] = useState(false);
-  const [offline, setOffline] = useState(false);
+  const standalone = useSyncExternalStore(subscribeStandalone, getStandaloneSnapshot, serverFalse);
+  const offline = useSyncExternalStore(subscribeNetwork, getOfflineSnapshot, serverFalse);
+  const ios = useSyncExternalStore(subscribeNothing, getIosSnapshot, serverFalse);
+  const secure = useSyncExternalStore(subscribeNothing, getSecureSnapshot, serverFalse);
   const [help, setHelp] = useState(false);
-  const [ios, setIos] = useState(false);
-  const [secure, setSecure] = useState(false);
   useEffect(() => {
-    const media = window.matchMedia("(display-mode: standalone)");
-    const updateMode = () => setStandalone(media.matches || Boolean((navigator as Navigator & { standalone?: boolean }).standalone));
-    const updateNetwork = () => setOffline(!navigator.onLine);
     const onInstall = (event: Event) => { event.preventDefault(); setInstall(event as InstallEvent); };
-    const onInstalled = () => { setInstall(null); setStandalone(true); setHelp(false); };
-    updateMode(); updateNetwork(); setSecure(window.isSecureContext);
-    setIos(/iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1));
+    const onInstalled = () => { setInstall(null); setHelp(false); };
     if (window.isSecureContext && "serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch(() => {});
-    media.addEventListener("change", updateMode);
-    window.addEventListener("online", updateNetwork); window.addEventListener("offline", updateNetwork);
     window.addEventListener("beforeinstallprompt", onInstall); window.addEventListener("appinstalled", onInstalled);
     return () => {
-      media.removeEventListener("change", updateMode);
-      window.removeEventListener("online", updateNetwork); window.removeEventListener("offline", updateNetwork);
       window.removeEventListener("beforeinstallprompt", onInstall); window.removeEventListener("appinstalled", onInstalled);
     };
   }, []);

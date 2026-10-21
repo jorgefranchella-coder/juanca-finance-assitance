@@ -51,19 +51,23 @@ export default function B3ReconciliationPanel() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState("");
   const load = useCallback(async () => {
-    setLoading(true);
-    setError("");
-    try {
-      const response = await fetch("/api/shadow/reconciliation/b3/candidates", { cache: "no-store" });
-      if (!response.ok) throw new Error("No se pudo consultar la conciliación en sombra.");
-      setResult(await response.json() as Result);
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "No se pudo consultar la conciliación en sombra.");
-    } finally {
-      setLoading(false);
-    }
+    const response = await fetch("/api/shadow/reconciliation/b3/candidates", { cache: "no-store" });
+    if (!response.ok) throw new Error("No se pudo consultar la conciliación en sombra.");
+    return await response.json() as Result;
   }, []);
-  useEffect(() => { void load(); }, [load]);
+  useEffect(() => {
+    let active = true;
+    load().then((value) => { if (active) setResult(value); })
+      .catch((cause) => { if (active) setError(cause instanceof Error ? cause.message : "No se pudo consultar la conciliación en sombra."); })
+      .finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
+  }, [load]);
+  const refresh = async () => {
+    setLoading(true); setError("");
+    try { setResult(await load()); }
+    catch (cause) { setError(cause instanceof Error ? cause.message : "No se pudo consultar la conciliación en sombra."); }
+    finally { setLoading(false); }
+  };
 
   const decide = async (difference: Difference, decision: "confirmed" | "dismissed") => {
     if (!report) return;
@@ -78,7 +82,7 @@ export default function B3ReconciliationPanel() {
       });
       const result = await response.json() as { code?: string };
       if (!response.ok) throw new Error(result.code === "STALE_CANDIDATE" ? "La diferencia cambió; actualiza el informe antes de decidir." : "No se pudo guardar la revisión auditada.");
-      await load();
+      await refresh();
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "No se pudo guardar la revisión.");
     } finally { setSaving(""); }
@@ -91,7 +95,7 @@ export default function B3ReconciliationPanel() {
       <span className="safe-badge">no modifica la cartera</span>
     </div>
     {loading && <p>Consultando informes de conciliación…</p>}
-    {!loading && error && <div className="inline-error" role="alert">{error} <button type="button" className="text-button" onClick={() => void load()}>Reintentar</button></div>}
+    {!loading && error && <div className="inline-error" role="alert">{error} <button type="button" className="text-button" onClick={refresh}>Reintentar</button></div>}
     {!loading && !error && !report && <p>No hay comparaciones B3 disponibles todavía.</p>}
     {!loading && !error && report && <>
       <p>Snapshot anterior {report.prior_snapshot_date} ({report.prior_positions} filas) → nuevo {report.new_snapshot_date} ({report.new_positions} filas).</p>
