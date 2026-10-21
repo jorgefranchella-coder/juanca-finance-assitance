@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Juanca application shadow API",
-    "version": "0.16.0",
+    "version": "0.17.0",
     "description": "F3/F4 shadow API: immutable portfolio, guided conversation, durable manual evidence with versioned local text and photo OCR/trade interpretations, and read-only review queues; financial application remains separate."
   },
   "servers": [
@@ -61,6 +61,46 @@
           "401": {"description": "Authentication required"},
           "422": {"description": "Invalid limit"},
           "503": {"description": "Private report storage unavailable"}
+        }
+      }
+    },
+    "/v1/reconciliation/b3/decisions": {
+      "post": {
+        "security": [{"bearerAuth": []}],
+        "summary": "Record an audited review of one B3 snapshot difference",
+        "description": "Evidence review only; no positions, cash, events or portfolio revision change.",
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {
+          "type": "object", "additionalProperties": false,
+          "required": ["request_key", "prior_document_id", "current_document_id", "candidate_key", "decision"],
+          "properties": {
+            "request_key": {"type": "string", "minLength": 8, "maxLength": 128, "pattern": "^[A-Za-z0-9._:-]{8,128}$"},
+            "prior_document_id": {"type": "string", "format": "uuid"},
+            "current_document_id": {"type": "string", "format": "uuid"},
+            "candidate_key": {"type": "string", "minLength": 1, "maxLength": 1000},
+            "decision": {"enum": ["confirmed", "dismissed"]}
+          }
+        }}}},
+        "responses": {
+          "201": {"description": "Audited evidence-only decision; portfolio_changed is false", "content": {"application/json": {"schema": {
+            "type": "object", "additionalProperties": false,
+            "required": ["decision_id", "decision", "revision", "replayed", "mode", "portfolio_changed"],
+            "properties": {
+              "decision_id": {"type": "string", "format": "uuid"},
+              "decision": {"enum": ["confirmed", "dismissed"]},
+              "revision": {"type": "integer", "minimum": 1},
+              "replayed": {"type": "boolean"},
+              "mode": {"const": "shadow"},
+              "portfolio_changed": {"const": false}
+            }
+          }}}},
+          "401": {"description": "Authentication required"},
+          "403": {"description": "Actor lacks reviewer membership"},
+          "405": {"description": "Method not allowed"},
+          "409": {"description": "Idempotency mismatch or candidate no longer present"},
+          "413": {"description": "Request body exceeds the size limit"},
+          "422": {"description": "Invalid decision input"},
+          "415": {"description": "Content-Type must be application/json"},
+          "503": {"description": "Application database unavailable"}
         }
       }
     },
