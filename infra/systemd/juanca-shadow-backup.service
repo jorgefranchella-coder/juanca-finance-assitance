@@ -1,0 +1,15 @@
+[Unit]
+Description=Juanca PostgreSQL shadow backup and isolated restore verification
+Requires=juanca-shadow-postgres.service
+After=juanca-shadow-postgres.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/jorge/juanca
+ExecStart=/home/jorge/.local/bin/node --experimental-strip-types infra/backup/run_verified_backup.ts
+Environment=JUANCA_RUNTIME_ROOT=/home/jorge/.local/share/juanca-shadow
+Environment=JUANCA_BACKUP_ROOT=/home/jorge/.local/share/juanca/backups/postgres
+Environment=JUANCA_DATABASE=juanca_shadow
+UMask=0077
+NoNewPrivileges=true
+TimeoutStartSec=30min

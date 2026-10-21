@@ -114,9 +114,9 @@ npm test
 npm run lint
 ```
 
-Las pruebas de aplicación usan bases sintéticas y validan, entre otros casos, concurrencia e idempotencia. El 21/10/2026 se ejecutó `infra/backup/verify_restore.ts` contra la base sombra: restauró y comparó 45 tablas de aplicación, 8 de ingesta y 6 de mercado; comprobó siete referencias a evidencia B3 y seis objetos de ingesta. La verificación independiente del manifest confirmó los hashes de los 17 archivos de la copia. La base temporal se eliminó al terminar y los servicios sombra continuaron activos.
+Las pruebas de aplicación usan bases sintéticas y validan, entre otros casos, concurrencia e idempotencia. El 21/10/2026 se ejecutó `infra/backup/verify_restore.ts` contra la base sombra: restauró y comparó 45 tablas de aplicación, 8 de ingesta y 6 de mercado; comprobó siete referencias a evidencia B3 y seis objetos de ingesta. La verificación independiente del manifest confirmó los hashes de los 17 archivos de la copia. La base temporal se eliminó al terminar y los servicios sombra continuaron activos. Desde ese día, `juanca-shadow-backup.timer` ejecuta diariamente el mismo ciclo con copias privadas, sin purga automática.
 
-Este ensayo valida el snapshot y sus originales registrados en el host. La copia está protegida localmente; los originales R2 históricos y una copia cifrada fuera del host todavía requieren una estrategia integral. El ejercicio no habilita el corte de escritura ni sustituye la comprobación de reversión e idempotencia de jobs durante el cambio de autoridad.
+Este ensayo valida el snapshot y sus originales registrados en el host. El timer cubre solo PostgreSQL sombra; no cubre la base D1 que aún es autoridad, sus objetos R2 históricos ni una copia cifrada fuera del host, que todavía requieren una estrategia integral. El ejercicio no habilita el corte de escritura ni sustituye la comprobación de reversión e idempotencia de jobs durante el cambio de autoridad.
 
 ## 6. Transformación y pendientes técnicos
 

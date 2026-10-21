@@ -1,0 +1,11 @@
+[Unit]
+Description=Daily verified Juanca PostgreSQL shadow backup
+
+[Timer]
+OnCalendar=*-*-* 03:30:00
+Persistent=true
+RandomizedDelaySec=30m
+Unit=juanca-shadow-backup.service
+
+[Install]
+WantedBy=timers.target
