@@ -15,6 +15,7 @@ const CONTENT_TYPES=new Set(['application/pdf','application/vnd.openxmlformats-o
 const IMAGE_TYPES=new Set(['image/jpeg','image/png','image/webp','image/heic']);
 type UploadInput={household_ref:string;owner_ref:string;account_ref:string|null;source:'b3'|'avenue'|'pension'|'manual';file_type:'positions'|'movements'|'avenue_statement'|'avenue_confirmation'|'pension_statement'|'manual_evidence';reference_date:string|null;file_name:string;content_sha256:string;byte_size:number;content_type:string};
 function cleanText(value:unknown,max:number){if(typeof value!=='string'||!value.trim()||value.length>max||/[\u0000-\u001f\u007f]/.test(value))throw new Error('INVALID_METADATA');return value.trim();}
+function validDate(value:string){if(!/^\d{4}-\d{2}-\d{2}$/.test(value))return false;const parsed=new Date(`${value}T00:00:00Z`);return !Number.isNaN(parsed.valueOf())&&parsed.toISOString().slice(0,10)===value;}
 function validateUpload(value:unknown):UploadInput{
  if(!value||typeof value!=='object'||Array.isArray(value))throw new Error('INVALID_BODY');const v=value as Record<string,unknown>;
  const allowed=['household_ref','owner_ref','account_ref','source','file_type','reference_date','file_name','content_sha256','byte_size','content_type'];if(Object.keys(v).some(k=>!allowed.includes(k))||allowed.some(k=>!(k in v)))throw new Error('INVALID_BODY');
@@ -22,7 +23,7 @@ function validateUpload(value:unknown):UploadInput{
  const digest=cleanText(v.content_sha256,64);if(!/^[0-9a-f]{64}$/.test(digest))throw new Error('INVALID_DIGEST');const size=Number(v.byte_size);if(!Number.isSafeInteger(size)||size<1||size>MAX_BYTES)throw new Error('INVALID_SIZE');
  const type=cleanText(v.content_type,100).toLowerCase();if(!(source==='manual'&&fileType==='manual_evidence'?IMAGE_TYPES.has(type)||CONTENT_TYPES.has(type):CONTENT_TYPES.has(type)))throw new Error('INVALID_CONTENT_TYPE');
  const fileName=basename(cleanText(v.file_name,240).replaceAll('\\','/'));if(!fileName||fileName==='.'||fileName==='..'||Buffer.byteLength(fileName)>180)throw new Error('INVALID_FILE_NAME');
- const date=v.reference_date===null?null:cleanText(v.reference_date,10);if(date&&!/^\d{4}-\d{2}-\d{2}$/.test(date))throw new Error('INVALID_DATE');
+ const date=v.reference_date===null?null:cleanText(v.reference_date,10);if(date&&!validDate(date))throw new Error('INVALID_DATE');
  const account=v.account_ref===null?null:cleanText(v.account_ref,128);
  return{household_ref:cleanText(v.household_ref,100),owner_ref:cleanText(v.owner_ref,100),account_ref:account,source:source as UploadInput['source'],file_type:fileType as UploadInput['file_type'],reference_date:date,file_name:fileName,content_sha256:digest,byte_size:size,content_type:type};
 }
