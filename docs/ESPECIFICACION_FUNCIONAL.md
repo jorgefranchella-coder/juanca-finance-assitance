@@ -59,7 +59,7 @@ El chat guiado propio responde consultas habituales sin Hermes. El chat libre me
 
 Las revisiones muestran evidencia, motivo, titular, cuenta y efecto posible. La web vigente permite decidir registros ambiguos y la sombra conserva decisiones auditadas sobre vínculos y conciliaciones. Vincular una foto o una fila B3 a un mensaje expresa correspondencia de evidencia; no autoriza a contabilizar una operación.
 
-El costo de adquisición puede proceder de una compra documentada, un dato manual o una fuente histórica. Para la renta fija de Jorge se incorporaron precios y fechas de una hoja de inversión contrastados con las cantidades del snapshot B3; donde existía una compra B3 más precisa se conservó la transacción. Los costos se atribuyen al titular y al instrumento, con fecha y procedencia, sin confundir precio de compra con precio de mercado.
+El costo de adquisición puede proceder de una compra documentada, un dato manual o una fuente histórica. Se conservan referencias heredadas a precios y fechas de una hoja de inversión, pero el mapeo de esas columnas no está verificado contra los encabezados vigentes; por eso esas observaciones quedan excluidas de la proyección hasta confirmar su fuente y significado. Las compras identificadas en movimientos B3 son evidencia separada y solo se usan cuando cumplen las reglas de identidad, cobertura y cantidad de la sección de proyección. Todo costo conserva titular y procedencia, sin confundir precio de compra con precio de mercado.
 
 ## 4. Renta fija: histórico y proyección
 
