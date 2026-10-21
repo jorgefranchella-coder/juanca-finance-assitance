@@ -43,10 +43,14 @@ python3 integration/backup_restore.py verify --backup "$BACKUP"
 python3 integration/backup_restore.py restore --backup "$BACKUP" --destination "/tmp/juanca-restore-$(date -u +%Y%m%dT%H%M%SZ)"
 ```
 
-La restauración crea un directorio nuevo y aislado, verifica SQLite y copia el estado Hermes, pero omite credenciales y no inicia servicios. Es un ensayo y una fuente para recuperación manual; no se debe cambiar la ruta de producción a ese directorio. No hay automatización para promover una restauración a producción ni un restaurador aislado de un dump PostgreSQL histórico. Cada copia sombra sí se restaura y compara durante su creación; para comprobar solo sus hashes:
+La restauración crea un directorio nuevo y aislado, verifica SQLite y copia el estado Hermes, pero omite credenciales y no inicia servicios. Es un ensayo y una fuente para recuperación manual; no se debe cambiar la ruta de producción a ese directorio. No hay automatización para promover una restauración a producción. Cada copia sombra sí se restaura y compara durante su creación; el comando siguiente vuelve a comprobar hashes y restaura el backup histórico en una base PostgreSQL aislada:
 
 ```bash
+cd /home/jorge/juanca
 SHADOW_BACKUP="$(find /home/jorge/.local/share/juanca/backups/postgres -mindepth 1 -maxdepth 1 -type d -name 'postgres-verified-*' | sort | tail -n 1)"
 test -n "$SHADOW_BACKUP"
 /home/jorge/.local/bin/node --experimental-strip-types /home/jorge/juanca/infra/backup/verify_manifest.ts "$SHADOW_BACKUP"
+npm run backup:restore-check -- "$SHADOW_BACKUP"
 ```
+
+El comando crea una base `juanca_verify_<id>`, restaura aplicación, ingesta y mercado, compara el conjunto de tablas con el manifest y elimina esa base al salir. Nunca apunta a `juanca_shadow` ni promueve el backup a producción.
