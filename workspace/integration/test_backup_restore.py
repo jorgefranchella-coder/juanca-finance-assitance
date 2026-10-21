@@ -71,6 +71,34 @@ class BackupRestoreTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'manifest mismatch'):
             backup_restore.verify(self.backup)
 
+    def test_verify_rejects_unlisted_file(self):
+        with patch.object(backup_restore, 'SERVICES', ()):
+            backup_restore.create(self.source, self.backup, self.profile)
+        (self.backup / 'state/untracked.db').write_bytes(b'extra')
+        with self.assertRaisesRegex(ValueError, 'file set differs'):
+            backup_restore.verify(self.backup)
+
+    def test_verify_rejects_manifest_path_traversal(self):
+        with patch.object(backup_restore, 'SERVICES', ()):
+            backup_restore.create(self.source, self.backup, self.profile)
+        manifest = json.loads((self.backup / 'manifest.json').read_text())
+        manifest['files']['../../outside'] = '0' * 64
+        (self.backup / 'manifest.json').write_text(json.dumps(manifest))
+        with self.assertRaisesRegex(ValueError, 'manifest path'):
+            backup_restore.verify(self.backup)
+
+    def test_verify_rejects_symlinked_manifest_file(self):
+        with patch.object(backup_restore, 'SERVICES', ()):
+            backup_restore.create(self.source, self.backup, self.profile)
+        source = self.backup / 'source/app.py'
+        source.unlink()
+        source.symlink_to(self.backup / 'state/portfolio.db')
+        manifest = json.loads((self.backup / 'manifest.json').read_text())
+        manifest['files']['source/app.py'] = backup_restore.digest(self.backup / 'state/portfolio.db')
+        (self.backup / 'manifest.json').write_text(json.dumps(manifest))
+        with self.assertRaisesRegex(ValueError, 'manifest mismatch'):
+            backup_restore.verify(self.backup)
+
     def test_restore_refuses_existing_destination(self):
         with patch.object(backup_restore, 'SERVICES', ()):
             backup_restore.create(self.source, self.backup, self.profile)

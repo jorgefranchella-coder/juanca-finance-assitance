@@ -4,6 +4,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+from pathlib import PurePosixPath
 import shutil
 import sqlite3
 import subprocess
@@ -36,11 +37,36 @@ def check_databases(root):
 
 
 def verify(backup):
-    manifest = json.loads((backup / 'manifest.json').read_text())
+    backup = backup.resolve()
+    manifest_path = backup / 'manifest.json'
+    manifest = json.loads(manifest_path.read_text())
+    if (not isinstance(manifest, dict) or manifest.get('format') != 1
+            or not isinstance(manifest.get('files'), dict)
+            or not isinstance(manifest.get('table_counts'), dict)):
+        raise ValueError('Invalid backup manifest')
+
+    expected_files = set()
     for name, expected in manifest['files'].items():
-        path = backup / name
-        if path.resolve().is_relative_to(backup.resolve()) is False or digest(path) != expected:
+        relative = PurePosixPath(name) if isinstance(name, str) else None
+        if (relative is None or relative.is_absolute() or not relative.parts
+                or any(part in ('', '.', '..') for part in relative.parts)
+                or '\\' in name or name == 'manifest.json'
+                or not isinstance(expected, str) or len(expected) != 64):
+            raise ValueError('Invalid backup manifest path or digest')
+        path = backup.joinpath(*relative.parts)
+        if path.is_symlink() or not path.is_file() or digest(path) != expected:
             raise ValueError('Backup manifest mismatch')
+        expected_files.add(name)
+
+    actual_files = {path.relative_to(backup).as_posix() for path in backup.rglob('*')
+                    if path.is_file() or path.is_symlink()}
+    actual_files.discard('manifest.json')
+    if actual_files != expected_files:
+        raise ValueError('Backup file set differs from manifest')
+
+    for directory in (backup / 'state', backup / 'source'):
+        if not directory.is_dir() or directory.is_symlink():
+            raise ValueError('Backup is missing a required directory')
     counts = check_databases(backup / 'state')
     if (backup / 'private').exists():
         check_databases(backup / 'private')
