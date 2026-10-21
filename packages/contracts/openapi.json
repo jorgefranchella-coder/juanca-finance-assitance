@@ -2,8 +2,8 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Juanca application shadow API",
-    "version": "0.18.0",
-    "description": "F3/F4 shadow API: immutable portfolio, guided conversation, durable manual evidence with versioned local text and photo OCR/trade interpretations, and read-only review queues; financial application remains separate."
+    "version": "0.19.0",
+    "description": "F3/F4 shadow API: immutable portfolio, guided conversation, durable manual evidence with versioned local text and photo OCR/trade interpretations, audited source-link review, and read-only review queues; financial application remains separate."
   },
   "servers": [
     {
@@ -93,6 +93,32 @@
           },
           "401": {"description": "Authentication required"},
           "422": {"description": "Invalid limit"},
+          "503": {"description": "Evidence database unavailable"}
+        }
+      }
+    },
+    "/v1/reconciliation/b3/duplicate-movement-decisions": {
+      "post": {
+        "security": [{"bearerAuth": []}],
+        "summary": "Record an audited decision for a pair of repeated B3 movement rows",
+        "description": "Append-only evidence review. Decisions are versioned and idempotent; they do not merge source assertions or change the portfolio.",
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {
+          "type": "object", "additionalProperties": false,
+          "required": ["request_key", "left_assertion_id", "right_assertion_id", "candidate_key", "decision"],
+          "properties": {
+            "request_key": {"type": "string", "minLength": 8, "maxLength": 128, "pattern": "^[A-Za-z0-9._:-]{8,128}$"},
+            "left_assertion_id": {"type": "string", "minLength": 1, "maxLength": 200},
+            "right_assertion_id": {"type": "string", "minLength": 1, "maxLength": 200},
+            "candidate_key": {"type": "string", "pattern": "^[0-9a-f]{32}$"},
+            "decision": {"enum": ["same_event", "distinct_events"]}
+          }
+        }}}},
+        "responses": {
+          "201": {"description": "Audited decision recorded; portfolio unchanged"},
+          "401": {"description": "Authentication required"},
+          "403": {"description": "Reviewer membership required"},
+          "409": {"description": "Candidate stale or idempotency key conflict"},
+          "422": {"description": "Invalid request"},
           "503": {"description": "Evidence database unavailable"}
         }
       }
