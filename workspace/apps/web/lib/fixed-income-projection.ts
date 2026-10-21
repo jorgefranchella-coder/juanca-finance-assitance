@@ -4,7 +4,7 @@ export type FixedIncomeGroup = {
   quantity: number; maturityDate: string; latestDate: string; currentUnitPrice: number;
   currentValueCents: number; priceSource: string; observations: PriceObservation[]; isCurrent: boolean;
 };
-export type CostBasisPoint = { owner: string; instrument_code: string; average_unit_cost: number; as_of: string };
+export type CostBasisPoint = { owner: string; instrument_code: string; average_unit_cost: number; as_of: string; source?: string };
 
 export type ProjectionResult = {
   observationCount: number;
@@ -84,11 +84,15 @@ export function buildFixedIncomeProjectionItems(groups: Iterable<FixedIncomeGrou
     const cost = costCandidates.get(costKey) === 1 ? costMap.get(costKey) : undefined;
     const ambiguousCost = costCandidates.get(costKey)! > 1 && costMap.has(costKey);
     if (cost && Number(cost.average_unit_cost) > 0 && cost.as_of < group.latestDate) {
-      observations.push({ date: cost.as_of, unitPrice: Number(cost.average_unit_cost), source: "cost_basis" });
+      observations.push({ date: cost.as_of, unitPrice: Number(cost.average_unit_cost), source: cost.source || "cost_basis" });
     }
     const projection = fixedIncomeProjection(observations, group.maturityDate, group.latestDate);
     const projectedValueCents = projection.projectedUnitPrice === null
       ? null : Math.round(projection.projectedUnitPrice * group.quantity * 100);
+    const observationSources = [...new Set(observations.map((item) => item.source))].sort();
+    const hasMixedValuationMethods = group.observations.some((item) => item.source === "b3_mtm")
+      && group.observations.some((item) => item.source === "b3_curve");
+    const hasUnverifiedSheetSource = observationSources.some((source) => source.startsWith("google_sheet:"));
     return [{
       owner: group.owner, account: group.account, instrument_code: group.instrumentCode, product_name: group.productName,
       institution: group.institution, issuer: group.issuer || "Emissor não identificado",
@@ -97,6 +101,8 @@ export function buildFixedIncomeProjectionItems(groups: Iterable<FixedIncomeGrou
       current_unit_price: group.currentUnitPrice, current_value_cents: group.currentValueCents,
       price_source: group.priceSource, projected_value_cents: projectedValueCents,
       projected_gain_cents: projectedValueCents === null ? null : projectedValueCents - group.currentValueCents,
+      observation_sources: observationSources, has_mixed_valuation_methods: hasMixedValuationMethods,
+      has_unverified_sheet_source: hasUnverifiedSheetSource,
       ...projection,
       reason: ambiguousCost ? "O custo legado não identifica a conta e foi excluído desta projeção; revisar a atribuição." : projection.reason,
     }];

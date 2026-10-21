@@ -106,7 +106,7 @@ La identidad mínima es familia, titular, custodio, cuenta, instrumento y moneda
 
 **Aceptación:** dos cuentas del mismo titular con el mismo título y costos diferentes mantienen cantidades, costos e historial independientes; el total por emisor coincide con su suma. Un costo antiguo sin cuenta queda pendiente de asignación cuando hay más de una cuenta posible.
 
-**Avance:** la proyección de renta fija separa titular, institución, cuenta declarada e instrumento. Si el reporte no declara cuenta, se conserva esa falta visible y la institución solo sirve como ámbito provisional. Un costo legado sin cuenta se usa únicamente cuando hay un solo candidato; ante posiciones homónimas se excluye y se explica en el detalle. Los nuevos ajustes manuales guardan un historial append-only con fecha, precio medio, cantidad, fuente e institución/cuenta declaradas. El costo legado actual no se convierte retroactivamente en lotes de adquisición.
+**Avance:** la proyección de renta fija separa titular, institución, cuenta declarada e instrumento. Si el reporte no declara cuenta, se conserva esa falta visible y la institución solo sirve como ámbito provisional. Un costo legado sin cuenta se usa únicamente cuando hay un solo candidato; ante posiciones homónimas se excluye y se explica en el detalle. Los nuevos ajustes manuales guardan un historial append-only con fecha, precio medio, cantidad, fuente e institución/cuenta declaradas. El detalle de proyección ahora muestra intervalo y fuentes de la serie, y advierte si alterna MTM con curva. El costo legado actual no se convierte retroactivamente en lotes de adquisición. Las referencias antiguas a la hoja se advierten cuando sus columnas no coinciden con los encabezados actuales; los registros existentes se conservan para revisión.
 
 ### P0-03 — Adquisición, valoración y conflictos
 
@@ -131,3 +131,5 @@ La matriz inicia en la primera referencia cubierta del conjunto seleccionado. An
 Un movimiento del mismo día del snapshot solo se aplica si existe evidencia de que ocurrió después de su corte; sin hora/secuencia suficiente queda pendiente. Negociación y liquidación se enlazan como etapas del mismo hecho cuando corresponde. No se interpola una historia patrimonial completa entre snapshots con movimientos incompletos.
 
 **Aceptación:** con referencias de dos titulares distintas, se conserva un vencimiento entre ambas fechas; importar fuera de orden no cambia el snapshot vigente; un movimiento en el día del corte sin orden conocido no se contabiliza dos veces.
+
+**Fuente de adquisición pendiente de confirmación:** la hoja «Investimentos», pestaña «Renda Fixa», en su estado actual, rotula G como «Data de Emissão» y L como «Preço Atualizado MTM». No se importan esos campos como compra. La pestaña «Renda Fixa Julia» usa otra estructura, por lo que requiere mapeo independiente.

@@ -48,3 +48,4 @@
 
 .matrix-cutoff{display:block;font-size:9px;font-weight:400;text-transform:none;margin-top:3px}.matrix-reason{font-size:10px;white-space:normal;max-width:180px;margin-top:4px}.matrix-reason summary{cursor:pointer;color:#526273}.matrix-reason>span{display:block;margin-top:5px;line-height:1.4}
 .cost-editor .cost-history-scope,.cost-editor .cost-history{grid-column:1/-1}.cost-history-scope{margin:0;color:#647687;font-size:11px}.cost-history{border-top:1px solid #dce9e2;padding-top:8px;color:#40576a;font-size:11px}.cost-history summary{cursor:pointer;font-weight:700}.cost-history ol{margin:8px 0 0;padding-left:22px}.cost-history li{padding:5px 0}.cost-history li small{display:block;color:#718191}.cost-button:disabled{color:#837044;background:#faf7ee;cursor:not-allowed}.portfolio-table td small{display:block;color:#7a8994;font-size:9px;margin-top:3px}
+.projection-warning{color:#96651b!important;font-weight:700}
