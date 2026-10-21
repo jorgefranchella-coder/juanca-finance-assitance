@@ -198,6 +198,33 @@
         }
       }
     },
+    "/v1/position-identities": {
+      "get": {
+        "security": [{ "bearerAuth": [] }],
+        "summary": "List persisted position identities and their latest account resolution",
+        "responses": {
+          "200": {
+            "description": "Shadow identity evidence; does not change published holdings",
+            "content": { "application/json": { "schema": { "type": "object", "required": ["positions", "mode", "authoritative", "portfolio_changed"], "properties": { "positions": { "type": "array", "items": { "type": "object" } }, "mode": { "const": "shadow" }, "authoritative": { "const": false }, "portfolio_changed": { "const": false } } } } }
+          }
+        }
+      }
+    },
+    "/v1/position-identities/{position_id}/acquisitions": {
+      "parameters": [{ "name": "position_id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }],
+      "get": {
+        "security": [{ "bearerAuth": [] }],
+        "summary": "List append-only acquisition evidence and corrections for one position",
+        "responses": { "200": { "description": "Shadow acquisition history; not included in portfolio calculations", "content": { "application/json": { "schema": { "type": "object" } } } }, "404": { "description": "Position not found" } }
+      },
+      "post": {
+        "security": [{ "bearerAuth": [] }],
+        "summary": "Record or correct an acquisition lot as shadow evidence",
+        "parameters": [{ "name": "X-Juanca-Actor", "in": "header", "required": true, "schema": { "type": "string" } }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["request_key", "effective_date", "quantity", "unit_price", "currency", "evidence_kind", "evidence_id"], "properties": { "request_key": { "type": "string", "minLength": 8, "maxLength": 128 }, "acquisition_id": { "type": "string", "format": "uuid" }, "supersedes_revision": { "type": "integer", "minimum": 1 }, "effective_date": { "type": "string", "format": "date" }, "quantity": { "type": "string", "pattern": "^\\d{1,18}(?:\\.\\d{1,10})?$" }, "unit_price": { "type": "string", "pattern": "^\\d{1,18}(?:\\.\\d{1,10})?$" }, "fees_minor": { "type": "integer", "minimum": 0 }, "currency": { "enum": ["BRL", "USD"] }, "evidence_kind": { "enum": ["source_assertion", "event", "manual", "legacy_review"] }, "evidence_id": { "type": "string", "minLength": 1, "maxLength": 500 }, "voided": { "type": "boolean" } } } } } },
+        "responses": { "201": { "description": "Recorded revision; published portfolio unchanged", "content": { "application/json": { "schema": { "type": "object", "required": ["acquisition_id", "revision", "replayed", "mode", "portfolio_changed"], "properties": { "acquisition_id": { "type": "string" }, "revision": { "type": "integer" }, "replayed": { "type": "boolean" }, "mode": { "const": "shadow" }, "portfolio_changed": { "const": false } } } } } }, "409": { "description": "Idempotency or revision conflict" }, "422": { "description": "Invalid acquisition evidence" } }
+      }
+    },
     "/v1/positions": {
       "get": {
         "security": [

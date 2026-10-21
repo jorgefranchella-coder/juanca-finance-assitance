@@ -65,6 +65,7 @@ CREATE TABLE app.acquisition_lots (
   evidence_kind TEXT NOT NULL CHECK (evidence_kind IN ('source_assertion','event','manual','legacy_review')),
   evidence_id TEXT NOT NULL,
   request_key TEXT NOT NULL,
+  request_hash TEXT NOT NULL CHECK (request_hash ~ '^[0-9a-f]{64}$'),
   actor_id TEXT NOT NULL,
   supersedes_id TEXT,
   supersedes_revision INTEGER,
