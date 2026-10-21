@@ -1,0 +1,15 @@
+[Unit]
+Description=Check freshness and integrity of Juanca daily backups
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/jorge/.hermes/profiles/juanca/workspace/patrimonio-familiar-source
+ExecStart=/usr/bin/python3 integration/backup_health.py
+Environment=JUANCA_SOURCE_ROOT=/home/jorge/.hermes/profiles/juanca/workspace/patrimonio-familiar-source
+Environment=JUANCA_SHADOW_SOURCE_ROOT=/home/jorge/juanca
+Environment=JUANCA_AUTHORITY_BACKUP_ROOT=/home/jorge/.local/share/juanca/backups/authority
+Environment=JUANCA_SHADOW_BACKUP_ROOT=/home/jorge/.local/share/juanca/backups/postgres
+Environment=JUANCA_NODE=/home/jorge/.local/bin/node
+UMask=0077
+NoNewPrivileges=true
+TimeoutStartSec=10min

@@ -1,0 +1,10 @@
+[Unit]
+Description=Daily Juanca backup health check
+
+[Timer]
+OnCalendar=*-*-* 05:45:00
+Persistent=true
+Unit=juanca-backup-health.service
+
+[Install]
+WantedBy=timers.target
