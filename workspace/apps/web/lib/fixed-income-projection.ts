@@ -88,8 +88,9 @@ export function buildFixedIncomeProjectionItems(groups: Iterable<FixedIncomeGrou
       observations.push({ date: cost.as_of, unitPrice: Number(cost.average_unit_cost), source: cost.source || "cost_basis" });
     }
     const projection = fixedIncomeProjection(observations, group.maturityDate, group.latestDate);
-    const projectedValueCents = projection.projectedUnitPrice === null
-      ? null : Math.round(projection.projectedUnitPrice * group.quantity * 100);
+    const projectedValueCents = projection.projectedUnitPrice === null || projection.annualizedReturn === null
+      || !Number.isSafeInteger(group.currentValueCents) || group.currentValueCents <= 0
+      ? null : Math.round(group.currentValueCents * Math.pow(1 + projection.annualizedReturn, projection.daysToMaturity / 365.25));
     const observationSources = [...new Set(observations.map((item) => item.source))].sort();
     const hasMixedValuationMethods = group.observations.some((item) => item.source === "b3_mtm")
       && group.observations.some((item) => item.source === "b3_curve");
