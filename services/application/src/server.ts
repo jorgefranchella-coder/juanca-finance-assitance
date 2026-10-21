@@ -9,7 +9,7 @@ import {getPhotoContent,getPhotoStatus,getSourceStatus,listPhotoEvidence,listTex
 import {listManualB3Candidates} from './manual-b3-candidates.ts';
 import {recordManualB3Decision} from './manual-b3-decisions.ts';
 import {listB3SnapshotReviews,recordB3SnapshotReview} from './b3-snapshot-decisions.ts';
-import {listAcquisitionLots,listPositionIdentities,recordAcquisitionLot} from './acquisition-lots.ts';
+import {listAcquisitionLots,listPositionAccountCandidates,listPositionIdentities,recordAcquisitionLot,recordPositionIdentityResolution} from './acquisition-lots.ts';
 const config=JSON.parse(await readFile(process.env.JUANCA_SHADOW_CONFIG??'/home/jorge/.local/share/juanca-shadow/application.json','utf8')) as {token:string;household_id:string;cursor_key:string;port:number};
 if(config.token.length<32||config.cursor_key.length<32||!config.household_id)throw new Error('INVALID_CONFIGURATION');
 const db=pool();
@@ -66,6 +66,12 @@ const server=createServer(async(req,res)=>{
   if(acquisitionMatch&&req.method==='POST'){
    const actor=String(req.headers['x-juanca-actor']??'');
    reply(201,await recordAcquisitionLot(db,config.household_id,actor,acquisitionMatch[1],await readJson(req)));return;
+  }
+  const identityMatch=url.pathname.match(/^\/v1\/position-identities\/([0-9a-f-]{36})\/(account-candidates|resolutions)$/i);
+  if(identityMatch&&identityMatch[2]==='account-candidates'&&req.method==='GET'){reply(200,await listPositionAccountCandidates(db,config.household_id,identityMatch[1]));return;}
+  if(identityMatch&&identityMatch[2]==='resolutions'&&req.method==='POST'){
+   const actor=String(req.headers['x-juanca-actor']??'');
+   reply(201,await recordPositionIdentityResolution(db,config.household_id,actor,identityMatch[1],await readJson(req)));return;
   }
   if(url.pathname==='/v1/conversations/family/messages'){
     if(req.method==='GET'){reply(200,{messages:await chatHistory(db,config.household_id),mode:'guided_shadow',hermes_required:false});return;}

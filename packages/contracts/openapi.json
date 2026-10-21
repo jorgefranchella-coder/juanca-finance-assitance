@@ -225,6 +225,23 @@
         "responses": { "201": { "description": "Recorded revision; published portfolio unchanged", "content": { "application/json": { "schema": { "type": "object", "required": ["acquisition_id", "revision", "replayed", "mode", "portfolio_changed"], "properties": { "acquisition_id": { "type": "string" }, "revision": { "type": "integer" }, "replayed": { "type": "boolean" }, "mode": { "const": "shadow" }, "portfolio_changed": { "const": false } } } } } }, "409": { "description": "Idempotency or revision conflict" }, "422": { "description": "Invalid acquisition evidence" } }
       }
     },
+    "/v1/position-identities/{position_id}/account-candidates": {
+      "get": {
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [{ "name": "position_id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }],
+        "summary": "List custody accounts matching a provisional position owner and institution",
+        "responses": { "200": { "description": "Candidate accounts; an empty list leaves identity unresolved", "content": { "application/json": { "schema": { "type": "object" } } } }, "404": { "description": "Position not found" } }
+      }
+    },
+    "/v1/position-identities/{position_id}/resolutions": {
+      "post": {
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [{ "name": "position_id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }, { "name": "X-Juanca-Actor", "in": "header", "required": true, "schema": { "type": "string" } }],
+        "summary": "Record an audited account assignment after review",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["request_key", "custody_account_id", "decision"], "properties": { "request_key": { "type": "string", "minLength": 8, "maxLength": 128 }, "custody_account_id": { "type": "string" }, "assertion_id": { "type": "string" }, "decision": { "enum": ["user_confirmed", "institution_uniqueness_confirmed"] } } } } } },
+        "responses": { "201": { "description": "Resolution recorded; does not change published portfolio" }, "403": { "description": "Reviewer membership required" }, "409": { "description": "Conflict or non-unique account" }, "422": { "description": "Account does not match position owner or institution" } }
+      }
+    },
     "/v1/positions": {
       "get": {
         "security": [

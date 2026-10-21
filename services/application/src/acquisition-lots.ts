@@ -34,6 +34,61 @@ export async function listAcquisitionLots(db:pg.Pool,household:string,positionId
  return {position_id:positionId,lots:result.rows,mode:'shadow',authoritative:false as const,portfolio_changed:false as const};
 }
 
+export async function listPositionAccountCandidates(db:pg.Pool,household:string,positionId:string){
+ if(!UUID.test(positionId))throw new Conflict('VALIDATION',422);
+ const result=await db.query(`SELECT p.id AS position_id,o.display_name AS owner,ci.canonical_name AS institution,
+   ca.id AS custody_account_id,ca.external_reference,ca.identity_basis,
+   CASE WHEN ca.id IS NULL THEN 'no_registered_account' ELSE 'select_or_confirm' END AS candidate_status
+   FROM app.position_identities p JOIN app.owners o ON o.household_id=p.household_id AND o.id=p.owner_id
+   JOIN app.custody_institutions ci ON ci.id=p.institution_id
+   LEFT JOIN app.custody_accounts ca ON ca.household_id=p.household_id AND ca.owner_id=p.owner_id AND ca.institution_id=p.institution_id
+   WHERE p.household_id=$1 AND p.id=$2 ORDER BY ca.id`,[household,positionId]);
+ if(!result.rowCount)throw new Conflict('NOT_FOUND',404);
+ return {position_id:positionId,owner:result.rows[0].owner,institution:result.rows[0].institution,
+   candidates:result.rows.filter(row=>row.custody_account_id),resolution_required:result.rows[0].custody_account_id===null,
+   mode:'shadow',portfolio_changed:false as const};
+}
+
+export async function recordPositionIdentityResolution(db:pg.Pool,household:string,actor:string,positionId:string,body:unknown){
+ if(!UUID.test(positionId)||!body||typeof body!=='object'||Array.isArray(body))throw new Conflict('VALIDATION',422);
+ const input=body as Record<string,unknown>;
+ if(Object.keys(input).some(key=>!['request_key','custody_account_id','assertion_id','decision'].includes(key))||
+   typeof input.request_key!=='string'||!KEY.test(input.request_key)||typeof input.custody_account_id!=='string'||input.custody_account_id.length<1||input.custody_account_id.length>200||
+   (input.assertion_id!==undefined&&(typeof input.assertion_id!=='string'||input.assertion_id.length<1||input.assertion_id.length>200))||
+   !['user_confirmed','institution_uniqueness_confirmed'].includes(String(input.decision)))throw new Conflict('VALIDATION',422);
+ const value={request_key:input.request_key,custody_account_id:input.custody_account_id,assertion_id:input.assertion_id??null,decision:input.decision};
+ const requestHash=hash(JSON.stringify([positionId,value]));const c=await db.connect();
+ try{
+  await c.query('BEGIN');
+  const member=await c.query("SELECT 1 FROM app.memberships WHERE household_id=$1 AND actor_id=$2 AND role IN ('reviewer','owner','approver')",[household,actor]);
+  if(!member.rowCount)throw new Conflict('FORBIDDEN',403);
+  await c.query('SELECT pg_advisory_xact_lock(hashtextextended($1,0))',[`${household}:${actor}:${value.request_key}`]);
+  const replay=await c.query('SELECT id,position_id,custody_account_id,assertion_id,decision,revision,request_hash FROM app.position_identity_resolutions WHERE household_id=$1 AND actor_id=$2 AND request_key=$3',[household,actor,value.request_key]);
+  if(replay.rowCount){const row=replay.rows[0];if(row.request_hash!==requestHash)throw new Conflict('IDEMPOTENCY_MISMATCH',409);await c.query('COMMIT');return{resolution_id:row.id,position_id:row.position_id,custody_account_id:row.custody_account_id,revision:row.revision,replayed:true,mode:'shadow',portfolio_changed:false};}
+  await c.query('SELECT pg_advisory_xact_lock(hashtextextended($1,0))',[`${household}:position:${positionId}`]);
+  const position=await c.query('SELECT owner_id,institution_id,instrument_code,currency,source_assertion_id FROM app.position_identities WHERE household_id=$1 AND id=$2 FOR UPDATE',[household,positionId]);
+  if(!position.rowCount)throw new Conflict('NOT_FOUND',404);
+  const p=position.rows[0];
+  const account=await c.query('SELECT owner_id,institution_id FROM app.custody_accounts WHERE household_id=$1 AND id=$2',[household,value.custody_account_id]);
+  if(!account.rowCount||account.rows[0].owner_id!==p.owner_id||account.rows[0].institution_id!==p.institution_id)throw new Conflict('ACCOUNT_IDENTITY_MISMATCH',422);
+  if(value.assertion_id&&value.assertion_id!==p.source_assertion_id)throw new Conflict('ASSERTION_MISMATCH',422);
+  const accountCount=await c.query('SELECT count(*) FROM app.custody_accounts WHERE household_id=$1 AND owner_id=$2 AND institution_id=$3',[household,p.owner_id,p.institution_id]);
+  if(value.decision==='institution_uniqueness_confirmed'&&Number(accountCount.rows[0].count)!==1)throw new Conflict('ACCOUNT_NOT_UNIQUE',409);
+  const collision=await c.query(`SELECT 1 FROM app.position_identities x
+   LEFT JOIN LATERAL (SELECT custody_account_id FROM app.position_identity_resolutions r WHERE r.household_id=x.household_id AND r.position_id=x.id ORDER BY revision DESC LIMIT 1) lr ON true
+   WHERE x.household_id=$1 AND x.id<>$2 AND x.owner_id=$3 AND x.instrument_code=$4 AND x.currency=$5
+     AND COALESCE(lr.custody_account_id,x.custody_account_id)=$6 LIMIT 1`,[household,positionId,p.owner_id,p.instrument_code,p.currency,value.custody_account_id]);
+  if(collision.rowCount)throw new Conflict('ACCOUNT_POSITION_COLLISION',409);
+  const latest=await c.query('SELECT id,revision,custody_account_id,assertion_id,decision FROM app.position_identity_resolutions WHERE household_id=$1 AND position_id=$2 ORDER BY revision DESC LIMIT 1',[household,positionId]);
+  if(latest.rowCount&&latest.rows[0].custody_account_id===value.custody_account_id&&latest.rows[0].assertion_id===value.assertion_id&&latest.rows[0].decision===value.decision){await c.query('COMMIT');return{resolution_id:latest.rows[0].id,position_id:positionId,custody_account_id:value.custody_account_id,revision:latest.rows[0].revision,replayed:true,mode:'shadow',portfolio_changed:false};}
+  const revision=Number(latest.rows[0]?.revision??0)+1,id=randomUUID();
+  await c.query(`INSERT INTO app.position_identity_resolutions(household_id,id,position_id,revision,custody_account_id,assertion_id,decision,actor_id,request_key,request_hash,supersedes_id)
+   VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,[household,id,positionId,revision,value.custody_account_id,value.assertion_id,value.decision,actor,value.request_key,requestHash,latest.rows[0]?.id??null]);
+  await c.query("INSERT INTO app.audit_log(household_id,actor_id,action,resource_id,details) VALUES($1,$2,'position_identity_resolved',$3,$4)",[household,actor,id,{position_id:positionId,custody_account_id:value.custody_account_id,assertion_id:value.assertion_id,decision:value.decision,revision,portfolio_changed:false}]);
+  await c.query('COMMIT');return{resolution_id:id,position_id:positionId,custody_account_id:value.custody_account_id,revision,replayed:false,mode:'shadow',portfolio_changed:false};
+ }catch(error){await c.query('ROLLBACK');throw error;}finally{c.release();}
+}
+
 export async function recordAcquisitionLot(db:pg.Pool,household:string,actor:string,positionId:string,body:unknown){
  if(!UUID.test(positionId)||!body||typeof body!=='object'||Array.isArray(body))throw new Conflict('VALIDATION',422);
  const input=body as Record<string,unknown>;
