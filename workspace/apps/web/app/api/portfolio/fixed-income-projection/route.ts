@@ -8,6 +8,7 @@ export const dynamic = "force-dynamic";
 type Stored = { import_owner: string; import_date: string; is_latest_snapshot: number; payload: string };
 type Cost = { owner: string; instrument_code: string; average_unit_cost: number; as_of: string; source: string };
 type StoredMovement = { payload: string };
+const accountKey = (value: unknown) => value == null || String(value).trim() === "" ? null : String(value).trim().toUpperCase();
 export async function GET(request: Request) {
   const userId = authenticatedUserId(request);
   if (!userId) return Response.json({ detail: "Autenticação necessária." }, { status: 401 });
@@ -81,13 +82,15 @@ export async function GET(request: Request) {
         const item = JSON.parse(row.payload) as Record<string, unknown>;
         const owner = String(item.owner ?? "");
         const institution = String(item.institution ?? "").trim();
+        const raw = typeof item.raw === "object" && item.raw !== null ? item.raw as Record<string, unknown> : {};
+        const account = accountKey(item.account ?? raw.Conta);
         const code = normalizedCode(item.instrument_code);
         const date = String(item.occurred_on ?? "");
         const eventType = String(item.event_type ?? "");
         const quantity = Number(item.quantity ?? 0);
         const unitPrice = Number(item.unit_price ?? 0);
         if (!owner || !institution || !code) continue;
-        const key = JSON.stringify([owner, institution.toUpperCase(), code]);
+        const key = JSON.stringify([owner, institution.toUpperCase(), account, code]);
         const history = movementHistory.get(key) ?? { buys: new Map(), unsafe: false };
         if (item.requires_review === true) history.unsafe = true;
         else if (eventType === "buy" && /^\d{4}-\d{2}-\d{2}$/.test(date) && quantity > 0 && unitPrice > 0) {
@@ -102,7 +105,7 @@ export async function GET(request: Request) {
     for (const group of groups.values()) {
       if (!group.isCurrent || !group.institution) continue;
       if (movements.results.length === 10000) continue;
-      const history = movementHistory.get(JSON.stringify([group.owner, group.institution.toUpperCase(), normalizedCode(group.instrumentCode)]));
+      const history = movementHistory.get(JSON.stringify([group.owner, group.institution.toUpperCase(), accountKey(group.account), normalizedCode(group.instrumentCode)]));
       if (!history || history.unsafe || history.buys.size !== 1) continue;
       const [[date, aggregate]] = history.buys;
       const quantityTolerance = Math.max(0.000001, Math.abs(group.quantity) * 1e-8);
