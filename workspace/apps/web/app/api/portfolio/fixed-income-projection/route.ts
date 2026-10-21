@@ -1,7 +1,7 @@
 import { env } from "cloudflare:workers";
 import { authenticatedUserId } from "@/lib/reviews";
 import { b3Valuation, normalizedCode } from "@/lib/valuation";
-import { buildFixedIncomeProjectionItems, type FixedIncomeGroup, type PriceObservation } from "@/lib/fixed-income-projection";
+import { buildFixedIncomeProjectionItems, type FixedIncomeGroup } from "@/lib/fixed-income-projection";
 
 export const dynamic = "force-dynamic";
 
@@ -37,6 +37,8 @@ export async function GET(request: Request) {
         if (!new Set(["fixed_income", "treasury", "international_fixed_income", "private_pension"]).has(assetClass)) continue;
         const owner = String(item.owner ?? row.import_owner);
         const code = normalizedCode(item.instrument_code || item.product_name);
+        const raw = typeof item.raw === "object" && item.raw !== null ? item.raw as Record<string, unknown> : {};
+        const issuer = String(item.issuer ?? raw["Emissor"] ?? raw["Emisor"] ?? "").trim();
         const date = String(item.reference_date ?? row.import_date);
         const quantity = Number(item.quantity ?? 0);
         const maturityDate = String(item.maturity_date ?? "");
@@ -50,7 +52,7 @@ export async function GET(request: Request) {
         const observation = { date, unitPrice: derivedPrice, source: valuation.price_source };
         if (!current) {
           groups.set(key, { owner, instrumentCode: code, productName: String(item.product_name ?? code),
-            institution: String(item.institution ?? ""), assetClass, quantity, maturityDate, latestDate: date,
+            institution: String(item.institution ?? ""), issuer, assetClass, quantity, maturityDate, latestDate: date,
             currentUnitPrice: derivedPrice, currentValueCents: valuation.market_value_cents,
             priceSource: valuation.price_source, observations: [observation], isCurrent: isLatestSnapshot });
         } else {
@@ -59,6 +61,7 @@ export async function GET(request: Request) {
             Object.assign(current, { quantity, maturityDate, latestDate: date, currentUnitPrice: derivedPrice,
               currentValueCents: valuation.market_value_cents, priceSource: valuation.price_source,
               productName: String(item.product_name ?? code), institution: String(item.institution ?? ""), isCurrent: isLatestSnapshot });
+            current.issuer = issuer;
           }
         }
       } catch { /* invalid source rows stay excluded */ }

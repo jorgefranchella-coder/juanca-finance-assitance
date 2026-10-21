@@ -1,6 +1,6 @@
 export type PriceObservation = { date: string; unitPrice: number; source: string };
 export type FixedIncomeGroup = {
-  owner: string; instrumentCode: string; productName: string; institution: string; assetClass: string;
+  owner: string; instrumentCode: string; productName: string; institution: string; issuer: string; assetClass: string;
   quantity: number; maturityDate: string; latestDate: string; currentUnitPrice: number;
   currentValueCents: number; priceSource: string; observations: PriceObservation[]; isCurrent: boolean;
 };
@@ -83,7 +83,8 @@ export function buildFixedIncomeProjectionItems(groups: Iterable<FixedIncomeGrou
       ? null : Math.round(projection.projectedUnitPrice * group.quantity * 100);
     return [{
       owner: group.owner, instrument_code: group.instrumentCode, product_name: group.productName,
-      institution: group.institution, asset_class: group.assetClass, quantity: group.quantity,
+      institution: group.institution, issuer: group.issuer || "Emissor não identificado",
+      asset_class: group.assetClass, quantity: group.quantity,
       maturity_date: group.maturityDate, reference_date: group.latestDate,
       current_unit_price: group.currentUnitPrice, current_value_cents: group.currentValueCents,
       price_source: group.priceSource, projected_value_cents: projectedValueCents,
@@ -91,4 +92,66 @@ export function buildFixedIncomeProjectionItems(groups: Iterable<FixedIncomeGrou
       ...projection,
     }];
   }).sort((left, right) => (left.maturity_date || "9999").localeCompare(right.maturity_date || "9999"));
+}
+
+export type ProjectionScheduleItem = {
+  owner: string; issuer: string; quantity: number; reference_date: string; maturity_date: string;
+  current_unit_price: number; annualizedReturn: number | null; projected_value_cents: number | null;
+};
+export type ProjectionScheduleRow = {
+  date: string; balance_cents: number; maturity_cents: number; positions: number;
+  groups: Array<{ owner: string; issuer: string; balance_cents: number; maturity_cents: number; positions: number }>;
+};
+
+/** Values active holdings at month/year end and reports maturities separately in their period. */
+export function buildFixedIncomeSchedule(items: ProjectionScheduleItem[], granularity: "monthly" | "annual"): ProjectionScheduleRow[] {
+  const eligible = items.filter((item) => item.projected_value_cents !== null && item.annualizedReturn !== null
+    && item.maturity_date && item.reference_date && item.quantity > 0 && item.current_unit_price > 0);
+  if (!eligible.length) return [];
+  const latestReference = eligible.map((item) => item.reference_date).sort().at(-1)!;
+  const maxMaturity = eligible.map((item) => item.maturity_date).sort().at(-1)!;
+  const cursor = new Date(`${latestReference}T00:00:00Z`);
+  const periods: Array<{ date: string; start: string }> = [];
+  let periodStart = latestReference;
+  for (let i = 0; i < 360; i++) {
+    let end: Date;
+    if (granularity === "monthly") end = new Date(Date.UTC(cursor.getUTCFullYear(), cursor.getUTCMonth() + i + 1, 0));
+    else end = new Date(Date.UTC(cursor.getUTCFullYear() + i + 1, 0, 0));
+    let endDate = end.toISOString().slice(0, 10);
+    if (endDate > maxMaturity) {
+      const sameBucket = granularity === "monthly" ? endDate.slice(0, 7) === maxMaturity.slice(0, 7)
+        : endDate.slice(0, 4) === maxMaturity.slice(0, 4);
+      if (!sameBucket) break;
+      endDate = maxMaturity;
+    }
+    periods.push({ date: endDate, start: periodStart });
+    periodStart = endDate;
+  }
+  return periods.map(({ date, start }) => {
+    const grouped = new Map<string, ProjectionScheduleRow["groups"][number]>();
+    for (const item of eligible) {
+      const maturity = item.maturity_date;
+      const rate = item.annualizedReturn!;
+      const key = `${item.owner}\0${item.issuer || "Emissor não identificado"}`;
+      const group = grouped.get(key) ?? { owner: item.owner, issuer: item.issuer || "Emissor não identificado",
+        balance_cents: 0, maturity_cents: 0, positions: 0 };
+      const maturityInPeriod = maturity > start && maturity <= date;
+      if (maturityInPeriod) {
+        const days = Math.max(0, (Date.parse(`${maturity}T00:00:00Z`) - Date.parse(`${item.reference_date}T00:00:00Z`)) / 86_400_000);
+        const value = Math.round(item.current_unit_price * item.quantity * Math.pow(1 + rate, days / 365.25) * 100);
+        group.maturity_cents += value;
+      }
+      if (maturity >= date && item.reference_date < date) {
+        const days = (Date.parse(`${date}T00:00:00Z`) - Date.parse(`${item.reference_date}T00:00:00Z`)) / 86_400_000;
+        group.balance_cents += Math.round(item.current_unit_price * item.quantity * Math.pow(1 + rate, days / 365.25) * 100);
+        group.positions++;
+      }
+      grouped.set(key, group);
+    }
+    const groups = Array.from(grouped.values()).filter((group) => group.balance_cents || group.maturity_cents)
+      .sort((a, b) => a.owner.localeCompare(b.owner) || a.issuer.localeCompare(b.issuer));
+    return { date, balance_cents: groups.reduce((sum, group) => sum + group.balance_cents, 0),
+      maturity_cents: groups.reduce((sum, group) => sum + group.maturity_cents, 0),
+      positions: groups.reduce((sum, group) => sum + group.positions, 0), groups };
+  });
 }
