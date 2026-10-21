@@ -103,6 +103,54 @@ export type ProjectionScheduleRow = {
   groups: Array<{ owner: string; issuer: string; balance_cents: number; maturity_cents: number; positions: number }>;
 };
 
+export type FixedIncomeMatrixColumn = { key: string; year: string; date: string; start: string; label: string };
+export type FixedIncomeMatrixYear = { year: string; annual: FixedIncomeMatrixColumn; months: FixedIncomeMatrixColumn[] };
+
+export function buildFixedIncomeMatrixYears(items: ProjectionScheduleItem[]): FixedIncomeMatrixYear[] {
+  const eligible = items.filter((item) => item.projected_value_cents !== null && item.annualizedReturn !== null
+    && item.maturity_date && item.reference_date && item.reference_date < item.maturity_date);
+  if (!eligible.length) return [];
+  const latestReference = eligible.map((item) => item.reference_date).sort().at(-1)!;
+  const maxMaturity = eligible.map((item) => item.maturity_date).sort().at(-1)!;
+  const firstYear = Number(latestReference.slice(0, 4));
+  const lastYear = Number(maxMaturity.slice(0, 4));
+  const years: FixedIncomeMatrixYear[] = [];
+  for (let year = firstYear; year <= lastYear; year++) {
+    const annualBoundary = `${year}-12-31`;
+    const annualDate = annualBoundary > maxMaturity ? maxMaturity : annualBoundary;
+    const annualStart = year === firstYear ? latestReference : `${year - 1}-12-31`;
+    const annual: FixedIncomeMatrixColumn = { key: `${year}-annual`, year: String(year), date: annualDate, start: annualStart, label: String(year) };
+    const months: FixedIncomeMatrixColumn[] = [];
+    const firstMonth = year === firstYear ? Number(latestReference.slice(5, 7)) : 1;
+    for (let month = firstMonth; month <= 12; month++) {
+      const monthEnd = new Date(Date.UTC(year, month, 0)).toISOString().slice(0, 10);
+      if (monthEnd > maxMaturity) {
+        if (monthEnd.slice(0, 7) !== maxMaturity.slice(0, 7)) break;
+      }
+      const date = monthEnd > maxMaturity ? maxMaturity : monthEnd;
+      const previousMonthEnd = month === 1 ? `${year - 1}-12-31` : new Date(Date.UTC(year, month - 1, 0)).toISOString().slice(0, 10);
+      const start = year === firstYear && month === firstMonth ? latestReference : previousMonthEnd;
+      if (date > start) months.push({ key: `${year}-${String(month).padStart(2, "0")}`, year: String(year), date, start,
+        label: new Intl.DateTimeFormat("pt-BR", { month: "short", timeZone: "UTC" }).format(new Date(`${date}T00:00:00Z`)) });
+    }
+    years.push({ year: String(year), annual, months });
+  }
+  return years;
+}
+
+export function fixedIncomePeriodValue(item: ProjectionScheduleItem, start: string, end: string) {
+  if (item.projected_value_cents === null || item.annualizedReturn === null || !item.maturity_date || item.maturity_date <= start) {
+    return { balance_cents: 0, maturity_cents: 0 };
+  }
+  const projectedAt = (date: string) => {
+    const days = Math.max(0, (Date.parse(`${date}T00:00:00Z`) - Date.parse(`${item.reference_date}T00:00:00Z`)) / 86_400_000);
+    return Math.round(item.current_unit_price * item.quantity * Math.pow(1 + item.annualizedReturn!, days / 365.25) * 100);
+  };
+  const maturity_cents = item.maturity_date <= end ? projectedAt(item.maturity_date) : 0;
+  const balance_cents = item.maturity_date > end && item.reference_date < end ? projectedAt(end) : 0;
+  return { balance_cents, maturity_cents };
+}
+
 /** Values active holdings at month/year end and reports maturities separately in their period. */
 export function buildFixedIncomeSchedule(items: ProjectionScheduleItem[], granularity: "monthly" | "annual"): ProjectionScheduleRow[] {
   const eligible = items.filter((item) => item.projected_value_cents !== null && item.annualizedReturn !== null

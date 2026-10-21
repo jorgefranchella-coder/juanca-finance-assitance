@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { buildFixedIncomeProjectionItems, buildFixedIncomeSchedule, fixedIncomeProjection } from "../lib/fixed-income-projection.ts";
+import { buildFixedIncomeMatrixYears, buildFixedIncomeProjectionItems, buildFixedIncomeSchedule, fixedIncomePeriodValue, fixedIncomeProjection } from "../lib/fixed-income-projection.ts";
 
 test("annualizes observed price growth and compounds it to maturity", () => {
   const result = fixedIncomeProjection([
@@ -69,4 +69,21 @@ test("builds monthly and annual balances grouped by issuer and owner, with matur
   assert.equal(annual[0]?.date, "2026-12-31");
   assert.ok((annual[0]?.maturity_cents ?? 0) > 0);
   assert.equal(annual[0]?.groups.length, 2);
+});
+
+test("builds collapsible annual columns and monthly columns through each maturity", () => {
+  const items = [
+    { owner: "Jorge", issuer: "Banco A", quantity: 10, reference_date: "2026-01-15", maturity_date: "2026-03-15",
+      current_unit_price: 100, annualizedReturn: 0.1, projected_value_cents: 110_000 },
+    { owner: "Julia", issuer: "Banco B", quantity: 2, reference_date: "2026-01-15", maturity_date: "2027-02-01",
+      current_unit_price: 100, annualizedReturn: 0.1, projected_value_cents: 110_000 },
+  ];
+  const years = buildFixedIncomeMatrixYears(items);
+  assert.deepEqual(years.map((year) => year.year), ["2026", "2027"]);
+  assert.equal(years[0]?.annual.date, "2026-12-31");
+  assert.equal(years[0]?.months.find((month) => month.date === "2026-03-31")?.label, "mar.");
+  assert.equal(years[1]?.months.at(-1)?.date, "2027-02-01");
+  const maturity = fixedIncomePeriodValue(items[0], "2026-02-28", "2026-03-31");
+  assert.ok(maturity.maturity_cents > 0);
+  assert.equal(maturity.balance_cents, 0);
 });
