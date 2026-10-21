@@ -37,12 +37,20 @@ export async function loadPortfolioView(userId: string) {
 
 export async function enrichCosts(userId: string, view: Awaited<ReturnType<typeof loadPortfolioView>>) {
   const costs = await loadCostBasis(userId);
+  const identityCount = new Map<string, number>();
+  for (const item of view.positions) {
+    const key = `${item.owner}\0${item.instrument_code}\0${item.currency}`;
+    identityCount.set(key, (identityCount.get(key) ?? 0) + 1);
+  }
   return view.positions.map(item => {
     const cost = costs.get(`${item.owner}\0${item.instrument_code}`);
-    const converted = cost && (cost.currency !== 'USD' || view.ptax)
-      ? Math.round(cost.average_unit_cost * item.quantity * 100 * (cost.currency === 'USD' ? view.ptax!.rate : 1)) : null;
-    return { ...item, average_unit_cost: cost?.average_unit_cost ?? null, cost_currency: cost?.currency ?? null,
+    const unambiguous = identityCount.get(`${item.owner}\0${item.instrument_code}\0${item.currency}`) === 1;
+    const applicableCost = unambiguous ? cost : undefined;
+    const converted = applicableCost && (applicableCost.currency !== 'USD' || view.ptax)
+      ? Math.round(applicableCost.average_unit_cost * item.quantity * 100 * (applicableCost.currency === 'USD' ? view.ptax!.rate : 1)) : null;
+    return { ...item, average_unit_cost: applicableCost?.average_unit_cost ?? null, cost_currency: applicableCost?.currency ?? null,
       cost_basis_cents: converted, unrealized_pnl_cents: converted === null || item.market_value_cents === null ? null : item.market_value_cents-converted,
-      cost_source: cost?.source ?? null, cost_as_of: cost?.as_of ?? null };
+      cost_source: applicableCost?.source ?? null, cost_as_of: applicableCost?.as_of ?? null,
+      cost_status: cost && !unambiguous ? 'ambiguous_position' : applicableCost ? 'available' : 'missing' };
   });
 }

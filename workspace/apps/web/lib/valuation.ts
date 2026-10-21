@@ -47,6 +47,15 @@ export async function ensureValuationSchema() {
       updated_at TEXT DEFAULT CURRENT_TIMESTAMP NOT NULL)`),
     env.DB.prepare(`CREATE UNIQUE INDEX IF NOT EXISTS idx_cost_basis_identity
       ON cost_basis(user_id, owner, instrument_code, currency)`),
+    env.DB.prepare(`CREATE TABLE IF NOT EXISTS cost_basis_history (
+      id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+      user_id TEXT NOT NULL, request_id TEXT NOT NULL, owner TEXT NOT NULL,
+      instrument_code TEXT NOT NULL, currency TEXT NOT NULL, quantity REAL NOT NULL,
+      average_unit_cost REAL NOT NULL, as_of TEXT NOT NULL, source TEXT NOT NULL,
+      institution TEXT, account TEXT, recorded_at TEXT DEFAULT CURRENT_TIMESTAMP NOT NULL,
+      UNIQUE(user_id, request_id))`),
+    env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_cost_basis_history_position
+      ON cost_basis_history(user_id, owner, instrument_code, recorded_at)`),
     env.DB.prepare(`CREATE TABLE IF NOT EXISTS market_quotes (
       id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
       user_id TEXT NOT NULL, market TEXT NOT NULL, symbol TEXT NOT NULL,

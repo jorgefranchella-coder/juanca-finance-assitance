@@ -18,6 +18,7 @@ type Summary = { import_count: number; review_count: number; reviews: Review[] }
 
 type Position = {
   owner: string;
+  account: string | null;
   asset_class: string;
   product_name: string;
   institution: string;
@@ -34,7 +35,10 @@ type Position = {
   cost_currency?: "BRL" | "USD" | null;
   cost_basis_cents?: number | null;
   unrealized_pnl_cents?: number | null;
+  cost_status?: "available" | "missing" | "ambiguous_position";
 };
+type CostHistoryEntry = { request_id: string; currency: string; quantity: number; average_unit_cost: number;
+  as_of: string; source: string; institution: string | null; account: string | null; recorded_at: string };
 
 type PositionsResponse = {
   count: number;
@@ -276,6 +280,8 @@ export function PortfolioDialog() {
   const [editing, setEditing] = useState<Position | null>(null);
   const [averageCost, setAverageCost] = useState("");
   const [costDate, setCostDate] = useState(new Date().toISOString().slice(0, 10));
+  const [costRequestId, setCostRequestId] = useState("");
+  const [costHistory, setCostHistory] = useState<CostHistoryEntry[]>([]);
   const [savingCost, setSavingCost] = useState(false);
   const [quoteStatus, setQuoteStatus] = useState("");
 
@@ -331,10 +337,19 @@ export function PortfolioDialog() {
     }
   }
 
-  function editCost(position: Position) {
+  async function editCost(position: Position) {
     setEditing(position);
     setAverageCost(position.average_unit_cost?.toString() ?? "");
     setCostDate(position.reference_date || new Date().toISOString().slice(0, 10));
+    setCostRequestId(crypto.randomUUID());
+    setCostHistory([]);
+    const params = new URLSearchParams({ owner: position.owner, instrument_code: position.instrument_code });
+    try {
+      const response = await fetch(`/api/portfolio/cost-basis?${params}`, { cache: "no-store" });
+      if (!response.ok) return;
+      const result = await response.json() as { history?: CostHistoryEntry[] };
+      setCostHistory(result.history ?? []);
+    } catch { /* history remains empty if the read fails */ }
   }
 
   async function saveCost() {
@@ -345,7 +360,8 @@ export function PortfolioDialog() {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ owner: editing.owner, instrument_code: editing.instrument_code,
           currency: editing.currency ?? "BRL", quantity: editing.quantity,
-          average_unit_cost: Number(averageCost.replace(",", ".")), as_of: costDate }),
+          average_unit_cost: Number(averageCost.replace(",", ".")), as_of: costDate,
+          institution: editing.institution, account: editing.account, request_id: costRequestId }),
       });
       const result = await response.json() as { detail?: string };
       if (!response.ok) throw new Error(result.detail ?? "Não foi possível salvar.");
@@ -388,8 +404,10 @@ export function PortfolioDialog() {
             </div>
             {editing && <div className="cost-editor">
               <div><strong>{editing.instrument_code || editing.product_name}</strong><small>Custo médio unitário em {editing.currency ?? "BRL"}</small></div>
-              <label>Preço médio<input inputMode="decimal" value={averageCost} onChange={(event) => setAverageCost(event.target.value)} /></label>
-              <label>Data-base<input type="date" value={costDate} onChange={(event) => setCostDate(event.target.value)} /></label>
+              <label>Preço médio<input inputMode="decimal" value={averageCost} onChange={(event) => { setAverageCost(event.target.value); setCostRequestId(crypto.randomUUID()); }} /></label>
+              <label>Data-base<input type="date" value={costDate} onChange={(event) => { setCostDate(event.target.value); setCostRequestId(crypto.randomUUID()); }} /></label>
+              <p className="cost-history-scope">{editing.institution || "Custodio pendiente"}{editing.account ? ` · cuenta ${editing.account}` : " · cuenta no informada"}. Cada ajuste queda registrado con esta referencia.</p>
+              <details className="cost-history"><summary>Historial de costos ({costHistory.length})</summary>{costHistory.length ? <ol>{costHistory.map((entry) => <li key={entry.request_id}><strong>{new Intl.NumberFormat("pt-BR", { style: "currency", currency: entry.currency }).format(entry.average_unit_cost)}</strong> · {entry.quantity} unidades · base {entry.as_of}<small>{entry.institution || "Custodia pendiente"}{entry.account ? ` · cuenta ${entry.account}` : " · cuenta no informada"} · registrado {entry.recorded_at}</small></li>)}</ol> : <p>Aún no hay correcciones registradas en este historial.</p>}</details>
               <button className="review-save" disabled={savingCost} onClick={() => void saveCost()}>{savingCost ? "Salvando…" : "Salvar custo"}</button>
               <button className="text-button" onClick={() => setEditing(null)}>Cancelar</button>
             </div>}
@@ -405,13 +423,13 @@ export function PortfolioDialog() {
                     {positions.map((position, index) => (
                       <tr key={`${position.owner}-${position.instrument_code}-${index}`}>
                         <td>{position.owner}</td>
-                        <td><strong>{position.instrument_code || position.product_name}</strong><small>{position.product_name}</small></td>
+                        <td><strong>{position.instrument_code || position.product_name}</strong><small>{position.product_name} · {position.institution || "Custodia não identificada"}{position.account ? ` · conta ${position.account}` : " · conta não informada"}</small></td>
                         <td>{position.quantity.toLocaleString("pt-BR")}</td>
                         <td><strong>{position.current_unit_price === undefined ? "—" : new Intl.NumberFormat("pt-BR", { style: "currency", currency: position.currency ?? "BRL" }).format(position.current_unit_price)}</strong><small>{position.source?.replaceAll("_", " ") ?? ""}</small></td>
-                        <td>{position.average_unit_cost === null || position.average_unit_cost === undefined ? "—" : new Intl.NumberFormat("pt-BR", { style: "currency", currency: position.cost_currency ?? position.currency ?? "BRL" }).format(position.average_unit_cost)}</td>
+                        <td>{position.average_unit_cost === null || position.average_unit_cost === undefined ? "—" : new Intl.NumberFormat("pt-BR", { style: "currency", currency: position.cost_currency ?? position.currency ?? "BRL" }).format(position.average_unit_cost)}{position.cost_status === "ambiguous_position" && <small>Custo legado sem conta; precisa de revisão</small>}</td>
                         <td>{position.market_value_cents===null?"Conversão indisponível":money.format(position.market_value_cents / 100)}</td>
                         <td className={position.unrealized_pnl_cents === null || position.unrealized_pnl_cents === undefined ? "" : position.unrealized_pnl_cents >= 0 ? "pnl-positive" : "pnl-negative"}>{position.unrealized_pnl_cents === null || position.unrealized_pnl_cents === undefined ? "—" : money.format(position.unrealized_pnl_cents / 100)}</td>
-                        <td><button className="cost-button" onClick={() => editCost(position)}>Definir custo</button></td>
+                        <td>{position.cost_status === "ambiguous_position" ? <button className="cost-button" disabled title="Resolva a conta antes de alterar o custo">Conta pendente</button> : <button className="cost-button" onClick={() => void editCost(position)}>Definir custo</button>}</td>
                       </tr>
                     ))}
                   </tbody>

@@ -106,7 +106,7 @@ La identidad mínima es familia, titular, custodio, cuenta, instrumento y moneda
 
 **Aceptación:** dos cuentas del mismo titular con el mismo título y costos diferentes mantienen cantidades, costos e historial independientes; el total por emisor coincide con su suma. Un costo antiguo sin cuenta queda pendiente de asignación cuando hay más de una cuenta posible.
 
-**Avance:** la proyección de renta fija separa titular, institución, cuenta declarada e instrumento. Si el reporte no declara cuenta, se conserva esa falta visible y la institución solo sirve como ámbito provisional. Un costo legado sin cuenta se usa únicamente cuando hay un solo candidato; ante posiciones homónimas se excluye y se explica en el detalle.
+**Avance:** la proyección de renta fija separa titular, institución, cuenta declarada e instrumento. Si el reporte no declara cuenta, se conserva esa falta visible y la institución solo sirve como ámbito provisional. Un costo legado sin cuenta se usa únicamente cuando hay un solo candidato; ante posiciones homónimas se excluye y se explica en el detalle. Los nuevos ajustes manuales guardan un historial append-only con fecha, precio medio, cantidad, fuente e institución/cuenta declaradas. El costo legado actual no se convierte retroactivamente en lotes de adquisición.
 
 ### P0-03 — Adquisición, valoración y conflictos
 
