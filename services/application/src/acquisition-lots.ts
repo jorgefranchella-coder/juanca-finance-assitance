@@ -20,7 +20,7 @@ export async function listPositionIdentities(db:pg.Pool,household:string){
    sa.interpretation_status AS source_assertion_status,
    si.parser_version AS latest_parser_version,si.status AS parser_status,si.review_reasons AS parser_review_reasons,
    ir.decision AS identity_resolution_decision,ca.identity_basis AS custody_identity_basis,
-   (r.id IS NOT NULL) AS custody_identity_resolved
+   (r.id IS NOT NULL OR p.identity_status='resolved') AS custody_identity_resolved
    FROM app.position_identities p JOIN app.owners o ON o.household_id=p.household_id AND o.id=p.owner_id
    JOIN app.custody_institutions ci ON ci.id=p.institution_id
    LEFT JOIN app.source_assertions sa ON sa.household_id=p.household_id AND sa.id=p.source_assertion_id
