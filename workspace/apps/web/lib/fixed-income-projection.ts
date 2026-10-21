@@ -1,6 +1,6 @@
 export type PriceObservation = { date: string; unitPrice: number; source: string };
 export type FixedIncomeGroup = {
-  owner: string; instrumentCode: string; productName: string; institution: string; issuer: string; assetClass: string;
+  owner: string; account: string | null; instrumentCode: string; productName: string; institution: string; issuer: string; assetClass: string;
   quantity: number; maturityDate: string; latestDate: string; currentUnitPrice: number;
   currentValueCents: number; priceSource: string; observations: PriceObservation[]; isCurrent: boolean;
 };
@@ -71,10 +71,18 @@ export function fixedIncomeProjection(
 /** Builds a projection for every instrument from that instrument's own latest snapshot. */
 export function buildFixedIncomeProjectionItems(groups: Iterable<FixedIncomeGroup>, costs: CostBasisPoint[]) {
   const codeKey = (code: string) => code.trim().toUpperCase().replace(/^(BVMF|NASDAQ|NYSE|NYSEARCA):/, "");
+  const currentGroups = Array.from(groups).filter((group) => group.isCurrent);
+  const costCandidates = new Map<string, number>();
+  for (const group of currentGroups) {
+    const key = `${group.owner}\0${codeKey(group.instrumentCode)}`;
+    costCandidates.set(key, (costCandidates.get(key) ?? 0) + 1);
+  }
   const costMap = new Map(costs.map((cost) => [`${cost.owner}\0${codeKey(cost.instrument_code)}`, cost]));
-  return Array.from(groups).filter((group) => group.isCurrent).flatMap((group) => {
+  return currentGroups.flatMap((group) => {
     const observations = [...group.observations];
-    const cost = costMap.get(`${group.owner}\0${codeKey(group.instrumentCode)}`);
+    const costKey = `${group.owner}\0${codeKey(group.instrumentCode)}`;
+    const cost = costCandidates.get(costKey) === 1 ? costMap.get(costKey) : undefined;
+    const ambiguousCost = costCandidates.get(costKey)! > 1 && costMap.has(costKey);
     if (cost && Number(cost.average_unit_cost) > 0 && cost.as_of < group.latestDate) {
       observations.push({ date: cost.as_of, unitPrice: Number(cost.average_unit_cost), source: "cost_basis" });
     }
@@ -82,7 +90,7 @@ export function buildFixedIncomeProjectionItems(groups: Iterable<FixedIncomeGrou
     const projectedValueCents = projection.projectedUnitPrice === null
       ? null : Math.round(projection.projectedUnitPrice * group.quantity * 100);
     return [{
-      owner: group.owner, instrument_code: group.instrumentCode, product_name: group.productName,
+      owner: group.owner, account: group.account, instrument_code: group.instrumentCode, product_name: group.productName,
       institution: group.institution, issuer: group.issuer || "Emissor não identificado",
       asset_class: group.assetClass, quantity: group.quantity,
       maturity_date: group.maturityDate, reference_date: group.latestDate,
@@ -90,6 +98,7 @@ export function buildFixedIncomeProjectionItems(groups: Iterable<FixedIncomeGrou
       price_source: group.priceSource, projected_value_cents: projectedValueCents,
       projected_gain_cents: projectedValueCents === null ? null : projectedValueCents - group.currentValueCents,
       ...projection,
+      reason: ambiguousCost ? "O custo legado não identifica a conta e foi excluído desta projeção; revisar a atribuição." : projection.reason,
     }];
   }).sort((left, right) => (left.maturity_date || "9999").localeCompare(right.maturity_date || "9999"));
 }

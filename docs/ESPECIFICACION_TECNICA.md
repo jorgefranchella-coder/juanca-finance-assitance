@@ -120,9 +120,9 @@ Esta sección registra cambios entregados y pendientes. Los contratos siguientes
 
 | Requisito | Situación observada | Implementación requerida |
 |---|---|---|
-| P0-01 | La ruta de renta fija agrupa por `owner + instrument_code`; `cost_basis` identifica titular/instrumento/moneda | Introducir `position_id` y cuenta resuelta; agrupar filas económicas de la misma posición explícitamente, conservando las distintas cuentas |
+| P0-01 | La proyección agrupa por titular, custodio, cuenta declarada e instrumento. El esquema de costos legado no incluye cuenta | Separación provisional implementada en proyección; falta `position_id` persistido y resolución de cuenta para registros sin ese dato |
 | P0-02 | Las tres especificaciones resumen capacidades de D1 y sombra | Mantener la matriz funcional con evidencia por versión; no promover disponibilidad a validación por tener un proceso activo |
-| P0-03 | El costo vigente se actualiza por identidad agregada y la proyección puede usarlo como observación | Versionar adquisiciones y correcciones; conservar cantidad, unidad, moneda, fechas, método y origen |
+| P0-03 | Los costos legados no tienen cuenta y no están versionados; si hay posiciones homónimas en varias custodias se excluyen de la proyección | Migrar a adquisiciones versionadas con cantidad, unidad, moneda, fechas, método, origen y cuenta resuelta; mantener legados ambiguos para revisión |
 | P0-04 | Series y matriz comparten el motor por período; vencimiento en el cierre es flujo con saldo cero | Implementado; pruebas de límite, año bisiesto y conciliación anual/mensual |
 | P0-05 | Calendario desde la primera referencia, estados por posición y totales parciales | Implementado en proyección; pendiente la aceptación integral de ingesta temporal |
 
@@ -145,6 +145,6 @@ El calendario usa fechas civiles ISO y cortes inclusivos al final del período. 
 - Referencias diferentes por titular, importaciones fuera de orden, cuenta sin cobertura y movimiento del mismo día sin secuencia producen resultados o bloqueos explícitos.
 - Web, API y agregados usan el mismo motor; los ejemplos de aceptación son sintéticos y no escriben datos familiares.
 
-Orden de entrega: registrar disponibilidad y casos de aceptación (P0-02); resolver identidad y procedencia (P0-01/P0-03); unificar motor temporal y agregaciones (P0-04/P0-05); validar interfaz y migración antes de desplegar escrituras. Este cambio documental no ejecuta ninguna migración.
+Orden de entrega: registrar disponibilidad y casos de aceptación (P0-02); resolver identidad y procedencia (P0-01/P0-03); unificar motor temporal y agregaciones (P0-04/P0-05); validar interfaz y migración antes de desplegar escrituras.
 
-Entrega temporal del 21/10/2026: `fixedIncomePeriodValue` y `summarizeFixedIncomePeriod` distinguen importe desconocido (`null`), cero, conflicto y cobertura parcial. La UI expone fecha de referencia, corte y motivo. Validación: build y 36 pruebas web aprobadas, más lint de archivos modificados. No cambia cuentas, costos, contratos HTTP ni persistencia. El despliegue prepara el build en un directorio aislado, detiene el worker, activa el dist completo y reinicia; conserva el dist anterior para reversión.
+Entrega incremental del 21/10/2026: `fixedIncomePeriodValue` y `summarizeFixedIncomePeriod` distinguen importe desconocido (`null`), cero, conflicto y cobertura parcial. La UI expone fecha de referencia, corte y motivo. En la proyección, la clave incorpora titular, institución, cuenta declarada e instrumento; un costo legado se incorpora solo si existe un único candidato. Si es ambiguo se excluye y la posición muestra el motivo. Para filas B3 sin `Conta`, la institución limita provisionalmente la agrupación, pero no equivale a una cuenta confirmada. La persistencia/versionado de adquisiciones sigue pendiente. Validación de esta entrega: build aislado y lint aprobados; sin ejecución de pruebas automatizadas. La página, sus seis recursos y la API respondieron tras el despliegue. El build se prepara en directorio aislado, se activa con el worker detenido y se conserva el dist anterior para reversión.

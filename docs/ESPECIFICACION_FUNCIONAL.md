@@ -88,7 +88,7 @@ Esta matriz describe disponibilidad, no certifica aceptación integral. Una capa
 | Capacidad | Disponibilidad actual | Evidencia local / brecha |
 |---|---|---|
 | Consulta, importación y costos D1 | Vigente | `workspace/apps/web/app/api`; identidad de costos aún no incluye cuenta |
-| Matriz anual/mensual y expansión por emisor | Vigente, parcial | `FixedIncomeProjection.tsx`; estados por celda y cobertura temporal implementados; falta identidad completa |
+| Matriz anual/mensual y expansión por emisor | Vigente, parcial | `FixedIncomeProjection.tsx`; posiciones separadas por custodio/cuenta declarada; costos legados ambiguos quedan excluidos; falta identidad completa persistida |
 | Propuestas D1 | Vigente | Rutas `transactions`; pruebas de aprobación en `workspace/apps/web/tests` |
 | Evidencia manual, OCR y candidatos B3 | Sombra | `services/application` y `services/ingestion`; no publican hechos financieros en D1 |
 | Cartera versionada y mercado independiente | Sombra | `services/application` y `services/market`; no reemplazan la autoridad vigente |
@@ -105,6 +105,8 @@ Estas reglas precisan el objetivo; no implican que las brechas ya estén resuelt
 La identidad mínima es familia, titular, custodio, cuenta, instrumento y moneda. Una posición contiene adquisiciones separadas cuando difieren fecha, precio o condiciones relevantes. Dos cuentas con el mismo título se valoran por separado y solo se suman para presentación. Emisor y nombre comercial no son claves de posición. Una cuenta desconocida conserva su evidencia y un identificador provisional propio; nunca se fusiona con otra por tener el mismo ticker. Una transferencia confirmada enlaza origen/destino y conserva la adquisición; no simula una compra nueva.
 
 **Aceptación:** dos cuentas del mismo titular con el mismo título y costos diferentes mantienen cantidades, costos e historial independientes; el total por emisor coincide con su suma. Un costo antiguo sin cuenta queda pendiente de asignación cuando hay más de una cuenta posible.
+
+**Avance:** la proyección de renta fija separa titular, institución, cuenta declarada e instrumento. Si el reporte no declara cuenta, se conserva esa falta visible y la institución solo sirve como ámbito provisional. Un costo legado sin cuenta se usa únicamente cuando hay un solo candidato; ante posiciones homónimas se excluye y se explica en el detalle.
 
 ### P0-03 — Adquisición, valoración y conflictos
 

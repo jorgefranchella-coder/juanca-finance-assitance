@@ -46,13 +46,17 @@ export async function GET(request: Request) {
         const derivedPrice = valuation.unit_price > 0 ? valuation.unit_price
           : quantity > 0 ? valuation.market_value_cents / 100 / quantity : 0;
         if (!owner || !code || !date || quantity <= 0 || derivedPrice <= 0) continue;
-        const key = `${owner}\0${code}`;
+        const institution = String(item.institution ?? "").trim();
+        const account = item.account == null || String(item.account).trim() === "" ? null : String(item.account).trim();
+        // Keep parallel custody positions separate. When B3 omits Conta, institution
+        // is the narrowest evidenced scope available; it is not a confirmed account ID.
+        const key = JSON.stringify([owner, institution, account, code]);
         const current = groups.get(key);
         const isLatestSnapshot = row.is_latest_snapshot === 1;
         const observation = { date, unitPrice: derivedPrice, source: valuation.price_source };
         if (!current) {
-          groups.set(key, { owner, instrumentCode: code, productName: String(item.product_name ?? code),
-            institution: String(item.institution ?? ""), issuer, assetClass, quantity, maturityDate, latestDate: date,
+          groups.set(key, { owner, account, instrumentCode: code, productName: String(item.product_name ?? code),
+            institution, issuer, assetClass, quantity, maturityDate, latestDate: date,
             currentUnitPrice: derivedPrice, currentValueCents: valuation.market_value_cents,
             priceSource: valuation.price_source, observations: [observation], isCurrent: isLatestSnapshot });
         } else {
@@ -60,7 +64,7 @@ export async function GET(request: Request) {
           if (date >= current.latestDate) {
             Object.assign(current, { quantity, maturityDate, latestDate: date, currentUnitPrice: derivedPrice,
               currentValueCents: valuation.market_value_cents, priceSource: valuation.price_source,
-              productName: String(item.product_name ?? code), institution: String(item.institution ?? ""), isCurrent: isLatestSnapshot });
+              productName: String(item.product_name ?? code), institution, account, isCurrent: isLatestSnapshot });
             current.issuer = issuer;
           }
         }

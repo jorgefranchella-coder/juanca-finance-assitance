@@ -4,7 +4,7 @@ import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import { buildFixedIncomeMatrixYears, fixedIncomePeriodValue, summarizeFixedIncomePeriod, type ProjectionPeriodValue } from "@/lib/fixed-income-projection";
 
 type ProjectionItem = {
-  owner: string; instrument_code: string; product_name: string; institution: string; issuer: string;
+  owner: string; account: string | null; instrument_code: string; product_name: string; institution: string; issuer: string;
   maturity_date: string; reference_date: string; quantity: number; current_unit_price: number;
   current_value_cents: number; projected_value_cents: number | null; projected_gain_cents: number | null;
   observationCount: number; firstDate: string; lastDate: string; elapsedDays: number;
@@ -115,8 +115,8 @@ export default function FixedIncomeProjection() {
                 <td className="matrix-label"><button type="button" aria-expanded={expanded} onClick={() => toggle(setExpandedIssuers, expandedIssuers, group.key)}><span>{expanded ? "▾" : "▸"}</span><strong>{group.issuer}</strong></button><small>{group.owner} · {group.items.length} títulos</small></td>
                 {columns.map((column) => <td key={`${group.key}-${column.key}`}><ValueCell value={summarizeFixedIncomePeriod(group.items, column.start, column.date)} /></td>)}
               </tr>
-              {expanded && group.items.map((item) => <tr key={`${group.key}-${item.instrument_code}`} className="matrix-instrument-row">
-                <td className="matrix-label"><span className="matrix-instrument-name"><strong>{item.instrument_code}</strong><small>{item.product_name} · vence {date(item.maturity_date)}</small><small>Referência: {date(item.reference_date)}</small></span></td>
+              {expanded && group.items.map((item) => <tr key={`${group.key}-${item.institution}-${item.account ?? "pending"}-${item.instrument_code}`} className="matrix-instrument-row">
+                <td className="matrix-label"><span className="matrix-instrument-name"><strong>{item.instrument_code}</strong><small>{item.product_name} · vence {date(item.maturity_date)}</small><small>{item.institution || "Custódia pendente"}{item.account ? ` · conta ${item.account}` : " · conta não identificada"}</small><small>Referência: {date(item.reference_date)}</small>{item.reason && <small>{item.reason}</small>}</span></td>
                 {columns.map((column) => <td key={`${item.instrument_code}-${column.key}`}><ValueCell value={fixedIncomePeriodValue(item, column.start, column.date)} /></td>)}
               </tr>)}
             </Fragment>;

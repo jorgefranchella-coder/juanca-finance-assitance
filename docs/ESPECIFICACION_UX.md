@@ -89,7 +89,7 @@ La matriz expande años y emisores y muestra referencia por título, corte por c
 
 | Requisito | Presentación requerida |
 |---|---|
-| P0-01 | Bajo cada emisor, distinguir título, custodio y cuenta; permitir ver las adquisiciones sin fusionar cuentas iguales por ticker |
+| P0-01 | En renta fija, mostrar título, custodio y cuenta declarada; indicar cuando falta cuenta. Las adquisiciones separadas por cuenta siguen pendientes |
 | P0-02 | En carga/revisión, explicar si el resultado actualiza la cartera o registra evidencia pendiente; evitar términos internos como D1 o PostgreSQL en la tarea del usuario |
 | P0-03 | Ficha con compra, emisión, liquidación y precio actual separados; fuente, método, fecha y conflicto visibles; corrección muestra antes/después y razón |
 | P0-04 | Encabezados distinguen «Saldo al cierre» y «Vencimientos del período»; año parcial indica fecha de corte y flujos no se presentan como reinversión |
