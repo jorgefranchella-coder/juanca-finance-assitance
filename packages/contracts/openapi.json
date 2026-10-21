@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Juanca application shadow API",
-    "version": "0.20.0",
+    "version": "0.21.0",
     "description": "F3/F4 shadow API: immutable portfolio, guided conversation, durable manual evidence with versioned local text and photo OCR/trade interpretations, audited source-link review, and read-only review queues; financial application remains separate."
   },
   "servers": [
@@ -287,7 +287,7 @@
       "get": {
         "security": [{ "bearerAuth": [] }],
         "summary": "List append-only acquisition evidence and corrections for one position",
-        "responses": { "200": { "description": "Shadow acquisition history; not included in portfolio calculations", "content": { "application/json": { "schema": { "type": "object" } } } }, "404": { "description": "Position not found" } }
+        "responses": { "200": { "description": "Append-only history plus current lot revisions and a gross-acquisition quantity comparison against the linked B3 snapshot. Sales, redemptions and transfers are not netted; this is not a lot-balance certification and is excluded from portfolio calculations.", "content": { "application/json": { "schema": { "type": "object", "required": ["position_id", "lots", "current_lots", "quantity_comparison", "mode", "authoritative", "portfolio_changed"], "properties": { "position_id": { "type": "string", "format": "uuid" }, "lots": { "type": "array", "items": { "type": "object" } }, "current_lots": { "type": "array", "items": { "type": "object" } }, "quantity_comparison": { "type": "object", "required": ["snapshot_as_of", "snapshot_quantity", "current_gross_acquisition_quantity", "snapshot_minus_gross_acquisitions", "status", "interpretation"], "properties": { "snapshot_as_of": { "type": ["string", "null"], "format": "date" }, "snapshot_quantity": { "type": ["string", "null"] }, "current_gross_acquisition_quantity": { "type": "string" }, "snapshot_minus_gross_acquisitions": { "type": ["string", "null"] }, "status": { "enum": ["no_snapshot_quantity", "lots_after_snapshot", "matches_snapshot", "acquisitions_exceed_snapshot", "snapshot_exceeds_acquisitions"] }, "interpretation": { "type": "string" } } }, "mode": { "const": "shadow" }, "authoritative": { "const": false }, "portfolio_changed": { "const": false } } } } } }, "404": { "description": "Position not found" } }
       },
       "post": {
         "security": [{ "bearerAuth": [] }],

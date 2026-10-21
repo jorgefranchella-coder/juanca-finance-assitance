@@ -11,12 +11,25 @@ const hash=(value:string)=>createHash('sha256').update(value).digest('hex');
 const validDate=(value:string)=>{if(!DATE.test(value))return false;const date=new Date(value+'T00:00:00Z');return !Number.isNaN(date.valueOf())&&date.toISOString().slice(0,10)===value;};
 const norm=(value:unknown)=>String(value??'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toUpperCase().trim();
 
+export function effectiveAcquisitionLots(history:Array<Record<string,any>>){
+ const latest=new Map<string,Record<string,any>>();for(const lot of history)if(!latest.has(String(lot.acquisition_id))||Number(lot.revision)>Number(latest.get(String(lot.acquisition_id))!.revision))latest.set(String(lot.acquisition_id),lot);
+ return [...latest.values()].sort((a,b)=>String(a.effective_date).localeCompare(String(b.effective_date))||String(a.acquisition_id).localeCompare(String(b.acquisition_id)));
+}
+
+export function summarizeAcquisitionQuantity(snapshotAsOf:string|null,snapshotValue:string|null,currentLots:Array<Record<string,any>>){
+ const active=currentLots.filter(lot=>!lot.voided),acquired=active.reduce((sum:ReturnType<typeof exact>,lot)=>sum.add(exact(String(lot.quantity))),exact('0'));
+ const snapshot=snapshotValue===null?null:exact(snapshotValue),latestLotDate=currentLots.reduce((date,lot)=>String(lot.effective_date)>date?String(lot.effective_date):date,'');
+ let status:'no_snapshot_quantity'|'lots_after_snapshot'|'matches_snapshot'|'acquisitions_exceed_snapshot'|'snapshot_exceeds_acquisitions'='no_snapshot_quantity';
+ if(snapshot!==null&&snapshotAsOf){if(latestLotDate>snapshotAsOf)status='lots_after_snapshot';else if(acquired.eq(snapshot))status='matches_snapshot';else if(acquired.gt(snapshot))status='acquisitions_exceed_snapshot';else status='snapshot_exceeds_acquisitions';}
+ return {snapshot_as_of:snapshotAsOf,snapshot_quantity:snapshotValue,current_gross_acquisition_quantity:acquired.toFixed(),snapshot_minus_gross_acquisitions:snapshot===null||status==='lots_after_snapshot'?null:snapshot.sub(acquired).toFixed(),status,interpretation:'gross_acquisitions_only; sales, redemptions and transfers are not netted'};
+}
+
 export async function listPositionIdentities(db:pg.Pool,household:string){
  const result=await db.query(`SELECT p.id AS position_id,p.owner_id,o.display_name AS owner,p.institution_id,ci.canonical_name AS institution,
    COALESCE(r.custody_account_id,p.custody_account_id) AS custody_account_id,
    CASE WHEN r.id IS NOT NULL OR p.identity_status='resolved' THEN 'resolved' ELSE 'provisional' END AS identity_status,
    p.instrument_code,p.currency,r.revision AS identity_revision,p.source_assertion_id,
-   sa.document_id AS source_document_id,sa.source_sheet,sa.source_row,sd.effective_as_of AS source_as_of,
+   sa.document_id AS source_document_id,sa.source_sheet,sa.source_row,sd.effective_as_of AS source_as_of,sa.quantity::text AS source_quantity,
    sa.interpretation_status AS source_assertion_status,
    si.parser_version AS latest_parser_version,si.status AS parser_status,si.review_reasons AS parser_review_reasons,
    ir.decision AS identity_resolution_decision,ca.identity_basis AS custody_identity_basis,
@@ -38,11 +51,16 @@ export async function listPositionIdentities(db:pg.Pool,household:string){
 
 export async function listAcquisitionLots(db:pg.Pool,household:string,positionId:string){
  if(!UUID.test(positionId))throw new Conflict('VALIDATION',422);
- const result=await db.query(`SELECT id AS acquisition_id,revision,effective_date,quantity,unit_price,fees_minor,currency,
+ const [result,position]=await Promise.all([db.query(`SELECT id AS acquisition_id,revision,effective_date,quantity,unit_price,fees_minor,currency,
    evidence_kind,evidence_id,voided,recorded_at,supersedes_id,supersedes_revision
    FROM app.acquisition_lots WHERE household_id=$1 AND position_id=$2
-   ORDER BY effective_date,recorded_at,id,revision`,[household,positionId]);
- return {position_id:positionId,lots:result.rows,mode:'shadow',authoritative:false as const,portfolio_changed:false as const};
+   ORDER BY effective_date,recorded_at,id,revision`,[household,positionId]),db.query(`SELECT p.instrument_code,p.currency,sd.effective_as_of::text AS snapshot_as_of,sa.quantity::text AS snapshot_quantity
+   FROM app.position_identities p LEFT JOIN app.source_assertions sa ON sa.household_id=p.household_id AND sa.id=p.source_assertion_id
+   LEFT JOIN app.source_documents sd ON sd.household_id=sa.household_id AND sd.id=sa.document_id
+   WHERE p.household_id=$1 AND p.id=$2`,[household,positionId])]);
+ if(!position.rowCount)throw new Conflict('NOT_FOUND',404);
+ const snapshot=position.rows[0],currentLots=effectiveAcquisitionLots(result.rows);
+ return {position_id:positionId,lots:result.rows,current_lots:currentLots,quantity_comparison:summarizeAcquisitionQuantity(snapshot.snapshot_as_of,snapshot.snapshot_quantity===null?null:String(snapshot.snapshot_quantity),currentLots),mode:'shadow',authoritative:false as const,portfolio_changed:false as const};
 }
 
 export async function listPositionAccountCandidates(db:pg.Pool,household:string,positionId:string){

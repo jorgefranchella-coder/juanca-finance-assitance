@@ -2,6 +2,7 @@ import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {D,exact,minor,integer} from '../src/money.ts';
 import {buildPortfolio,selectInputs,type Inputs,type Row} from '../src/portfolio.ts';
+import {effectiveAcquisitionLots,summarizeAcquisitionQuantity} from '../src/acquisition-lots.ts';
 const input=():Inputs=>({snapshots:[],trades:[],quotes:[],fx:null,facts_revision:'0'});
 function source(payload:Row,id='1'){return {id,import_id:'i1',file_type:'positions',owner:'Fixture',reference_date:'2026-08-01',created_at:'2026-08-02 00:00:00',payload:JSON.stringify(payload)};}
 test('decimal arithmetic preserves fractional holdings and rounds negative ties away from zero',()=>{
@@ -9,6 +10,13 @@ test('decimal arithmetic preserves fractional holdings and rounds negative ties 
 });
 test('rejects unrepresentable input and bigint overflow instead of truncating',()=>{
  for(const value of ['NaN','Infinity','0.00000000001','1000000000000000000'])assert.throws(()=>exact(value));assert.throws(()=>minor(new D('9223372036854775808')));
+});
+test('acquisition reconciliation uses latest lot revisions and labels gross quantity gaps cautiously',()=>{
+ const history=[{acquisition_id:'a',revision:1,effective_date:'2026-01-01',quantity:'10',voided:false},{acquisition_id:'a',revision:2,effective_date:'2026-01-01',quantity:'8',voided:false},{acquisition_id:'b',revision:1,effective_date:'2026-02-01',quantity:'2',voided:true}];
+ const current=effectiveAcquisitionLots(history);assert.equal(current.length,2);assert.equal(current.find(l=>l.acquisition_id==='a')?.revision,2);
+ assert.deepEqual(summarizeAcquisitionQuantity('2026-10-19','10',current),{snapshot_as_of:'2026-10-19',snapshot_quantity:'10',current_gross_acquisition_quantity:'8',snapshot_minus_gross_acquisitions:'2',status:'snapshot_exceeds_acquisitions',interpretation:'gross_acquisitions_only; sales, redemptions and transfers are not netted'});
+ const afterSnapshot=summarizeAcquisitionQuantity('2026-10-19','10',[{...current[0],effective_date:'2026-10-20'}]);assert.equal(afterSnapshot.status,'lots_after_snapshot');assert.equal(afterSnapshot.snapshot_minus_gross_acquisitions,null);
+ assert.equal(summarizeAcquisitionQuantity(null,null,current).status,'no_snapshot_quantity');
 });
 test('USD without observed FX retains original currency and marks the subtotal',()=>{
  const i=input();i.snapshots=[source({owner:'Fixture',account:'custody1',currency:'USD',instrument_code:'AAPL',quantity:'0.3',unit_price:'3.35',market_value_minor:'101',reference_date:'2026-08-01'})];const result=buildPortfolio(i);assert.equal(result.positions[0].market_value_minor,'101');assert.equal(result.positions[0].market_value_cents,null);assert.equal(result.total_value_cents,'0');assert.equal(result.valuation_complete,false);
