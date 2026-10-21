@@ -16,13 +16,22 @@ export async function listPositionIdentities(db:pg.Pool,household:string){
    COALESCE(r.custody_account_id,p.custody_account_id) AS custody_account_id,
    CASE WHEN r.id IS NOT NULL OR p.identity_status='resolved' THEN 'resolved' ELSE 'provisional' END AS identity_status,
    p.instrument_code,p.currency,r.revision AS identity_revision,p.source_assertion_id,
-   sa.document_id AS source_document_id,sa.source_sheet,sa.source_row,sd.effective_as_of AS source_as_of,sa.interpretation_status
+   sa.document_id AS source_document_id,sa.source_sheet,sa.source_row,sd.effective_as_of AS source_as_of,
+   sa.interpretation_status AS source_assertion_status,
+   si.parser_version AS latest_parser_version,si.status AS parser_status,si.review_reasons AS parser_review_reasons,
+   ir.decision AS identity_resolution_decision,ca.identity_basis AS custody_identity_basis,
+   (r.id IS NOT NULL) AS custody_identity_resolved
    FROM app.position_identities p JOIN app.owners o ON o.household_id=p.household_id AND o.id=p.owner_id
    JOIN app.custody_institutions ci ON ci.id=p.institution_id
    LEFT JOIN app.source_assertions sa ON sa.household_id=p.household_id AND sa.id=p.source_assertion_id
    LEFT JOIN app.source_documents sd ON sd.household_id=sa.household_id AND sd.id=sa.document_id
    LEFT JOIN LATERAL (SELECT id,custody_account_id,revision FROM app.position_identity_resolutions x
      WHERE x.household_id=p.household_id AND x.position_id=p.id ORDER BY revision DESC LIMIT 1) r ON true
+   LEFT JOIN app.custody_accounts ca ON ca.household_id=p.household_id AND ca.id=COALESCE(r.custody_account_id,p.custody_account_id)
+   LEFT JOIN LATERAL (SELECT decision FROM app.position_identity_resolutions x
+     WHERE x.household_id=p.household_id AND x.position_id=p.id ORDER BY revision DESC LIMIT 1) ir ON true
+   LEFT JOIN LATERAL (SELECT parser_version,status,review_reasons FROM app.source_interpretations x
+     WHERE x.household_id=sa.household_id AND x.assertion_id=sa.id ORDER BY interpreted_at DESC,parser_version DESC LIMIT 1) si ON true
    WHERE p.household_id=$1 ORDER BY o.display_name,ci.canonical_name,p.instrument_code,p.currency,p.id`,[household]);
  return {positions:result.rows,mode:'shadow',authoritative:false as const,portfolio_changed:false as const};
 }
