@@ -121,7 +121,7 @@ Un comprobante de operación inequívocamente vinculado a la adquisición preval
 
 **Aceptación:** la ficha explica de dónde proviene cada precio/fecha; cambiar un costo conserva valor previo, actor, razón y evidencia. Compras múltiples no se convierten en una compra ficticia con fecha única. Una serie que cambia entre curva y MTM se señala antes de extrapolarla.
 
-**Avance:** se registraron 9 observaciones de adquisición B3 para 5 posiciones de Jorge; las comisiones se guardan como desconocidas porque el reporte no las declara. Al comparar la suma de lotes con el snapshot B3 del 19/10, 4 de las 5 posiciones concuerdan y una conserva una diferencia sin explicar con la evidencia disponible. Son evidencias históricas en sombra; no se asignan al costo vigente ni alimentan la proyección hasta completar la conciliación de cantidades y la valoración histórica.
+**Avance:** se registraron 9 observaciones de adquisición B3 para 5 posiciones de Jorge; las comisiones se guardan como desconocidas porque el reporte no las declara. Al comparar la suma de lotes con el snapshot B3 del 19/10, 4 de las 5 posiciones concuerdan y una conserva una diferencia sin explicar con la evidencia disponible. La pestaña Revisiones ofrece una conciliación de solo lectura por titular y posición; compara compras brutas con el snapshot, identifica posiciones sin lotes y excluye diferencias no comparables cuando hay adquisiciones posteriores al corte. Son evidencias históricas en sombra; no se asignan al costo vigente ni alimentan la proyección hasta completar la conciliación de cantidades y la valoración histórica.
 
 ### P0-04 — Saldos y flujos por período
 

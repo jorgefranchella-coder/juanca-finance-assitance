@@ -15,7 +15,7 @@
 | Pestaña | Necesidad principal | Contenido |
 |---|---|---|
 | Visão geral | Saber cuánto y de quién | Total, subtotales, distribución, actividad, calidad y acceso a posiciones |
-| Revisões | Resolver incertidumbre | Movimientos ambiguos, candidatos B3, fotos y decisiones con evidencia |
+| Revisões | Resolver incertidumbre | Movimientos ambiguos, candidatos B3, fotos, decisiones con evidencia y conciliación de compras contra snapshot B3 |
 | Juanca | Consultar en lenguaje natural | Conversación guiada propia; el puente Hermes es una opción heredada |
 | Assistente | Registrar una operación comunicada | Texto/comprobante, interpretación, propuesta y aprobación/rechazo |
 | Importar | Actualizar fuentes | B3, Avenue y previsión; archivo, titular, fecha y estado |
@@ -48,6 +48,10 @@ La nota metodológica bajo la matriz explica que se extrapola una tasa **histór
 ### Cartera y calidad
 
 La vista general muestra fecha de referencia y cobertura junto a importes. En la cartera, un filtro por titular y una búsqueda por activo ayudan a localizar posiciones; cantidad, moneda, precio, costo y variación solo se muestran cuando existe dato suficiente. Si faltan PTAX, cuenta o evidencia, el motivo debe acompañar el subtotal o posición afectada. Un resumen de revisiones permite abrir el caso concreto.
+
+### Conciliación de adquisiciones
+
+En **Revisões**, la conciliación compara la cantidad del snapshot B3 con compras brutas registradas por posición, junto con titular, institución, cuenta y fecha de corte. El filtro de titular limita las filas; por defecto se muestran posiciones que ya tienen lotes registrados y un control permite incluir las demás. Los indicadores resumen el universo completo, aunque algunas filas estén ocultas por el filtro. El estado y la diferencia se leen como diagnóstico: las compras brutas no descuentan ventas, rescates ni transferencias, y una diferencia no determina el saldo de apertura ni el costo vigente. Si hay adquisiciones posteriores al snapshot, no se presenta una diferencia comparable. La pantalla es de solo lectura y ofrece actualización manual.
 
 ### Importación
 
@@ -82,6 +86,7 @@ La propuesta presenta un resumen antes de habilitar `Aprovar` o `Rejeitar`. El u
 5. Una carga o corrección nunca desaparece de la bandeja por fallar OCR, parser o identificación de cuenta; se ve su estado y original.
 6. Ninguna pantalla transforma un dato incompleto en un total completo o una estimación contractual.
 7. Las acciones de aprobación/rechazo tienen foco, nombre accesible, confirmación visible y resultado idempotente.
+8. La conciliación de adquisiciones distingue las posiciones sin lotes, las compras posteriores al corte y las cantidades iguales o diferentes; ningún estado sugiere que las compras brutas equivalen automáticamente al saldo actual.
 
 ## 7. Interacciones P0: implementación y aceptación
 
@@ -91,7 +96,7 @@ La matriz expande años y emisores y muestra referencia por título, corte por c
 |---|---|
 | P0-01 | En renta fija, mostrar título, custodio y cuenta declarada; indicar cuando falta cuenta. Las adquisiciones separadas por cuenta siguen pendientes |
 | P0-02 | En carga/revisión, explicar si el resultado actualiza la cartera o registra evidencia pendiente; evitar términos internos como D1 o PostgreSQL en la tarea del usuario |
-| P0-03 | Detalle muestra tasa histórica, intervalo, cantidad de observaciones, confianza y fuentes usadas, incluida la compra B3 cuando su identidad y cantidad se confirman; advierte mezcla MTM/curva. Un costo con fuente de hoja no verificada aparece como excluido, conserva su referencia de celda y no alimenta la tasa hasta confirmar el mapeo. Fechas de emisión/compra/liquidación y conflictos de adquisición siguen pendientes |
+| P0-03 | Detalle muestra tasa histórica, intervalo, cantidad de observaciones, confianza y fuentes usadas, incluida la compra B3 cuando su identidad y cantidad se confirman; advierte mezcla MTM/curva. En Revisões, una conciliación de solo lectura contrasta las compras brutas registradas con el snapshot B3 y explica sus límites. Un costo con fuente de hoja no verificada aparece como excluido, conserva su referencia de celda y no alimenta la tasa hasta confirmar el mapeo. Fechas de emisión/compra/liquidación y conflictos de adquisición siguen pendientes |
 | P0-04 | Encabezados distinguen «Saldo al cierre» y «Vencimientos del período»; año parcial indica fecha de corte y flujos no se presentan como reinversión |
 | P0-05 | Identificar referencia por posición y total parcial; distinguir «Sin cobertura», «Faltan datos», «En revisión» y «Vencido», con explicación accesible |
 
