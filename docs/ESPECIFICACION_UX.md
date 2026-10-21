@@ -91,7 +91,7 @@ La matriz expande años y emisores y muestra referencia por título, corte por c
 |---|---|
 | P0-01 | En renta fija, mostrar título, custodio y cuenta declarada; indicar cuando falta cuenta. Las adquisiciones separadas por cuenta siguen pendientes |
 | P0-02 | En carga/revisión, explicar si el resultado actualiza la cartera o registra evidencia pendiente; evitar términos internos como D1 o PostgreSQL en la tarea del usuario |
-| P0-03 | Detalle muestra tasa histórica, intervalo, cantidad de observaciones, confianza y fuentes usadas; advierte mezcla MTM/curva. Un costo con fuente de hoja no verificada aparece como excluido, conserva su referencia de celda y no alimenta la tasa hasta confirmar el mapeo. Fechas de emisión/compra/liquidación y conflictos de adquisición siguen pendientes |
+| P0-03 | Detalle muestra tasa histórica, intervalo, cantidad de observaciones, confianza y fuentes usadas, incluida la compra B3 cuando su identidad y cantidad se confirman; advierte mezcla MTM/curva. Un costo con fuente de hoja no verificada aparece como excluido, conserva su referencia de celda y no alimenta la tasa hasta confirmar el mapeo. Fechas de emisión/compra/liquidación y conflictos de adquisición siguen pendientes |
 | P0-04 | Encabezados distinguen «Saldo al cierre» y «Vencimientos del período»; año parcial indica fecha de corte y flujos no se presentan como reinversión |
 | P0-05 | Identificar referencia por posición y total parcial; distinguir «Sin cobertura», «Faltan datos», «En revisión» y «Vencido», con explicación accesible |
 

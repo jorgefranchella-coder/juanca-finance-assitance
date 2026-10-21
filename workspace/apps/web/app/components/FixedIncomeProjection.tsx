@@ -33,7 +33,7 @@ function confidenceName(value: ProjectionItem["confidence"]) {
   return "insuficiente";
 }
 function sourceName(value: string) {
-  const label = ({ b3_mtm: "MTM B3", b3_curve: "curva B3", b3_close: "fechamento B3", b3_position: "posição B3", manual: "custo manual", broker_note: "nota de corretagem" } as Record<string, string>)[value];
+  const label = ({ b3_mtm: "MTM B3", b3_curve: "curva B3", b3_close: "fechamento B3", b3_position: "posição B3", b3_movement: "compra B3", manual: "custo manual", broker_note: "nota de corretagem" } as Record<string, string>)[value];
   if (label) return label;
   if (value.startsWith("google_sheet:")) return `hoja de cálculo · ${value.split(":").slice(2).join(":")}`;
   return value.replaceAll("_", " ");

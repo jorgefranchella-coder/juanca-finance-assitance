@@ -7,11 +7,12 @@ export const dynamic = "force-dynamic";
 
 type Stored = { import_owner: string; import_date: string; is_latest_snapshot: number; payload: string };
 type Cost = { owner: string; instrument_code: string; average_unit_cost: number; as_of: string; source: string };
+type StoredMovement = { payload: string };
 export async function GET(request: Request) {
   const userId = authenticatedUserId(request);
   if (!userId) return Response.json({ detail: "Autenticação necessária." }, { status: 401 });
   try {
-    const [stored, costs] = await Promise.all([
+    const [stored, costs, movements] = await Promise.all([
       env.DB.prepare(`WITH latest_imports AS (
           SELECT i.id FROM imports i
           WHERE i.user_id=? AND i.status='processed' AND i.file_type IN ('positions', 'pension_statement')
@@ -28,6 +29,10 @@ export async function GET(request: Request) {
         .bind(userId, userId).all<Stored>(),
       env.DB.prepare(`SELECT owner, instrument_code, average_unit_cost, as_of, source FROM cost_basis
         WHERE user_id=? ORDER BY as_of LIMIT 3000`).bind(userId).all<Cost>().catch(() => ({ results: [] as Cost[] })),
+      env.DB.prepare(`SELECT r.payload FROM import_records r JOIN imports i ON i.id=r.import_id
+        WHERE i.user_id=? AND i.status='processed' AND i.file_type='movements'
+          AND r.record_kind='movement' ORDER BY i.created_at, r.id LIMIT 10000`)
+        .bind(userId).all<StoredMovement>().catch(() => ({ results: [] as StoredMovement[] })),
     ]);
     const groups = new Map<string, FixedIncomeGroup>();
     for (const row of stored.results) {
@@ -69,6 +74,41 @@ export async function GET(request: Request) {
           }
         }
       } catch { /* invalid source rows stay excluded */ }
+    }
+    const movementHistory = new Map<string, { buys: Map<string, { quantity: number; total: number }>; unsafe: boolean }>();
+    for (const row of movements.results) {
+      try {
+        const item = JSON.parse(row.payload) as Record<string, unknown>;
+        const owner = String(item.owner ?? "");
+        const institution = String(item.institution ?? "").trim();
+        const code = normalizedCode(item.instrument_code);
+        const date = String(item.occurred_on ?? "");
+        const eventType = String(item.event_type ?? "");
+        const quantity = Number(item.quantity ?? 0);
+        const unitPrice = Number(item.unit_price ?? 0);
+        if (!owner || !institution || !code) continue;
+        const key = JSON.stringify([owner, institution.toUpperCase(), code]);
+        const history = movementHistory.get(key) ?? { buys: new Map(), unsafe: false };
+        if (item.requires_review === true) history.unsafe = true;
+        else if (eventType === "buy" && /^\d{4}-\d{2}-\d{2}$/.test(date) && quantity > 0 && unitPrice > 0) {
+          const aggregate = history.buys.get(date) ?? { quantity: 0, total: 0 };
+          aggregate.quantity += quantity;
+          aggregate.total += quantity * unitPrice;
+          history.buys.set(date, aggregate);
+        } else if (eventType !== "interest" && eventType !== "income") history.unsafe = true;
+        movementHistory.set(key, history);
+      } catch { /* invalid movement rows stay excluded */ }
+    }
+    for (const group of groups.values()) {
+      if (!group.isCurrent || !group.institution) continue;
+      if (movements.results.length === 10000) continue;
+      const history = movementHistory.get(JSON.stringify([group.owner, group.institution.toUpperCase(), normalizedCode(group.instrumentCode)]));
+      if (!history || history.unsafe || history.buys.size !== 1) continue;
+      const [[date, aggregate]] = history.buys;
+      const quantityTolerance = Math.max(0.000001, Math.abs(group.quantity) * 1e-8);
+      if (!aggregate || Math.abs(aggregate.quantity - group.quantity) > quantityTolerance || date >= group.latestDate
+        || group.observations.some((observation) => observation.date === date)) continue;
+      group.observations.push({ date, unitPrice: aggregate.total / aggregate.quantity, source: "b3_movement" });
     }
     const items = buildFixedIncomeProjectionItems(groups.values(), costs.results);
     const covered = items.filter((item) => item.projected_value_cents !== null);
