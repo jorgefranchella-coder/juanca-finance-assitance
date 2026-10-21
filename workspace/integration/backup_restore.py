@@ -42,6 +42,8 @@ def verify(backup):
         if path.resolve().is_relative_to(backup.resolve()) is False or digest(path) != expected:
             raise ValueError('Backup manifest mismatch')
     counts = check_databases(backup / 'state')
+    if (backup / 'private').exists():
+        check_databases(backup / 'private')
     if counts != manifest['table_counts']:
         raise ValueError('Backup row counts differ')
     return manifest
@@ -92,7 +94,15 @@ def restore(backup, destination):
     shutil.copytree(backup / 'state', destination / 'state')
     shutil.copytree(backup / 'source', destination / 'source')
     check_databases(destination / 'state')
-    return {'restored': True, 'credentials_copied': False, 'services_started': False}
+    hermes_state = backup / 'private/hermes-state.db'
+    if hermes_state.is_file():
+        private = destination / 'private'
+        private.mkdir(mode=0o700)
+        shutil.copy2(hermes_state, private / 'hermes-state.db')
+        (private / 'hermes-state.db').chmod(0o600)
+        check_databases(private)
+    return {'restored': True, 'credentials_copied': False,
+            'hermes_state_copied': hermes_state.is_file(), 'services_started': False}
 
 
 def main():

@@ -45,10 +45,24 @@ class BackupRestoreTests(unittest.TestCase):
         self.assertEqual(backup_restore.verify(self.backup), manifest)
         restored = self.root / 'restored'
         result = backup_restore.restore(self.backup, restored)
-        self.assertEqual(result, {'restored': True, 'credentials_copied': False, 'services_started': False})
+        self.assertEqual(result, {'restored': True, 'credentials_copied': False,
+                                  'hermes_state_copied': True, 'services_started': False})
         self.assertTrue((restored / 'state/portfolio.db').is_file())
         self.assertTrue((restored / 'source/app.py').is_file())
-        self.assertFalse((restored / 'private').exists())
+        self.assertTrue((restored / 'private/hermes-state.db').is_file())
+        self.assertEqual((restored / 'private/hermes-state.db').stat().st_mode & 0o777, 0o600)
+        self.assertFalse((restored / 'private/credentials.json').exists())
+
+    def test_verify_checks_hermes_sqlite_integrity(self):
+        with patch.object(backup_restore, 'SERVICES', ()):
+            backup_restore.create(self.source, self.backup, self.profile)
+        hermes = self.backup / 'private/hermes-state.db'
+        hermes.write_bytes(b'broken sqlite')
+        manifest = json.loads((self.backup / 'manifest.json').read_text())
+        manifest['files']['private/hermes-state.db'] = backup_restore.digest(hermes)
+        (self.backup / 'manifest.json').write_text(json.dumps(manifest))
+        with self.assertRaises(sqlite3.DatabaseError):
+            backup_restore.verify(self.backup)
 
     def test_verify_rejects_modified_backup_file(self):
         with patch.object(backup_restore, 'SERVICES', ()):
