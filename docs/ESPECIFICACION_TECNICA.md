@@ -60,8 +60,10 @@ Una importación guarda hash y bytes originales. Las filas normalizadas conserva
 ```text
 r = (P1 / P0)^(365,25 / días_observados) - 1
 P(t) = P1 × (1 + r)^(días_desde_P1_hasta_t / 365,25)
-V(t) = P(t) × cantidad
+V(t) = valor_total_del_snapshot × (1 + r)^(días_desde_referencia_hasta_t / 365,25)
 ```
+
+La matriz mensual y anual parte del valor total reportado por el snapshot. La tasa histórica se estima con precios unitarios; así el saldo del primer periodo conserva el total oficial aunque el precio unitario multiplicado por la cantidad difiera por redondeos.
 
 Una compra B3 del historial puede actuar como observación inicial solo si el conjunto importado no llegó al límite de lectura, hay una única fecha de compra para esa posición, las filas tienen fecha/cantidad/precio positivos y no requieren revisión, no hay ventas ni otros cambios de principal, y la suma comprada coincide con la cantidad del último snapshot. Compras del mismo día se consolidan con promedio ponderado por cantidad; se omiten si hay snapshot ese día. La asociación compara titular, institución, instrumento y cuenta; el campo de cuenta debe coincidir exactamente, incluida su ausencia en ambos registros. Así, una compra que informa cuenta no se atribuye a una posición cuyo snapshot no la informa, ni al revés. Una observación de costo de otra fuente puede actuar como `P0` solo si su procedencia está verificada; los costos con fuente de hoja pendiente de mapeo se excluyen. Se rechazan vencimiento ausente, datos insuficientes o rentabilidad no finita, menor o igual a −95 % o superior a 200 % anual. La confianza es alta con al menos 180 días y cuatro precios, media con al menos 90 días y tres, y baja en los demás casos con tasa calculable. La ruta `GET /api/portfolio/fixed-income-projection` selecciona el snapshot vigente por **titular y tipo de fuente**: un extracto de previsión posterior no oculta B3. Los grupos de instrumentos obsoletos se excluyen de la respuesta actual.
 
