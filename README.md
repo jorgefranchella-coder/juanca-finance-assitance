@@ -30,3 +30,23 @@ El timer `juanca-shadow-backup.timer` ejecuta cada día, alrededor de las 03:30 
 El timer `juanca-authority-backup.timer` ejecuta a diario, alrededor de las 04:15 (hora local), el respaldo completo de la autoridad D1. Detiene web y Worker durante la copia coherente de D1, R2 y el estado Hermes, los vuelve a iniciar y prueba la restauración en un directorio aislado. El bloque `ExecStopPost` del servicio los inicia también si el proceso de captura termina antes de completar su rutina de cierre. Un backup parcial queda sin manifest y el chequeo diario lo reporta como inválido. La primera ejecución real está programada para el 22/10/2026; las pruebas previas usan datos sintéticos. Si el equipo está apagado a esa hora, el timer no hace una ejecución de recuperación durante el día. Las copias son privadas y no se purgan automáticamente. Estado: `systemctl --user status juanca-authority-backup.timer`.
 
 `juanca-backup-health.timer` valida cada día a las 05:45 que la copia más reciente de cada conjunto esté dentro de 32 horas, tenga constancia de restauración aislada exitosa, pase su verificador de manifest y que los sistemas de archivos conserven al menos 5 GiB libres. También se puede ejecutar `npm run backup:health`; un resultado fallido queda visible en el estado del servicio y en el journal. Este chequeo no detiene los servicios.
+
+### Comprobar y ensayar una recuperación
+
+Consultar el resultado programado con `systemctl --user status juanca-backup-health.service` y `journalctl --user -u juanca-backup-health.service`. La verificación manual completa, cuando exista un backup de autoridad, es:
+
+```bash
+cd /home/jorge/.hermes/profiles/juanca/workspace/patrimonio-familiar-source
+BACKUP="$(find /home/jorge/.local/share/juanca/backups/authority -mindepth 1 -maxdepth 1 -type d -name 'juanca-authority-*' | sort | tail -n 1)"
+test -n "$BACKUP"
+python3 integration/backup_restore.py verify --backup "$BACKUP"
+python3 integration/backup_restore.py restore --backup "$BACKUP" --destination "/tmp/juanca-restore-$(date -u +%Y%m%dT%H%M%SZ)"
+```
+
+La restauración crea un directorio nuevo y aislado, verifica SQLite y copia el estado Hermes, pero omite credenciales y no inicia servicios. Es un ensayo y una fuente para recuperación manual; no se debe cambiar la ruta de producción a ese directorio. No hay automatización para promover una restauración a producción ni un restaurador aislado de un dump PostgreSQL histórico. Cada copia sombra sí se restaura y compara durante su creación; para comprobar solo sus hashes:
+
+```bash
+SHADOW_BACKUP="$(find /home/jorge/.local/share/juanca/backups/postgres -mindepth 1 -maxdepth 1 -type d -name 'postgres-verified-*' | sort | tail -n 1)"
+test -n "$SHADOW_BACKUP"
+/home/jorge/.local/bin/node --experimental-strip-types /home/jorge/juanca/infra/backup/verify_manifest.ts "$SHADOW_BACKUP"
+```
