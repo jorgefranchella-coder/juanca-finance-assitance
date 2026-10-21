@@ -116,15 +116,15 @@ Para conmutar se necesita cerrar cuentas e identidades pendientes, completar la 
 
 ## 7. Diseño P0 y brechas verificadas
 
-Esta sección especifica cambios pendientes. Los contratos siguientes son conceptuales y requieren migraciones/adaptadores antes de utilizarse con datos reales.
+Esta sección registra cambios entregados y pendientes. Los contratos siguientes son conceptuales y requieren migraciones/adaptadores antes de utilizarse con datos reales.
 
 | Requisito | Situación observada | Implementación requerida |
 |---|---|---|
 | P0-01 | La ruta de renta fija agrupa por `owner + instrument_code`; `cost_basis` identifica titular/instrumento/moneda | Introducir `position_id` y cuenta resuelta; agrupar filas económicas de la misma posición explícitamente, conservando las distintas cuentas |
 | P0-02 | Las tres especificaciones resumen capacidades de D1 y sombra | Mantener la matriz funcional con evidencia por versión; no promover disponibilidad a validación por tener un proceso activo |
 | P0-03 | El costo vigente se actualiza por identidad agregada y la proyección puede usarlo como observación | Versionar adquisiciones y correcciones; conservar cantidad, unidad, moneda, fechas, método y origen |
-| P0-04 | Existen dos funciones de series; `buildFixedIncomeSchedule` incluye saldo cuando vencimiento coincide con cierre y `fixedIncomePeriodValue` lo excluye | Unificar semántica y motor; probar el límite del día de vencimiento y la conciliación anual/mensual |
-| P0-05 | `buildFixedIncomeMatrixYears` toma la referencia máxima del conjunto | Generar calendario desde la primera cobertura y estados por posición/período; no recortar eventos por otra referencia más reciente |
+| P0-04 | Series y matriz comparten el motor por período; vencimiento en el cierre es flujo con saldo cero | Implementado; pruebas de límite, año bisiesto y conciliación anual/mensual |
+| P0-05 | Calendario desde la primera referencia, estados por posición y totales parciales | Implementado en proyección; pendiente la aceptación integral de ingesta temporal |
 
 ### Contratos y migración
 
@@ -146,3 +146,5 @@ El calendario usa fechas civiles ISO y cortes inclusivos al final del período. 
 - Web, API y agregados usan el mismo motor; los ejemplos de aceptación son sintéticos y no escriben datos familiares.
 
 Orden de entrega: registrar disponibilidad y casos de aceptación (P0-02); resolver identidad y procedencia (P0-01/P0-03); unificar motor temporal y agregaciones (P0-04/P0-05); validar interfaz y migración antes de desplegar escrituras. Este cambio documental no ejecuta ninguna migración.
+
+Entrega temporal del 21/10/2026: `fixedIncomePeriodValue` y `summarizeFixedIncomePeriod` distinguen importe desconocido (`null`), cero, conflicto y cobertura parcial. La UI expone fecha de referencia, corte y motivo. Validación: build y 36 pruebas web aprobadas, más lint de archivos modificados. No cambia cuentas, costos, contratos HTTP ni persistencia. El despliegue prepara el build en un directorio aislado, detiene el worker, activa el dist completo y reinicia; conserva el dist anterior para reversión.

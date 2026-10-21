@@ -88,7 +88,7 @@ Esta matriz describe disponibilidad, no certifica aceptación integral. Una capa
 | Capacidad | Disponibilidad actual | Evidencia local / brecha |
 |---|---|---|
 | Consulta, importación y costos D1 | Vigente | `workspace/apps/web/app/api`; identidad de costos aún no incluye cuenta |
-| Matriz anual/mensual y expansión por emisor | Vigente, parcial | `FixedIncomeProjection.tsx`; faltan identidad completa y estados por celda |
+| Matriz anual/mensual y expansión por emisor | Vigente, parcial | `FixedIncomeProjection.tsx`; estados por celda y cobertura temporal implementados; falta identidad completa |
 | Propuestas D1 | Vigente | Rutas `transactions`; pruebas de aprobación en `workspace/apps/web/tests` |
 | Evidencia manual, OCR y candidatos B3 | Sombra | `services/application` y `services/ingestion`; no publican hechos financieros en D1 |
 | Cartera versionada y mercado independiente | Sombra | `services/application` y `services/market`; no reemplazan la autoridad vigente |

@@ -83,9 +83,9 @@ La propuesta presenta un resumen antes de habilitar `Aprovar` o `Rejeitar`. El u
 6. Ninguna pantalla transforma un dato incompleto en un total completo o una estimación contractual.
 7. Las acciones de aprobación/rechazo tienen foco, nombre accesible, confirmación visible y resultado idempotente.
 
-## 7. Interacciones P0 pendientes de implementación
+## 7. Interacciones P0: implementación y aceptación
 
-La matriz actual expande años y emisores, pero no muestra todos los estados ni la identidad completa descritos a continuación. Son requisitos de aceptación, no funciones ya verificadas en navegador.
+La matriz expande años y emisores y muestra referencia por título, corte por columna, totales parciales y los estados «Sem cobertura», «Faltam dados», «Em revisão» y «Vencido». El control «Motivo» abre la explicación con un elemento nativo accesible. La identidad completa y la ficha de procedencia siguen pendientes. Los requisitos siguientes mantienen el alcance integral de aceptación.
 
 | Requisito | Presentación requerida |
 |---|---|

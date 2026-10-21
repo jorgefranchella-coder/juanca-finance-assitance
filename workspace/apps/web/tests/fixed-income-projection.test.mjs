@@ -87,3 +87,71 @@ test("builds collapsible annual columns and monthly columns through each maturit
   assert.ok(maturity.maturity_cents > 0);
   assert.equal(maturity.balance_cents, 0);
 });
+
+const temporalItem = (overrides = {}) => ({ owner: "Jorge", issuer: "Banco A", quantity: 10,
+  reference_date: "2028-01-15", maturity_date: "2028-02-29", current_unit_price: 100,
+  annualizedReturn: 0.1, projected_value_cents: 101_000, ...overrides });
+
+test("different investor dates preserve earlier maturities and never backfill later holdings", () => {
+  const early = temporalItem();
+  const later = temporalItem({ owner: "Julia", reference_date: "2028-04-15", maturity_date: "2028-12-31" });
+  const rows = buildFixedIncomeSchedule([early, later], "monthly");
+  assert.equal(rows[0].date, "2028-01-31");
+  const february = rows.find((row) => row.date === "2028-02-29");
+  assert.ok(february.maturity_cents > 0);
+  assert.equal(february.balance_cents, 0);
+  assert.equal(february.partial, true);
+  assert.equal(february.excluded_count, 1);
+  const julia = february.groups.find((group) => group.owner === "Julia");
+  assert.equal(julia.status, "outside_coverage");
+  assert.equal(julia.balance_cents, null);
+  const april = fixedIncomePeriodValue(later, "2028-03-31", "2028-04-30");
+  assert.ok(april.balance_cents > 0);
+  assert.equal(april.partial, true);
+  assert.match(april.reason, /2028-04-15/);
+});
+
+test("leap-day and year-end maturities occur once and annual flows reconcile with months", () => {
+  const items = [temporalItem(), temporalItem({ maturity_date: "2028-12-31" }),
+    temporalItem({ maturity_date: "2029-06-17" })];
+  const years = buildFixedIncomeMatrixYears(items);
+  const monthly = buildFixedIncomeSchedule(items, "monthly");
+  const annual = buildFixedIncomeSchedule(items, "annual");
+  assert.equal(annual.at(-1).date, "2029-06-17");
+  for (const year of years) {
+    const months = monthly.filter((row) => row.date.startsWith(year.year));
+    const row = annual.find((row) => row.date.startsWith(year.year));
+    assert.equal(row.maturity_cents, months.reduce((sum, month) => sum + month.maturity_cents, 0));
+    assert.equal(row.balance_cents, months.at(-1).balance_cents);
+  }
+  const feb = fixedIncomePeriodValue(items[0], "2028-01-31", "2028-02-29");
+  assert.equal(feb.balance_cents, 0);
+  assert.ok(feb.maturity_cents > 0);
+  assert.equal(fixedIncomePeriodValue(items[0], "2028-02-29", "2028-03-31").status, "matured");
+  const december = fixedIncomePeriodValue(items[1], "2028-11-30", "2028-12-31");
+  assert.equal(december.balance_cents, 0);
+  assert.ok(december.maturity_cents > 0);
+});
+
+test("insufficient rates stay visible, null is not zero, and source-date conflicts block values", () => {
+  const missing = temporalItem({ annualizedReturn: null, projected_value_cents: null, reason: "Falta preço de compra." });
+  const rows = buildFixedIncomeSchedule([missing], "monthly");
+  assert.ok(rows.length > 0);
+  assert.equal(rows[0].balance_cents, null);
+  assert.equal(rows[0].maturity_cents, null);
+  assert.equal(rows[0].excluded_count, 1);
+  const cell = fixedIncomePeriodValue(missing, "2028-01-15", "2028-01-31");
+  assert.equal(cell.status, "insufficient_data");
+  assert.equal(cell.reason, missing.reason);
+  const conflict = fixedIncomePeriodValue(temporalItem({ maturity_date: "2028-01-15" }), "2028-01-15", "2028-01-31");
+  assert.equal(conflict.status, "conflict");
+  assert.equal(conflict.balance_cents, null);
+  assert.equal(fixedIncomePeriodValue(temporalItem(), "2028-02-30", "2028-03-31").status, "insufficient_data");
+});
+
+test("the reference-day balance is known while the preceding interval remains partial", () => {
+  const item = temporalItem({ reference_date: "2028-01-31" });
+  const cell = fixedIncomePeriodValue(item, "2028-01-01", "2028-01-31");
+  assert.equal(cell.balance_cents, 100_000);
+  assert.equal(cell.partial, true);
+});

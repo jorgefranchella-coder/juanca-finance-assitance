@@ -1,7 +1,7 @@
 "use client";
 
 import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
-import { buildFixedIncomeMatrixYears, fixedIncomePeriodValue } from "@/lib/fixed-income-projection";
+import { buildFixedIncomeMatrixYears, fixedIncomePeriodValue, summarizeFixedIncomePeriod, type ProjectionPeriodValue } from "@/lib/fixed-income-projection";
 
 type ProjectionItem = {
   owner: string; instrument_code: string; product_name: string; institution: string; issuer: string;
@@ -18,27 +18,22 @@ type ProjectionResponse = {
   items: ProjectionItem[];
   methodology: string;
 };
-type MatrixCell = { balance_cents: number; maturity_cents: number };
 type IssuerGroup = { key: string; owner: string; issuer: string; items: ProjectionItem[] };
 
 const money = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL", maximumFractionDigits: 0 });
 const percent = new Intl.NumberFormat("pt-BR", { style: "percent", minimumFractionDigits: 1, maximumFractionDigits: 2 });
 function date(value: string) { return value ? value.split("-").reverse().join("/") : "—"; }
 
-function sumCells(items: ProjectionItem[], start: string, end: string): MatrixCell {
-  return items.reduce((sum, item) => {
-    const cell = fixedIncomePeriodValue(item, start, end);
-    sum.balance_cents += cell.balance_cents;
-    sum.maturity_cents += cell.maturity_cents;
-    return sum;
-  }, { balance_cents: 0, maturity_cents: 0 });
-}
-
-function ValueCell({ value }: { value: MatrixCell }) {
-  if (!value.balance_cents && !value.maturity_cents) return <span className="matrix-empty">—</span>;
+function ValueCell({ value }: { value: ProjectionPeriodValue }) {
+  const labels = { projected: "Saldo projetado", maturity: "Vencimento", matured: "Vencido",
+    insufficient_data: "Faltam dados", outside_coverage: "Sem cobertura", conflict: "Em revisão" };
   return <span className="matrix-value">
-    {value.balance_cents > 0 && <strong>{money.format(value.balance_cents / 100)}</strong>}
-    {value.maturity_cents > 0 && <small>Venc. {money.format(value.maturity_cents / 100)}</small>}
+    {value.balance_cents === null ? <span className="matrix-empty">{labels[value.status]}</span>
+      : value.status === "matured" ? <span className="matrix-empty">Vencido</span>
+      : <strong>{money.format(value.balance_cents / 100)}</strong>}
+    {value.maturity_cents !== null && value.maturity_cents > 0 && <small>Venc. {money.format(value.maturity_cents / 100)}</small>}
+    {value.partial && value.balance_cents !== null && <small>Parcial</small>}
+    {value.reason && <details className="matrix-reason"><summary>Motivo</summary><span>{value.reason}</span></details>}
   </span>;
 }
 
@@ -110,26 +105,27 @@ export default function FixedIncomeProjection() {
               return <th key={year.year} colSpan={span} className="matrix-year"><button type="button" aria-expanded={expanded} onClick={() => toggle(setExpandedYears, expandedYears, year.year)}>{year.year}<span>{expanded ? " −" : " +"}</span></button></th>;
             })}</tr>
             <tr>{years.flatMap((year) => expandedYears.has(year.year)
-              ? year.months.map((month) => <th key={month.key} className="matrix-month">{month.label}</th>)
-              : [<th key={`${year.year}-annual`} className="matrix-month">Ano</th>])}</tr>
+              ? year.months.map((month) => <th key={month.key} className="matrix-month">{month.label}<small className="matrix-cutoff">Até {date(month.date)}</small></th>)
+              : [<th key={`${year.year}-annual`} className="matrix-month">Ano<small className="matrix-cutoff">Até {date(year.annual.date)}</small></th>])}</tr>
           </thead>
           <tbody>{issuerGroups.map((group) => {
             const expanded = expandedIssuers.has(group.key);
             return <Fragment key={group.key}>
               <tr key={`${group.key}-issuer`} className="matrix-issuer-row">
                 <td className="matrix-label"><button type="button" aria-expanded={expanded} onClick={() => toggle(setExpandedIssuers, expandedIssuers, group.key)}><span>{expanded ? "▾" : "▸"}</span><strong>{group.issuer}</strong></button><small>{group.owner} · {group.items.length} títulos</small></td>
-                {columns.map((column) => <td key={`${group.key}-${column.key}`}><ValueCell value={sumCells(group.items, column.start, column.date)} /></td>)}
+                {columns.map((column) => <td key={`${group.key}-${column.key}`}><ValueCell value={summarizeFixedIncomePeriod(group.items, column.start, column.date)} /></td>)}
               </tr>
               {expanded && group.items.map((item) => <tr key={`${group.key}-${item.instrument_code}`} className="matrix-instrument-row">
-                <td className="matrix-label"><span className="matrix-instrument-name"><strong>{item.instrument_code}</strong><small>{item.product_name} · vence {date(item.maturity_date)}</small></span></td>
+                <td className="matrix-label"><span className="matrix-instrument-name"><strong>{item.instrument_code}</strong><small>{item.product_name} · vence {date(item.maturity_date)}</small><small>Referência: {date(item.reference_date)}</small></span></td>
                 {columns.map((column) => <td key={`${item.instrument_code}-${column.key}`}><ValueCell value={fixedIncomePeriodValue(item, column.start, column.date)} /></td>)}
               </tr>)}
             </Fragment>;
           })}</tbody>
         </table>
+        {!!issuerGroups.length && !years.length && <p className="projection-empty">Sem datas válidas para construir o calendário de projeção.</p>}
         {!issuerGroups.length && <p className="projection-empty">Nenhum título de renda fixa para este investidor.</p>}
       </div>
-      <p className="projection-method"><strong>Leitura:</strong> o valor principal da célula é o saldo projetado no fim do período; “Venc.” mostra separadamente os títulos que vencem naquele período. A taxa histórica de cada ativo é composta até o vencimento. {data.methodology} Não é a taxa contratada e não inclui impostos, cupons ou amortizações.</p>
+      <p className="projection-method"><strong>Leitura:</strong> o valor principal da célula é o saldo projetado no fim do período; “Venc.” mostra separadamente os títulos que vencem naquele período. O saldo anual é o saldo no corte; os vencimentos anuais somam os fluxos dos meses. Períodos sem cobertura são identificados e não equivalem a saldo zero. A taxa histórica de cada ativo é composta até o vencimento. {data.methodology} Não é a taxa contratada e não inclui impostos, cupons ou amortizações.</p>
     </>}
   </section>;
 }
