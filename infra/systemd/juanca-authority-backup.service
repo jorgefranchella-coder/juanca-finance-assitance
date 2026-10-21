@@ -7,6 +7,7 @@ After=patrimonio-juanca-worker.service
 Type=oneshot
 WorkingDirectory=/home/jorge/.hermes/profiles/juanca/workspace/patrimonio-familiar-source
 ExecStart=/usr/bin/python3 integration/run_verified_backup.py
+ExecStopPost=/usr/bin/systemctl --user start patrimonio-juanca-web.service patrimonio-juanca-worker.service
 Environment=JUANCA_HERMES_PROFILE=/home/jorge/.hermes/profiles/juanca
 Environment=JUANCA_BACKUP_ROOT=/home/jorge/.local/share/juanca/backups/authority
 Environment=JUANCA_SOURCE_ROOT=/home/jorge/.hermes/profiles/juanca/workspace/patrimonio-familiar-source

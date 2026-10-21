@@ -107,6 +107,23 @@ class BackupRestoreTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'new directory'):
             backup_restore.restore(self.backup, existing)
 
+    def test_services_restart_after_backup_capture_failure_and_partial_copy_is_unmarked(self):
+        calls = []
+
+        def systemctl(args, check=False):
+            calls.append((args, check))
+            return type('Result', (), {'returncode': 0})()
+
+        with patch.object(backup_restore, 'SERVICES', ('web', 'worker')), \
+             patch.object(backup_restore.subprocess, 'run', side_effect=systemctl), \
+             patch.object(backup_restore.shutil, 'copytree', side_effect=OSError('synthetic copy failure')):
+            with self.assertRaisesRegex(OSError, 'synthetic copy failure'):
+                backup_restore.create(self.source, self.backup, self.profile)
+
+        self.assertIn((['systemctl', '--user', 'start', 'web', 'worker'], True), calls)
+        self.assertTrue(self.backup.is_dir())
+        self.assertFalse((self.backup / 'manifest.json').exists())
+
 
 if __name__ == '__main__':
     unittest.main()
