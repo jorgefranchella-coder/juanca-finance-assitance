@@ -3,6 +3,7 @@ import json
 import os
 from datetime import datetime, timezone
 from pathlib import Path
+import shutil
 import subprocess
 import sys
 
@@ -12,6 +13,7 @@ SHADOW_SOURCE = Path(os.environ.get('JUANCA_SHADOW_SOURCE_ROOT', '/home/jorge/ju
 AUTHORITY = Path(os.environ.get('JUANCA_AUTHORITY_BACKUP_ROOT', Path.home() / '.local/share/juanca/backups/authority'))
 SHADOW = Path(os.environ.get('JUANCA_SHADOW_BACKUP_ROOT', Path.home() / '.local/share/juanca/backups/postgres'))
 MAX_AGE_HOURS = float(os.environ.get('JUANCA_BACKUP_MAX_AGE_HOURS', '32'))
+MIN_FREE_BYTES = int(os.environ.get('JUANCA_BACKUP_MIN_FREE_BYTES', str(5 * 1024 ** 3)))
 
 
 def verify_shadow(path):
@@ -45,12 +47,21 @@ def latest_check(root, prefix, verifier, now=None, max_age_hours=MAX_AGE_HOURS):
             'age_hours': round(max(0, age_hours), 2), 'verified': True}
 
 
+def disk_check(path, min_free_bytes=MIN_FREE_BYTES):
+    probe = path if path.exists() else path.parent
+    available = shutil.disk_usage(probe).free
+    if available < min_free_bytes:
+        raise ValueError(f'Backup filesystem has only {available} free bytes at {probe}')
+    return {'path': str(probe), 'free_bytes': available, 'minimum_bytes': min_free_bytes}
+
+
 def run(now=None):
+    disk = {'authority': disk_check(AUTHORITY), 'shadow': disk_check(SHADOW)}
     result = {
         'authority': latest_check(AUTHORITY, 'juanca-authority-', verify_authority, now),
         'shadow': latest_check(SHADOW, 'postgres-verified-', verify_shadow, now),
     }
-    return {'backups_healthy': True, **result}
+    return {'backups_healthy': True, 'disk': disk, **result}
 
 
 if __name__ == '__main__':

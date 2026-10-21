@@ -4,8 +4,10 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
+from unittest.mock import patch
+from collections import namedtuple
 
-from backup_health import latest_check
+from backup_health import disk_check, latest_check
 
 
 class BackupHealthTests(unittest.TestCase):
@@ -54,6 +56,14 @@ class BackupHealthTests(unittest.TestCase):
         }))
         with self.assertRaisesRegex(ValueError, 'no successful restore check'):
             latest_check(self.root, 'backup-', lambda _: None, self.now, 32)
+
+    def test_disk_check_reports_available_space_and_rejects_low_capacity(self):
+        usage = namedtuple('usage', 'total used free')
+        with patch('backup_health.shutil.disk_usage', return_value=usage(100, 40, 60)):
+            self.assertEqual(disk_check(self.root, 50)['free_bytes'], 60)
+        with patch('backup_health.shutil.disk_usage', return_value=usage(100, 80, 20)):
+            with self.assertRaisesRegex(ValueError, 'only 20 free bytes'):
+                disk_check(self.root, 50)
 
 
 if __name__ == '__main__':
