@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Juanca application shadow API",
-    "version": "0.17.0",
+    "version": "0.18.0",
     "description": "F3/F4 shadow API: immutable portfolio, guided conversation, durable manual evidence with versioned local text and photo OCR/trade interpretations, and read-only review queues; financial application remains separate."
   },
   "servers": [
@@ -61,6 +61,39 @@
           "401": {"description": "Authentication required"},
           "422": {"description": "Invalid limit"},
           "503": {"description": "Private report storage unavailable"}
+        }
+      }
+    },
+    "/v1/reconciliation/b3/duplicate-movements": {
+      "get": {
+        "security": [{"bearerAuth": []}],
+        "summary": "List exact movement rows repeated across B3 documents",
+        "description": "Candidate evidence only. Preserves each source assertion and never merges or applies financial events.",
+        "parameters": [{
+          "name": "limit",
+          "in": "query",
+          "schema": {"type": "integer", "minimum": 1, "maximum": 500, "default": 100}
+        }],
+        "responses": {
+          "200": {
+            "description": "Candidate-only duplicate evidence; no portfolio changes",
+            "content": {"application/json": {"schema": {
+              "type": "object",
+              "required": ["status", "candidates", "count", "limit", "mode", "authoritative", "portfolio_published"],
+              "properties": {
+                "status": {"const": "candidate_only"},
+                "candidates": {"type": "array", "items": {"type": "object"}},
+                "count": {"type": "integer"},
+                "limit": {"type": "integer"},
+                "mode": {"const": "shadow"},
+                "authoritative": {"const": false},
+                "portfolio_published": {"const": false}
+              }
+            }}}
+          },
+          "401": {"description": "Authentication required"},
+          "422": {"description": "Invalid limit"},
+          "503": {"description": "Evidence database unavailable"}
         }
       }
     },
