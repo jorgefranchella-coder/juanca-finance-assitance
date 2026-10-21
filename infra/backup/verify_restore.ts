@@ -3,6 +3,7 @@ import {dirname,join} from 'node:path';
 import {mkdir,readFile,writeFile,chmod,copyFile} from 'node:fs/promises';
 import {randomUUID,createHash} from 'node:crypto';
 import {pool} from '../../services/application/src/db.ts';
+import {hashBackupFiles,verifyBackupManifest} from './manifest.ts';
 const destination=process.argv[2];if(!destination)throw new Error('Use a new private backup directory');
 await mkdir(dirname(destination),{recursive:true,mode:0o700});
 await mkdir(destination,{mode:0o700});
@@ -45,7 +46,7 @@ try{
    await copyFile(original,copy);await chmod(copy,0o600);if(createHash('sha256').update(await readFile(copy)).digest('hex')!==expected)throw new Error('BACKUP_EVIDENCE_HASH_MISMATCH');copied[key]=expected;
   }
  }
- await writeFile(destination+'/manifest.json',JSON.stringify({format:4,sha256:digest,ingestion_sha256:ingestionPresent?createHash('sha256').update(await readFile(destination+'/ingestion.dump')).digest('hex'):null,market_sha256:marketPresent?createHash('sha256').update(await readFile(destination+'/market.dump')).digest('hex'):null,scope:'application, ingestion and market schemas and registered bytes; legacy R2 is not included',restoration_verified:true,table_checks:checks,ingestion_table_checks:ingestionChecks,market_table_checks:marketChecks,evidence_files:copied,ingestion_links:linked,ingestion_objects:ingestionObjects,created_at:new Date().toISOString()},null,2),{mode:0o600});console.log(JSON.stringify({backup_verified:true,restored_tables:names.rowCount,ingestion_tables:Object.keys(ingestionChecks).length,market_tables:Object.keys(marketChecks).length,b3_evidence_files:sourceDocs.rowCount,ingestion_objects:Object.keys(ingestionObjects).length,private_directory:destination}));
+ await writeFile(destination+'/manifest.json',JSON.stringify({format:5,sha256:digest,ingestion_sha256:ingestionPresent?createHash('sha256').update(await readFile(destination+'/ingestion.dump')).digest('hex'):null,market_sha256:marketPresent?createHash('sha256').update(await readFile(destination+'/market.dump')).digest('hex'):null,scope:'application, ingestion and market schemas and registered bytes; legacy R2 is not included',restoration_verified:true,table_checks:checks,ingestion_table_checks:ingestionChecks,market_table_checks:marketChecks,evidence_files:copied,ingestion_links:linked,ingestion_objects:ingestionObjects,files_sha256:await hashBackupFiles(destination),created_at:new Date().toISOString()},null,2),{mode:0o600});const files=await verifyBackupManifest(destination);console.log(JSON.stringify({backup_verified:true,manifest_files:files.files,restored_tables:names.rowCount,ingestion_tables:Object.keys(ingestionChecks).length,market_tables:Object.keys(marketChecks).length,b3_evidence_files:sourceDocs.rowCount,ingestion_objects:Object.keys(ingestionObjects).length,private_directory:destination}));
 }finally{
  await source.end();await ingestion.end();await market.end();await restored.end();await restoredIngestion.end();await restoredMarket.end();await admin.query('DROP DATABASE IF EXISTS "'+database+'"');await admin.end();
 }

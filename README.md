@@ -21,4 +21,4 @@ npm run test:backup
 npm run typecheck
 ```
 
-`test:backup` comprueba con bases SQLite sintéticas la verificación de integridad, la detección de cambios y la restauración aislada. No usa datos patrimoniales ni credenciales reales. Para restauraciones PostgreSQL existe `infra/backup/verify_restore.ts`, que valida la copia en una base aislada.
+`test:backup` comprueba con bases SQLite sintéticas la verificación de integridad, la detección de cambios y la restauración aislada. `npm test` también verifica hashes, rutas seguras y el conjunto exacto de archivos del manifest PostgreSQL. No usa datos patrimoniales ni credenciales reales. Para restauraciones PostgreSQL existe `infra/backup/verify_restore.ts`, que valida la copia en una base aislada.
