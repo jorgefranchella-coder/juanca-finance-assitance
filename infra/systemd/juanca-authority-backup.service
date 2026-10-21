@@ -1,0 +1,15 @@
+[Unit]
+Description=Juanca D1 authority backup and isolated restore check
+Requires=patrimonio-juanca-worker.service
+After=patrimonio-juanca-worker.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/jorge/.hermes/profiles/juanca/workspace/patrimonio-familiar-source
+ExecStart=/usr/bin/python3 integration/run_verified_backup.py
+Environment=JUANCA_HERMES_PROFILE=/home/jorge/.hermes/profiles/juanca
+Environment=JUANCA_BACKUP_ROOT=/home/jorge/.local/share/juanca/backups/authority
+Environment=JUANCA_SOURCE_ROOT=/home/jorge/.hermes/profiles/juanca/workspace/patrimonio-familiar-source
+UMask=0077
+NoNewPrivileges=true
+TimeoutStartSec=30min

@@ -1,0 +1,11 @@
+[Unit]
+Description=Weekly verified backup of Juanca's current D1 authority
+
+[Timer]
+OnCalendar=Sun *-*-* 04:15:00
+Persistent=true
+RandomizedDelaySec=30m
+Unit=juanca-authority-backup.service
+
+[Install]
+WantedBy=timers.target

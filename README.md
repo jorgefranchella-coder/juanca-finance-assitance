@@ -21,8 +21,10 @@ npm run test:backup
 npm run typecheck
 ```
 
-`test:backup` comprueba con bases SQLite sintéticas la verificación de integridad, la detección de cambios y la restauración aislada. `npm test` también verifica hashes, rutas seguras y el conjunto exacto de archivos del manifest PostgreSQL. No usa datos patrimoniales ni credenciales reales. Para restauraciones PostgreSQL existe `infra/backup/verify_restore.ts`, que valida la copia en una base aislada.
+`test:backup` comprueba con bases SQLite sintéticas la verificación de integridad, la detección de cambios, la restauración aislada y la orquestación del runner local. `npm test` también verifica hashes, rutas seguras y el conjunto exacto de archivos del manifest PostgreSQL. No usa datos patrimoniales ni credenciales reales. Para restauraciones PostgreSQL existe `infra/backup/verify_restore.ts`, que valida la copia en una base aislada.
 
 ## Respaldo PostgreSQL sombra
 
 El timer `juanca-shadow-backup.timer` ejecuta cada día, alrededor de las 03:30 (hora local), una copia PostgreSQL y un ensayo de restauración en una base temporal. Las copias se guardan fuera del repositorio con permisos privados y no se eliminan automáticamente. Este respaldo cubre PostgreSQL sombra y la evidencia registrada allí; no incluye la base D1 vigente, sus objetos R2 ni una copia fuera del equipo. Estado del timer: `systemctl --user status juanca-shadow-backup.timer`.
+
+El timer `juanca-authority-backup.timer` ejecuta una vez por semana el respaldo completo de la autoridad D1. Detiene web y Worker durante la copia coherente de D1, R2 y el estado Hermes, los vuelve a iniciar y prueba la restauración en un directorio aislado. La primera ejecución real está programada para el domingo 25/10/2026; las pruebas previas usan datos sintéticos. Las copias son privadas y no se purgan automáticamente. Estado: `systemctl --user status juanca-authority-backup.timer`.
