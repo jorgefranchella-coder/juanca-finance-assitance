@@ -1,4 +1,10 @@
 export type PriceObservation = { date: string; unitPrice: number; source: string };
+export type FixedIncomeGroup = {
+  owner: string; instrumentCode: string; productName: string; institution: string; assetClass: string;
+  quantity: number; maturityDate: string; latestDate: string; currentUnitPrice: number;
+  currentValueCents: number; priceSource: string; observations: PriceObservation[]; isCurrent: boolean;
+};
+export type CostBasisPoint = { owner: string; instrument_code: string; average_unit_cost: number; as_of: string };
 
 export type ProjectionResult = {
   observationCount: number;
@@ -60,4 +66,29 @@ export function fixedIncomeProjection(
   const confidence = elapsedDays >= 180 && sorted.length >= 4 ? "high" : elapsedDays >= 90 && sorted.length >= 3 ? "medium" : "low";
   return { observationCount: sorted.length, firstDate: first.date, lastDate: last.date, elapsedDays,
     periodReturn, annualizedReturn, daysToMaturity, projectedUnitPrice, confidence, reason: null };
+}
+
+/** Builds a projection for every instrument from that instrument's own latest snapshot. */
+export function buildFixedIncomeProjectionItems(groups: Iterable<FixedIncomeGroup>, costs: CostBasisPoint[]) {
+  const codeKey = (code: string) => code.trim().toUpperCase().replace(/^(BVMF|NASDAQ|NYSE|NYSEARCA):/, "");
+  const costMap = new Map(costs.map((cost) => [`${cost.owner}\0${codeKey(cost.instrument_code)}`, cost]));
+  return Array.from(groups).filter((group) => group.isCurrent).flatMap((group) => {
+    const observations = [...group.observations];
+    const cost = costMap.get(`${group.owner}\0${codeKey(group.instrumentCode)}`);
+    if (cost && Number(cost.average_unit_cost) > 0 && cost.as_of < group.latestDate) {
+      observations.push({ date: cost.as_of, unitPrice: Number(cost.average_unit_cost), source: "cost_basis" });
+    }
+    const projection = fixedIncomeProjection(observations, group.maturityDate, group.latestDate);
+    const projectedValueCents = projection.projectedUnitPrice === null
+      ? null : Math.round(projection.projectedUnitPrice * group.quantity * 100);
+    return [{
+      owner: group.owner, instrument_code: group.instrumentCode, product_name: group.productName,
+      institution: group.institution, asset_class: group.assetClass, quantity: group.quantity,
+      maturity_date: group.maturityDate, reference_date: group.latestDate,
+      current_unit_price: group.currentUnitPrice, current_value_cents: group.currentValueCents,
+      price_source: group.priceSource, projected_value_cents: projectedValueCents,
+      projected_gain_cents: projectedValueCents === null ? null : projectedValueCents - group.currentValueCents,
+      ...projection,
+    }];
+  }).sort((left, right) => (left.maturity_date || "9999").localeCompare(right.maturity_date || "9999"));
 }

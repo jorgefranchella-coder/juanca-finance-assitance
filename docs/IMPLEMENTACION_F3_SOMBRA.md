@@ -218,6 +218,14 @@ La aplicación de sombra expone `GET /v1/reconciliation/b3/candidates?limit=50` 
 
 La pestaña «Revisiones» incorpora la comparación B3 de sombra bajo el panel de revisiones D1 existente. La migración `016_b3_snapshot_review_decisions.sql` y `b3-snapshot-decisions.ts` guardan decisiones append-only `confirmed`/`dismissed`, actor, idempotencia, hash del candidato y revisiones supersedidas. Una decisión solo anota una diferencia entre dos documentos concretos: nunca modifica posiciones, movimientos ni la cartera publicada. El hash detecta si el contenido cambió; la UI marca la anotación anterior como obsoleta y una nueva decisión crea otra revisión. La ruta POST requiere rol de revisión y actor autenticado por el gateway.
 
+## Base de adquisición y proyección de renta fija (21/10/2026)
+
+Se incorporó el precio unitario de adquisición y su fecha para los instrumentos de renta fija de Jorge desde la hoja `Renda Fixa` indicada por el usuario. La importación se limitó a los códigos y cantidades disponibles del snapshot B3 vigente y se guardó en `cost_basis`; la hoja externa no se modificó. Cuando una compra B3 registrada aporta evidencia más precisa que la fila agregada de la hoja, se conserva la fecha y el precio de la transacción B3. Los datos numéricos permanecen en D1 local y no se copian al repositorio.
+
+La proyección incorpora esa observación de adquisición junto con los precios observados, lo cual permite medir la variación histórica desde la compra y alimentar la estimación hasta vencimiento con la tasa observada. La confianza refleja la duración y cantidad de observaciones; una fila de adquisición no sustituye la serie de mercado ni garantiza el retorno proyectado.
+
+Se corrigió además la selección de snapshots vigentes: B3 y previsión se determinan por separado para cada titular y tipo de archivo. Así, un extracto de previsión más reciente no oculta las posiciones B3, y las posiciones antiguas que ya no aparecen en el snapshot vigente no vuelven a proyectarse. La cobertura continúa limitada a los activos con observaciones y datos de vencimiento suficientes. El cambio incluye una prueba de regresión para snapshots con fechas distintas por origen y para excluir activos obsoletos.
+
 La implementación pasó `npm run typecheck`, `npm test` del backend (28 pruebas) y `npm test` de la web (29 pruebas, incluyendo build de producción). La migración `016` se aplicó a la base de sombra. GET autenticado desde gateway devolvió un informe en modo sombra con `apply_enabled=false`; el POST autenticado alcanzó la API y rechazó el cuerpo inválido con 422. No se registró una decisión sobre ninguna diferencia real durante la prueba.
 
 El build de la web terminó correctamente y se reinició el gateway local para cargar el cambio. Los endpoints financieros existentes, D1 y su flujo de aprobación siguen como estaban; la nueva sección solo anota revisión y no altera las seis diferencias actuales ni la cartera publicada.
