@@ -26,6 +26,12 @@ type IssuerGroup = { key: string; owner: string; issuer: string; items: Projecti
 const money = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL", maximumFractionDigits: 0 });
 const percent = new Intl.NumberFormat("pt-BR", { style: "percent", minimumFractionDigits: 1, maximumFractionDigits: 2 });
 function date(value: string) { return value ? value.split("-").reverse().join("/") : "—"; }
+function confidenceName(value: ProjectionItem["confidence"]) {
+  if (value === "high") return "alta (≥180 días y ≥4 precios)";
+  if (value === "medium") return "media (≥90 días y ≥3 precios)";
+  if (value === "low") return "baixa (histórico curto)";
+  return "insuficiente";
+}
 function sourceName(value: string) {
   const label = ({ b3_mtm: "MTM B3", b3_curve: "curva B3", b3_close: "fechamento B3", b3_position: "posição B3", manual: "custo manual", broker_note: "nota de corretagem" } as Record<string, string>)[value];
   if (label) return label;
@@ -125,7 +131,7 @@ export default function FixedIncomeProjection() {
                 {columns.map((column) => <td key={`${group.key}-${column.key}`}><ValueCell value={summarizeFixedIncomePeriod(group.items, column.start, column.date)} /></td>)}
               </tr>
               {expanded && group.items.map((item) => <tr key={`${group.key}-${item.institution}-${item.account ?? "pending"}-${item.instrument_code}`} className="matrix-instrument-row">
-                <td className="matrix-label"><span className="matrix-instrument-name"><strong>{item.instrument_code}</strong><small>{item.product_name} · vence {date(item.maturity_date)}</small><small>{item.institution || "Custódia pendente"}{item.account ? ` · conta ${item.account}` : " · conta não identificada"}</small><small>Referência: {date(item.reference_date)}</small><small>Taxa histórica: {item.annualizedReturn === null ? "indisponível" : percent.format(item.annualizedReturn)} · {item.observationCount} observações · {date(item.firstDate)} a {date(item.lastDate)}</small><small>Fontes usadas: {item.observation_sources.map(sourceName).join(", ") || "sem observações"}</small>{item.has_mixed_valuation_methods && <small className="projection-warning">A série alterna MTM e curva B3.</small>}{item.has_unverified_sheet_source && <small className="projection-warning">O custo com origem na folha foi excluído da taxa até confirmar o mapeamento; revisar data e preço de compra.</small>}{item.excluded_observation_sources.map((source) => <small key={source}>Custo excluído: {sourceName(source)}</small>)}{item.reason && <small>{item.reason}</small>}</span></td>
+                <td className="matrix-label"><span className="matrix-instrument-name"><strong>{item.instrument_code}</strong><small>{item.product_name} · vence {date(item.maturity_date)}</small><small>{item.institution || "Custódia pendente"}{item.account ? ` · conta ${item.account}` : " · conta não identificada"}</small><small>Referência: {date(item.reference_date)}</small><small>Taxa histórica: {item.annualizedReturn === null ? "indisponível" : percent.format(item.annualizedReturn)} · {item.observationCount} observações · {date(item.firstDate)} a {date(item.lastDate)}</small><small>Confiabilidade: {confidenceName(item.confidence)}</small><small>Fontes usadas: {item.observation_sources.map(sourceName).join(", ") || "sem observações"}</small>{item.has_mixed_valuation_methods && <small className="projection-warning">A série alterna MTM e curva B3.</small>}{item.has_unverified_sheet_source && <small className="projection-warning">O custo com origem na planilha foi excluído da taxa até confirmar o mapeamento; revisar data e preço de compra.</small>}{item.excluded_observation_sources.map((source) => <small key={source}>Custo excluído: {sourceName(source)}</small>)}{item.reason && <small>{item.reason}</small>}</span></td>
                 {columns.map((column) => <td key={`${item.instrument_code}-${column.key}`}><ValueCell value={fixedIncomePeriodValue(item, column.start, column.date)} /></td>)}
               </tr>)}
             </Fragment>;
