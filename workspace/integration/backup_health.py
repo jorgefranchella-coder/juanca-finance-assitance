@@ -30,6 +30,8 @@ def latest_check(root, prefix, verifier, now=None, max_age_hours=MAX_AGE_HOURS):
     latest = candidates[-1]
     manifest_path = latest / 'manifest.json'
     manifest = json.loads(manifest_path.read_text())
+    if manifest.get('restoration_verified') is not True:
+        raise ValueError(f'Backup has no successful restore check: {latest.name}')
     verifier(latest)
     created = datetime.fromisoformat(manifest['created_at'].replace('Z', '+00:00'))
     if created.tzinfo is None:

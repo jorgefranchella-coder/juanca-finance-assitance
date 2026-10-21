@@ -20,7 +20,9 @@ class BackupHealthTests(unittest.TestCase):
     def backup(self, name, created):
         path = self.root / name
         path.mkdir()
-        (path / 'manifest.json').write_text(json.dumps({'created_at': created.isoformat()}))
+        (path / 'manifest.json').write_text(json.dumps({
+            'created_at': created.isoformat(), 'restoration_verified': True,
+        }))
         return path
 
     def test_accepts_latest_fresh_backup_after_verifying_it(self):
@@ -44,6 +46,14 @@ class BackupHealthTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as empty:
             with self.assertRaisesRegex(ValueError, 'No backup'):
                 latest_check(Path(empty), 'backup-', lambda _: None, self.now, 32)
+
+    def test_rejects_backup_without_successful_restore_marker(self):
+        latest = self.backup('backup-20261022T073000Z', self.now - timedelta(minutes=30))
+        (latest / 'manifest.json').write_text(json.dumps({
+            'created_at': (self.now - timedelta(minutes=30)).isoformat(),
+        }))
+        with self.assertRaisesRegex(ValueError, 'no successful restore check'):
+            latest_check(self.root, 'backup-', lambda _: None, self.now, 32)
 
 
 if __name__ == '__main__':

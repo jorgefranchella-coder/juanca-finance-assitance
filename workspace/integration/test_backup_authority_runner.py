@@ -28,7 +28,8 @@ class LocalAuthorityBackupTests(unittest.TestCase):
                  patch.object(runner, 'BACKUPS', backups), \
                  patch.object(runner, 'create', return_value=manifest) as create, \
                  patch.object(runner, 'verify', return_value=manifest) as verify, \
-                 patch.object(runner, 'restore') as restore:
+                 patch.object(runner, 'restore') as restore, \
+                 patch.object(runner, 'record_restore_success') as record_restore:
                 result = runner.run()
             destination = Path(result['destination'])
             self.assertEqual(result['files'], 1)
@@ -40,6 +41,19 @@ class LocalAuthorityBackupTests(unittest.TestCase):
             verify.assert_called_once_with(destination)
             self.assertEqual(restore.call_args.args[0], destination)
             self.assertTrue(restore.call_args.args[1].name == 'restored')
+            record_restore.assert_called_once_with(destination)
+            verify.assert_called_once_with(destination)
+
+    def test_restore_success_marker_is_written_atomically_to_manifest(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            destination = Path(temporary)
+            manifest = destination / 'manifest.json'
+            manifest.write_text(json.dumps({'format': 1, 'files': {}, 'table_counts': {}}))
+            runner.record_restore_success(destination)
+            saved = json.loads(manifest.read_text())
+            self.assertTrue(saved['restoration_verified'])
+            self.assertTrue(saved['restore_verified_at'].endswith('+00:00'))
+            self.assertFalse((destination / '.manifest.json.tmp').exists())
 
 
 if __name__ == '__main__':
