@@ -83,7 +83,8 @@ export function buildFixedIncomeProjectionItems(groups: Iterable<FixedIncomeGrou
     const costKey = `${group.owner}\0${codeKey(group.instrumentCode)}`;
     const cost = costCandidates.get(costKey) === 1 ? costMap.get(costKey) : undefined;
     const ambiguousCost = costCandidates.get(costKey)! > 1 && costMap.has(costKey);
-    if (cost && Number(cost.average_unit_cost) > 0 && cost.as_of < group.latestDate) {
+    const unverifiedSheetCost = cost?.source?.startsWith("google_sheet:") ? cost : undefined;
+    if (cost && !unverifiedSheetCost && Number(cost.average_unit_cost) > 0 && cost.as_of < group.latestDate) {
       observations.push({ date: cost.as_of, unitPrice: Number(cost.average_unit_cost), source: cost.source || "cost_basis" });
     }
     const projection = fixedIncomeProjection(observations, group.maturityDate, group.latestDate);
@@ -92,7 +93,9 @@ export function buildFixedIncomeProjectionItems(groups: Iterable<FixedIncomeGrou
     const observationSources = [...new Set(observations.map((item) => item.source))].sort();
     const hasMixedValuationMethods = group.observations.some((item) => item.source === "b3_mtm")
       && group.observations.some((item) => item.source === "b3_curve");
-    const hasUnverifiedSheetSource = observationSources.some((source) => source.startsWith("google_sheet:"));
+    const excludedObservationSources = unverifiedSheetCost?.source ? [unverifiedSheetCost.source] : [];
+    const hasUnverifiedSheetSource = excludedObservationSources.length > 0
+      || observationSources.some((source) => source.startsWith("google_sheet:"));
     return [{
       owner: group.owner, account: group.account, instrument_code: group.instrumentCode, product_name: group.productName,
       institution: group.institution, issuer: group.issuer || "Emissor não identificado",
@@ -102,6 +105,7 @@ export function buildFixedIncomeProjectionItems(groups: Iterable<FixedIncomeGrou
       price_source: group.priceSource, projected_value_cents: projectedValueCents,
       projected_gain_cents: projectedValueCents === null ? null : projectedValueCents - group.currentValueCents,
       observation_sources: observationSources, has_mixed_valuation_methods: hasMixedValuationMethods,
+      excluded_observation_sources: excludedObservationSources,
       has_unverified_sheet_source: hasUnverifiedSheetSource,
       ...projection,
       reason: ambiguousCost ? "O custo legado não identifica a conta e foi excluído desta projeção; revisar a atribuição." : projection.reason,

@@ -10,6 +10,7 @@ type ProjectionItem = {
   observationCount: number; firstDate: string; lastDate: string; elapsedDays: number;
   periodReturn: number | null; annualizedReturn: number | null;
   observation_sources: string[]; has_mixed_valuation_methods: boolean;
+  excluded_observation_sources: string[];
   has_unverified_sheet_source: boolean;
   confidence: "high" | "medium" | "low" | "insufficient"; reason: string | null;
 };
@@ -124,7 +125,7 @@ export default function FixedIncomeProjection() {
                 {columns.map((column) => <td key={`${group.key}-${column.key}`}><ValueCell value={summarizeFixedIncomePeriod(group.items, column.start, column.date)} /></td>)}
               </tr>
               {expanded && group.items.map((item) => <tr key={`${group.key}-${item.institution}-${item.account ?? "pending"}-${item.instrument_code}`} className="matrix-instrument-row">
-                <td className="matrix-label"><span className="matrix-instrument-name"><strong>{item.instrument_code}</strong><small>{item.product_name} · vence {date(item.maturity_date)}</small><small>{item.institution || "Custódia pendente"}{item.account ? ` · conta ${item.account}` : " · conta não identificada"}</small><small>Referência: {date(item.reference_date)}</small><small>Taxa histórica: {item.annualizedReturn === null ? "indisponível" : percent.format(item.annualizedReturn)} · {item.observationCount} observações · {date(item.firstDate)} a {date(item.lastDate)}</small><small>Fontes: {item.observation_sources.map(sourceName).join(", ") || "sem observações"}</small>{item.has_mixed_valuation_methods && <small className="projection-warning">A série alterna MTM e curva B3.</small>}{item.has_unverified_sheet_source && <small className="projection-warning">A origem da folha não coincide com os cabeçalhos atuais; conferir data e preço de compra antes de usar como custo.</small>}{item.reason && <small>{item.reason}</small>}</span></td>
+                <td className="matrix-label"><span className="matrix-instrument-name"><strong>{item.instrument_code}</strong><small>{item.product_name} · vence {date(item.maturity_date)}</small><small>{item.institution || "Custódia pendente"}{item.account ? ` · conta ${item.account}` : " · conta não identificada"}</small><small>Referência: {date(item.reference_date)}</small><small>Taxa histórica: {item.annualizedReturn === null ? "indisponível" : percent.format(item.annualizedReturn)} · {item.observationCount} observações · {date(item.firstDate)} a {date(item.lastDate)}</small><small>Fontes usadas: {item.observation_sources.map(sourceName).join(", ") || "sem observações"}</small>{item.has_mixed_valuation_methods && <small className="projection-warning">A série alterna MTM e curva B3.</small>}{item.has_unverified_sheet_source && <small className="projection-warning">O custo com origem na folha foi excluído da taxa até confirmar o mapeamento; revisar data e preço de compra.</small>}{item.excluded_observation_sources.map((source) => <small key={source}>Custo excluído: {sourceName(source)}</small>)}{item.reason && <small>{item.reason}</small>}</span></td>
                 {columns.map((column) => <td key={`${item.instrument_code}-${column.key}`}><ValueCell value={fixedIncomePeriodValue(item, column.start, column.date)} /></td>)}
               </tr>)}
             </Fragment>;

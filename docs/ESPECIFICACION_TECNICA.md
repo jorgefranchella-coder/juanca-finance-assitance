@@ -153,4 +153,4 @@ En la entrega de trazabilidad, `cost_basis_history` registra cada nuevo ajuste c
 
 La respuesta de proyección resume las fuentes observadas por título y marca series que combinan `b3_mtm` con `b3_curve`; la UI muestra fechas inicial/final, número de observaciones y fuentes. Esto permite revisar el método usado, pero no resuelve por sí solo cambios de método ni confirma que un costo promedio sea precio de compra.
 
-Las fuentes `google_sheet:<id>:<pestaña>!<celdas>` se presentan sin el ID del archivo y mantienen la referencia de pestaña/celda. Si existen, se marca el mapeo para revisar; no se sobreescriben ni se eliminan las observaciones ya registradas.
+Las fuentes `google_sheet:<id>:<pestaña>!<celdas>` se presentan sin el ID del archivo y mantienen la referencia de pestaña/celda. Un costo cuyo origen sea una de estas referencias no se incorpora a la serie de cálculo mientras el mapeo permanezca sin verificar; la API devuelve su fuente en `excluded_observation_sources` y la UI lo distingue de las fuentes usadas. Los registros persistidos no se sobreescriben ni se eliminan.
