@@ -2,6 +2,17 @@ import type pg from 'pg';
 import {createHash,randomUUID} from 'node:crypto';
 import {Conflict} from './commands.ts';
 
+export function previewB3EventCount(assertionIds:string[],links:Array<{left_assertion_id:string;right_assertion_id:string;decision:'same_event'|'distinct_events'|null}>){
+ const expected=new Set<string>();for(let i=0;i<assertionIds.length;i++)for(let j=i+1;j<assertionIds.length;j++){const [a,b]=[assertionIds[i],assertionIds[j]].sort();expected.add(`${a}:${b}`);}
+ const supplied=new Set(links.map(link=>`${link.left_assertion_id}:${link.right_assertion_id}`));
+ if(expected.size!==supplied.size||[...expected].some(pair=>!supplied.has(pair))||links.some(link=>link.decision===null))return{event_count_status:'needs_review' as const,preview_event_count:null};
+ const parent=new Map(assertionIds.map(id=>[id,id]));
+ const find=(id:string):string=>{const root=parent.get(id)??id;if(root===id)return id;const resolved=find(root);parent.set(id,resolved);return resolved;};
+ for(const link of links)if(link.decision==='same_event'){const a=find(link.left_assertion_id),b=find(link.right_assertion_id);if(a!==b)parent.set(a,b);}
+ const conflict=links.some(link=>link.decision==='distinct_events'&&find(link.left_assertion_id)===find(link.right_assertion_id));
+ return conflict?{event_count_status:'conflict' as const,preview_event_count:null}:{event_count_status:'reconciled' as const,preview_event_count:new Set(assertionIds.map(find)).size};
+}
+
 /** Lists exact movement rows repeated across B3 documents without merging facts. */
 export async function listB3DuplicateMovementCandidates(db:pg.Pool,household:string,limit=100){
  if(!Number.isInteger(limit)||limit<1||limit>500)throw new Conflict('VALIDATION',422);
@@ -54,6 +65,8 @@ export async function listB3DuplicateMovementCandidates(db:pg.Pool,household:str
    links.push({left_assertion_id:left,right_assertion_id:right,review:decision?{decision:decision.decision,revision:decision.revision,actor_id:decision.actor_id,decided_at:decision.decided_at}:null});
   }
   candidate.review_status=links.length&&links.every((link:any)=>link.review)?'reviewed':'needs_review';candidate.link_decisions=links;
+  const preview=previewB3EventCount(evidence.map((e:any)=>e.assertion_id),links.map((link:any)=>({left_assertion_id:link.left_assertion_id,right_assertion_id:link.right_assertion_id,decision:link.review?.decision??null})));
+  candidate.event_count_status=preview.event_count_status;candidate.preview_event_count=preview.preview_event_count;
  }
  return {status:'candidate_only',candidates:result.rows,count:result.rowCount??0,limit,
    mode:'shadow',authoritative:false as const,portfolio_published:false as const};

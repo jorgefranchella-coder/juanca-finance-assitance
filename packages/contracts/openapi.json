@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Juanca application shadow API",
-    "version": "0.19.0",
+    "version": "0.20.0",
     "description": "F3/F4 shadow API: immutable portfolio, guided conversation, durable manual evidence with versioned local text and photo OCR/trade interpretations, audited source-link review, and read-only review queues; financial application remains separate."
   },
   "servers": [
@@ -68,7 +68,7 @@
       "get": {
         "security": [{"bearerAuth": []}],
         "summary": "List exact movement rows repeated across B3 documents",
-        "description": "Candidate evidence only. Preserves each source assertion and never merges or applies financial events.",
+        "description": "Candidate evidence only. Preserves each source assertion and never merges or applies financial events. preview_event_count is a reconciliation preview based on complete pairwise decisions; unresolved or contradictory decisions return null.",
         "parameters": [{
           "name": "limit",
           "in": "query",
@@ -85,6 +85,8 @@
                 "candidates": {"type": "array", "items": {"type": "object", "properties": {
                   "candidate_key": {"type": "string", "pattern": "^[0-9a-f]{32}$"},
                   "review_status": {"enum": ["needs_review", "reviewed"]},
+                  "event_count_status": {"enum": ["needs_review", "conflict", "reconciled"]},
+                  "preview_event_count": {"type": ["integer", "null"], "minimum": 1},
                   "link_decisions": {"type": "array", "items": {"type": "object", "required": ["left_assertion_id", "right_assertion_id", "review"], "properties": {
                     "left_assertion_id": {"type": "string"}, "right_assertion_id": {"type": "string"},
                     "review": {"oneOf": [{"type": "null"}, {"type": "object", "required": ["decision", "revision", "actor_id", "decided_at"], "properties": {"decision": {"enum": ["same_event", "distinct_events"]}, "revision": {"type": "integer"}, "actor_id": {"type": "string"}, "decided_at": {"type": "string"}}}]}
