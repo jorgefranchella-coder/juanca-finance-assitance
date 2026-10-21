@@ -27,7 +27,7 @@ En escritorio la navegación lateral deja espacio al contenido. En móvil se con
 
 ## 3. Renta fija: matriz de tiempo
 
-La vista inicia con cuatro indicadores: valor actual cubierto, estimación en los vencimientos, crecimiento estimado y cobertura del modelo. Debajo se muestra el filtro **Investidor** (`Todos`, `Jorge`, `Julia`). `Todos` puede mostrar los dos titulares, pero nunca une sus títulos bajo una cuenta común.
+La vista inicia con cuatro indicadores: valor actual cubierto, estimación en los vencimientos, crecimiento estimado y cobertura del modelo. Debajo se muestra el filtro **Investidor** con `Todos` y los titulares que aparecen en los datos actuales. `Todos` puede mostrar a varios titulares, pero nunca une sus títulos bajo una cuenta común.
 
 | Elemento | Interacción y significado |
 |---|---|

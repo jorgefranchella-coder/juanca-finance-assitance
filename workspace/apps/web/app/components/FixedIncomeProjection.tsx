@@ -63,7 +63,9 @@ export default function FixedIncomeProjection() {
       const response = await fetch("/api/portfolio/fixed-income-projection", { cache: "no-store" });
       const result = await response.json() as ProjectionResponse & { detail?: string };
       if (!response.ok) throw new Error(result.detail ?? "Não foi possível calcular a projeção.");
-      setData(result); setError("");
+      setData(result);
+      setOwner((current) => current === "Todos" || result.items.some((item) => item.owner === current) ? current : "Todos");
+      setError("");
     } catch (loadError) { setError(loadError instanceof Error ? loadError.message : "Não foi possível calcular a projeção."); }
   }, []);
   useEffect(() => {
@@ -72,6 +74,7 @@ export default function FixedIncomeProjection() {
     return () => { window.clearTimeout(timer); window.removeEventListener("portfolio-data-updated", load); };
   }, [load]);
   const items = useMemo(() => (data?.items ?? []).filter((item) => owner === "Todos" || item.owner === owner), [data, owner]);
+  const owners = useMemo(() => [...new Set((data?.items ?? []).map((item) => item.owner).filter(Boolean))].sort((a, b) => a.localeCompare(b)), [data]);
   const summary = useMemo(() => {
     const covered = items.filter((item) => item.projected_value_cents !== null);
     const totalCurrent = items.reduce((sum, item) => sum + item.current_value_cents, 0);
@@ -102,7 +105,7 @@ export default function FixedIncomeProjection() {
   return <section className="panel fixed-income-projection" id="renda-fixa">
     <div className="panel-title fixed-income-title">
       <div><p>Projeção baseada no histórico</p><h2>Renda fixa até o vencimento</h2><span>Expanda um ano para ver os meses; expanda um emissor para ver cada título.</span></div>
-      <label>Investidor<select value={owner} onChange={(event) => { setOwner(event.target.value); setExpandedIssuers(new Set()); }}><option>Todos</option><option>Jorge</option><option>Julia</option></select></label>
+      <label>Investidor<select value={owner} onChange={(event) => { setOwner(event.target.value); setExpandedIssuers(new Set()); }}><option>Todos</option>{owners.map((name) => <option key={name}>{name}</option>)}</select></label>
     </div>
     {error ? <p className="projection-error">{error}</p> : !data ? <p className="projection-loading">Calculando histórico de preços…</p> : <>
       <div className="fixed-income-metrics">
