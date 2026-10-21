@@ -17,6 +17,7 @@ import {answerGuided,chatHistory,classify,sendChat} from '../src/conversation.ts
 import {confirmSameAccount} from '../src/resolution.ts';
 import {recordText,textStatus} from '../src/manual-intake.ts';
 import {receiveMarketEvent} from '../src/market-bridge.ts';
+import {listB3DuplicateMovementCandidates,recordB3DuplicateMovementDecision} from '../src/b3-duplicate-candidates.ts';
 const database='juanca_test_'+randomUUID().replaceAll('-','');
 const admin=pool('jorge','postgres');const db=pool('juanca_app',database);const migrator=pool('jorge',database);
 before(async()=>{assert.match(database,/^juanca_test_[0-9a-f]+$/);await admin.query('CREATE DATABASE "'+database+'"');await migrator.query(await readFile(new URL('../../../infra/postgres/roles.sql',import.meta.url),'utf8'));await migrate(db);});
@@ -30,6 +31,21 @@ test('written movement is retained once as review evidence without changing the 
  await assert.rejects(()=>recordText(db,h,{...input,text:'Vendí una participación'}),(e:unknown)=>e instanceof Conflict&&e.code==='IDEMPOTENCY_MISMATCH');
  assert.equal((await db.query('SELECT count(*) FROM app.manual_intakes WHERE household_id=$1',[h])).rows[0].count,'1');
  assert.equal((await db.query('SELECT facts_revision FROM app.household_state WHERE household_id=$1',[h])).rows[0].facts_revision,'0');
+});
+test('overlapping B3 movement decisions are append-only, idempotent review evidence',async()=>{
+ const h='b3-overlap-'+randomUUID(),actor='reviewer-'+randomUUID();
+ await db.query('INSERT INTO app.households VALUES($1)',[h]);await db.query('INSERT INTO app.actors VALUES($1,$2)',[actor,'B3 reviewer']);await db.query("INSERT INTO app.memberships VALUES($1,$2,'owner')",[h,actor]);await db.query("INSERT INTO app.owners VALUES($1,'jorge','Jorge')",[h]);await db.query('INSERT INTO app.household_state(household_id) VALUES($1)',[h]);
+ for(const [id,name,digest] of [['doc-a','movement-a.xlsx','a'.repeat(64)],['doc-b','movement-b.xlsx','b'.repeat(64)]]){
+  await db.query("INSERT INTO app.source_documents(household_id,id,owner_id,source_system,report_kind,original_name,content_sha256,storage_key,coverage_start,coverage_end,date_basis) VALUES($1,$2,'jorge','B3','movement',$3,$4,$2,'2026-08-18','2026-09-17','report_window')",[h,id,name,digest]);
+ }
+ for(const [id,doc,row] of [['assert-a','doc-a',2],['assert-b','doc-b',2]])await db.query("INSERT INTO app.source_assertions(household_id,id,document_id,owner_id,source_sheet,source_row,assertion_kind,asserted_on,source_event_type,direction,quantity,raw_row,interpretation_status) VALUES($1,$2,$3,'jorge','Movimentação',$4,'movement','2026-09-02','Compra','Crédito',5,'{\"Ativo\":\"TEST11\",\"Quantidade\":\"5\"}'::jsonb,'observed')",[h,id,doc,row]);
+ const initial=await listB3DuplicateMovementCandidates(db,h,10);assert.equal(initial.count,1);assert.equal(initial.candidates[0].review_status,'needs_review');const candidate=initial.candidates[0];
+ const body={request_key:'review-b3-pair-001',left_assertion_id:'assert-a',right_assertion_id:'assert-b',candidate_key:candidate.candidate_key,decision:'same_event' as const};
+ const first=await recordB3DuplicateMovementDecision(db,h,actor,body),replay=await recordB3DuplicateMovementDecision(db,h,actor,body);assert.equal(first.replayed,false);assert.equal(replay.replayed,true);assert.equal(replay.decision_id,first.decision_id);
+ const reviewed=await listB3DuplicateMovementCandidates(db,h,10);assert.equal(reviewed.candidates[0].review_status,'reviewed');assert.equal(reviewed.candidates[0].link_decisions[0].review.decision,'same_event');
+ const correction=await recordB3DuplicateMovementDecision(db,h,actor,{...body,request_key:'review-b3-pair-002',decision:'distinct_events'});assert.equal(correction.revision,2);assert.equal((await db.query('SELECT supersedes_id FROM app.source_assertion_link_decisions WHERE household_id=$1 AND id=$2',[h,correction.decision_id])).rows[0].supersedes_id,first.decision_id);
+ await assert.rejects(()=>db.query('UPDATE app.source_assertion_link_decisions SET decision=\'same_event\' WHERE household_id=$1 AND id=$2',[h,first.decision_id]),/SOURCE_ASSERTION_LINK_DECISIONS_APPEND_ONLY/);
+ assert.equal((await db.query('SELECT facts_revision FROM app.household_state WHERE household_id=$1',[h])).rows[0].facts_revision,'0');assert.equal((await db.query("SELECT count(*) FROM app.audit_log WHERE household_id=$1 AND action='b3_duplicate_movement_link_decision'",[h])).rows[0].count,'2');
 });
 test('guided chat transaction creates one manual evidence record for a known owner',async()=>{
  const h='chat-intake-'+randomUUID();await db.query('INSERT INTO app.households VALUES($1)',[h]);await db.query("INSERT INTO app.owners VALUES($1,'jorge','Jorge')",[h]);await db.query('INSERT INTO app.household_state(household_id) VALUES($1)',[h]);
