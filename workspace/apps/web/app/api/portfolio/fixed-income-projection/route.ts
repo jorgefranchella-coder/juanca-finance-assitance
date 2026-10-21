@@ -6,7 +6,7 @@ import { buildFixedIncomeProjectionItems, type FixedIncomeGroup } from "@/lib/fi
 export const dynamic = "force-dynamic";
 
 type Stored = { import_owner: string; import_date: string; is_latest_snapshot: number; payload: string };
-type Cost = { owner: string; instrument_code: string; average_unit_cost: number; as_of: string };
+type Cost = { owner: string; instrument_code: string; average_unit_cost: number; as_of: string; source: string };
 export async function GET(request: Request) {
   const userId = authenticatedUserId(request);
   if (!userId) return Response.json({ detail: "Autenticação necessária." }, { status: 401 });
@@ -26,7 +26,7 @@ export async function GET(request: Request) {
         WHERE i.user_id=? AND i.status='processed' AND i.file_type IN ('positions', 'pension_statement')
           AND r.record_kind='position' ORDER BY i.reference_date, i.created_at, r.id LIMIT 12000`)
         .bind(userId, userId).all<Stored>(),
-      env.DB.prepare(`SELECT owner, instrument_code, average_unit_cost, as_of FROM cost_basis
+      env.DB.prepare(`SELECT owner, instrument_code, average_unit_cost, as_of, source FROM cost_basis
         WHERE user_id=? ORDER BY as_of LIMIT 3000`).bind(userId).all<Cost>().catch(() => ({ results: [] as Cost[] })),
     ]);
     const groups = new Map<string, FixedIncomeGroup>();
