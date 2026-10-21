@@ -76,6 +76,7 @@ La pantalla presenta una matriz horizontal. Cada año ocupa una columna expandib
 - La identidad de cuenta insuficiente impide fusionar posiciones por ticker o aplicar una operación sobre un saldo supuesto.
 - Un snapshot tiene fecha económica y fecha de recepción; una carga antigua no debe sustituir silenciosamente una fotografía posterior.
 - El mismo hecho económico respaldado por chat, foto y B3 se registra una sola vez. La relación entre evidencias conserva incertidumbre hasta confirmarse.
+- Los movimientos de extractos B3 con períodos solapados conservan cada fila fuente, pero dos filas del mismo hecho no suman dos veces al saldo. Coincidencias sin identificador único quedan como candidatas hasta revisión; una carga repetida no crea otra operación.
 - Una cotización o PTAX faltante produce valor ausente o parcial, no cero inventado.
 - La aprobación concurrente de operaciones incompatibles debe conservar saldos válidos y un resultado auditable.
 - Datos y documentos de Jorge y Julia no se atribuyen al otro titular sin evidencia explícita.
