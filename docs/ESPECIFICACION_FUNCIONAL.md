@@ -23,7 +23,7 @@ La web vigente y su base D1 local son la autoridad de los datos familiares. La a
 
 Jorge confirmó una cuenta de custodia por institución para los reportes B3 recibidos. Esa confirmación no autoriza a asignar arbitrariamente cuentas a Julia ni a mezclar dos instituciones de Itaú. Los activos fuera de B3, como previsión y Avenue, entran mediante sus propias fuentes.
 
-## 3. Recorridos vigentes
+## 3. Recorridos y disponibilidad
 
 ### Consulta y valoración
 
@@ -32,6 +32,8 @@ La vista general muestra patrimonio consolidado en BRL, subtotales por titular, 
 La web dispone de simulación nominal/real con parámetros editables. Sus tarjetas de recomendaciones actuales son orientación de interfaz; no deben presentarse como recomendaciones financieras calculadas a partir de toda la cartera.
 
 ### Importación y conciliación
+
+El siguiente flujo es el objetivo completo. La importación vigente y la conciliación en sombra son capacidades distintas, según la matriz de estado de la sección 7.
 
 1. El usuario elige titular y fuente, envía el documento y ve su estado.
 2. Se conserva el original y se registran hash, fecha, tipo, hoja/fila o página y resultado del parser.
@@ -78,3 +80,52 @@ La pantalla presenta una matriz horizontal. Cada año ocupa una columna expandib
 ## 6. Pendientes de producto
 
 Antes de conmutar la autoridad a PostgreSQL faltan reconciliación final de ambos titulares, cobertura de cuentas pendientes, migración verificable de originales, escritura patrimonial mediante las nuevas APIs, respaldo restaurable del conjunto y ensayo de reversión. Identidades individuales, escenarios guardados, alertas calculadas y proyección contractual son mejoras posteriores; su ausencia no debe describirse como una función ya entregada.
+
+## 7. Estado verificable de capacidades (P0-02)
+
+Esta matriz describe disponibilidad, no certifica aceptación integral. Una capacidad solo pasa a **validada** cuando se registra versión de código, escenario, resultado y fecha de prueba. La inspección de código no sustituye esa evidencia.
+
+| Capacidad | Disponibilidad actual | Evidencia local / brecha |
+|---|---|---|
+| Consulta, importación y costos D1 | Vigente | `workspace/apps/web/app/api`; identidad de costos aún no incluye cuenta |
+| Matriz anual/mensual y expansión por emisor | Vigente, parcial | `FixedIncomeProjection.tsx`; faltan identidad completa y estados por celda |
+| Propuestas D1 | Vigente | Rutas `transactions`; pruebas de aprobación en `workspace/apps/web/tests` |
+| Evidencia manual, OCR y candidatos B3 | Sombra | `services/application` y `services/ingestion`; no publican hechos financieros en D1 |
+| Cartera versionada y mercado independiente | Sombra | `services/application` y `services/market`; no reemplazan la autoridad vigente |
+| Aprobación PostgreSQL | Módulo probado con datos sintéticos | No habilitado como escritor familiar por HTTP |
+| Corrección integral con historial y publicación | Objetivo | Requiere completar conciliación y corte de autoridad |
+| Proyección contractual, alertas calculadas y escenarios guardados | Objetivo | No confundir con estimación histórica y tarjetas actuales |
+
+## 8. Reglas P0 aprobadas para implementación
+
+Estas reglas precisan el objetivo; no implican que las brechas ya estén resueltas en código.
+
+### P0-01 — Identidad de posiciones y adquisiciones
+
+La identidad mínima es familia, titular, custodio, cuenta, instrumento y moneda. Una posición contiene adquisiciones separadas cuando difieren fecha, precio o condiciones relevantes. Dos cuentas con el mismo título se valoran por separado y solo se suman para presentación. Emisor y nombre comercial no son claves de posición. Una cuenta desconocida conserva su evidencia y un identificador provisional propio; nunca se fusiona con otra por tener el mismo ticker. Una transferencia confirmada enlaza origen/destino y conserva la adquisición; no simula una compra nueva.
+
+**Aceptación:** dos cuentas del mismo titular con el mismo título y costos diferentes mantienen cantidades, costos e historial independientes; el total por emisor coincide con su suma. Un costo antiguo sin cuenta queda pendiente de asignación cuando hay más de una cuenta posible.
+
+### P0-03 — Adquisición, valoración y conflictos
+
+Se separan fecha de emisión, negociación/adquisición, liquidación y referencia del precio. El precio de compra se conserva en su moneda y por unidad, con cantidad y comisiones separadas; no se sustituye por MTM o curva. Una observación registra su método (compra, MTM, cierre o curva), fecha y fuente.
+
+Un comprobante de operación inequívocamente vinculado a la adquisición prevalece sobre una cifra agregada para describir esa compra. Un snapshot acredita la posición a su corte, no necesariamente el costo. Una corrección explícita puede revisar el dato mediante decisión auditada. No hay prioridad automática universal de B3 sobre una foto o un mensaje: se evalúan identidad, tipo de dato y evidencia. Un conflicto conserva ambas afirmaciones y solicita revisión; nunca se borra el valor anterior. Una cabecera de hoja contradictoria requiere un mapeo documentado confirmado por el usuario.
+
+**Aceptación:** la ficha explica de dónde proviene cada precio/fecha; cambiar un costo conserva valor previo, actor, razón y evidencia. Compras múltiples no se convierten en una compra ficticia con fecha única. Una serie que cambia entre curva y MTM se señala antes de extrapolarla.
+
+### P0-04 — Saldos y flujos por período
+
+El saldo mensual es el valor de títulos vigentes al cierre. El saldo anual es el del cierre anual, nunca la suma de los saldos mensuales. Los vencimientos anuales son la suma de los flujos de vencimiento de los meses incluidos. El período de salida incluye el día exacto de vencimiento y ese título ya no integra el saldo de cierre. El dinero vencido se muestra como flujo proyectado; no se reinvierte ni se incorpora automáticamente a una cuenta de efectivo.
+
+**Aceptación:** un título que vence el último día del mes aparece una vez como vencimiento y deja saldo cero en ese cierre. Expandir/colapsar conserva flujos y saldo final. El último año incompleto indica la fecha real de su corte. Saldos de distintas monedas solo se consolidan con conversión identificada y cobertura explícita.
+
+### P0-05 — Tiempo y cobertura
+
+Cada posición conserva fecha de snapshot, fecha de precio, recepción y alcance de movimientos. Se elige el snapshot económico más reciente válido dentro de cada ámbito documentado de fuente/cuenta; si el documento no declara su cobertura, una ausencia no prueba saldo cero. Una carga antigua no reemplaza una más reciente por haber llegado después.
+
+La matriz inicia en la primera referencia cubierta del conjunto seleccionado. Antes de la referencia de una posición muestra «Sin cobertura», sin reconstruir retrospectivamente su saldo actual. Una fecha posterior de otro titular no recorta vencimientos ni movimientos anteriores del primero. Los totales de cada período se marcan parciales si falta cobertura de alguna posición seleccionada.
+
+Un movimiento del mismo día del snapshot solo se aplica si existe evidencia de que ocurrió después de su corte; sin hora/secuencia suficiente queda pendiente. Negociación y liquidación se enlazan como etapas del mismo hecho cuando corresponde. No se interpola una historia patrimonial completa entre snapshots con movimientos incompletos.
+
+**Aceptación:** con referencias de dos titulares distintas, se conserva un vencimiento entre ambas fechas; importar fuera de orden no cambia el snapshot vigente; un movimiento en el día del corte sin orden conocido no se contabiliza dos veces.

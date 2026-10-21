@@ -51,7 +51,7 @@ La vista general muestra fecha de referencia y cobertura junto a importes. En la
 
 ### Importación
 
-El formulario pide fuente, titular, tipo de archivo y fecha de referencia cuando corresponda. Debe confirmar recepción, progreso, procesamiento o fallo con una explicación accionable. Un documento repetido devuelve el resultado ya conocido; no crea otra posición. En B3 se ve el corte del snapshot y la cobertura temporal de movimientos. Una nueva carga que difiere de la anterior presenta diferencias como candidatas antes de corregir la cartera. **Objetivo:** enlazar cada cambio publicado con las filas antiguas y nuevas que lo justifican.
+El formulario pide fuente, titular, tipo de archivo y fecha de referencia cuando corresponda. Debe confirmar recepción, progreso, procesamiento o fallo con una explicación accionable. Un documento repetido devuelve el resultado ya conocido; no crea otra posición. En B3 se ve el corte del snapshot y la cobertura temporal de movimientos. La bandeja de sombra presenta diferencias candidatas entre reportes; esa decisión no corrige automáticamente la cartera vigente. **Objetivo:** enlazar cada cambio publicado con las filas antiguas y nuevas que lo justifican.
 
 ### Foto o mensaje de movimiento
 
@@ -82,3 +82,19 @@ La propuesta presenta un resumen antes de habilitar `Aprovar` o `Rejeitar`. El u
 5. Una carga o corrección nunca desaparece de la bandeja por fallar OCR, parser o identificación de cuenta; se ve su estado y original.
 6. Ninguna pantalla transforma un dato incompleto en un total completo o una estimación contractual.
 7. Las acciones de aprobación/rechazo tienen foco, nombre accesible, confirmación visible y resultado idempotente.
+
+## 7. Interacciones P0 pendientes de implementación
+
+La matriz actual expande años y emisores, pero no muestra todos los estados ni la identidad completa descritos a continuación. Son requisitos de aceptación, no funciones ya verificadas en navegador.
+
+| Requisito | Presentación requerida |
+|---|---|
+| P0-01 | Bajo cada emisor, distinguir título, custodio y cuenta; permitir ver las adquisiciones sin fusionar cuentas iguales por ticker |
+| P0-02 | En carga/revisión, explicar si el resultado actualiza la cartera o registra evidencia pendiente; evitar términos internos como D1 o PostgreSQL en la tarea del usuario |
+| P0-03 | Ficha con compra, emisión, liquidación y precio actual separados; fuente, método, fecha y conflicto visibles; corrección muestra antes/después y razón |
+| P0-04 | Encabezados distinguen «Saldo al cierre» y «Vencimientos del período»; año parcial indica fecha de corte y flujos no se presentan como reinversión |
+| P0-05 | Identificar referencia por posición y total parcial; distinguir «Sin cobertura», «Faltan datos», «En revisión» y «Vencido», con explicación accesible |
+
+Ejemplo sintético de aceptación: un título vence el 31 de marzo. Marzo muestra el importe como vencimiento y saldo cero; abril indica «Vencido». La columna anual incluye ese flujo una sola vez. Otro título con referencia inicial en abril indica «Sin cobertura» para marzo: no convierte esa ausencia en cero ni elimina el vencimiento del primero.
+
+Los totales por emisor incluyen únicamente las posiciones elegibles y marcan las excluidas. El usuario puede abrir la razón de exclusión desde el título; un guion aislado no basta para distinguir dato desconocido de ausencia de saldo. Cambiar de titular o expandir un año conserva la versión de cálculo y no modifica los hechos patrimoniales.
