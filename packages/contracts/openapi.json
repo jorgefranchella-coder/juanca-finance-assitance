@@ -122,7 +122,10 @@
           }
         }}}},
         "responses": {
-          "201": {"description": "Audited decision recorded; portfolio unchanged"},
+          "201": {"description": "Audited decision recorded; portfolio unchanged", "content": {"application/json": {"schema": {
+            "type": "object", "required": ["decision_id", "decision", "revision", "replayed", "mode", "portfolio_changed"],
+            "properties": {"decision_id": {"type": "string", "format": "uuid"}, "decision": {"enum": ["same_event", "distinct_events"]}, "revision": {"type": "integer", "minimum": 1}, "replayed": {"type": "boolean"}, "mode": {"const": "shadow"}, "portfolio_changed": {"const": false}}
+          }}}},
           "401": {"description": "Authentication required"},
           "403": {"description": "Reviewer membership required"},
           "409": {"description": "Candidate stale or idempotency key conflict"},
