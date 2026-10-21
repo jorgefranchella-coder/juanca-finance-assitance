@@ -43,6 +43,8 @@ El siguiente flujo es el objetivo completo. La importación vigente y la concili
 
 Los archivos B3 de **posición** son fotografías patrimoniales con fecha de corte. Los de **movimientos** ofrecen historia de entradas, salidas y eventos. El movimiento ya incluido en una fotografía no vuelve a sumarse sobre ella. La conciliación distingue compra/venta, liquidación, transferencia, rendimiento, amortización, rescate y evento corporativo. Dos filas parecidas pueden ser evidencias del mismo hecho, pero esa relación se valida antes de afectar cantidades.
 
+**Estado de conciliación (21/10/2026):** el snapshot B3 de Jorge del 19/10 se comparó con el del 09/10. Aparecen seis diferencias: tres posiciones añadidas, una retirada y dos cantidades modificadas. El archivo de movimientos disponible cubre hasta el 08/10, por lo que no explica ninguna de las diferencias posteriores al corte anterior. Se conservan como candidatos de revisión; no se reconstruyen movimientos ni se publican cambios por inferencia. Para cerrar el intervalo hace falta un extracto de movimientos que cubra el período posterior al 09/10 o evidencia directa equivalente. El snapshot de Julia del 19/10 no tiene un snapshot anterior registrado para comparación.
+
 Avenue aporta extractos de posición y confirmaciones; la previsión aporta saldo del participante según el documento del proveedor. Una foto o un movimiento escrito se guarda desde su recepción aun si OCR, cuenta, fecha o interpretación quedan pendientes. La sombra dispone de carga documental, OCR local para formatos compatibles y bandejas de candidatos; su aplicación al patrimonio autoritativo sigue bajo revisión.
 
 ### Movimientos y aprobaciones
