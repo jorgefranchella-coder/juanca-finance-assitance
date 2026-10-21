@@ -27,6 +27,7 @@ SHADOW_ROUTES = {
     '/api/shadow/evidence/documents': {'POST'},
     '/api/shadow/reconciliation/b3/candidates': {'GET'},
     '/api/shadow/reconciliation/b3/decisions': {'POST'},
+    '/api/shadow/position-identities/acquisition-reconciliation': {'GET'},
     '/api/shadow/reconciliation/manual-b3/candidates': {'GET'},
     '/api/shadow/reconciliation/manual-b3/decisions': {'POST'},
 }

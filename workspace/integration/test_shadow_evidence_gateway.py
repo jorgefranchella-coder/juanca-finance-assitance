@@ -26,6 +26,14 @@ class ShadowStub(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(response)
 
+    def do_GET(self):
+        self.calls.append((self.command, self.path, b'', dict(self.headers)))
+        response = json.dumps({'position_count': 1, 'positions': [], 'status_counts': {}, 'portfolio_changed': False}).encode()
+        self.send_response(200)
+        self.send_header('Content-Length', str(len(response)))
+        self.end_headers()
+        self.wfile.write(response)
+
     def do_PUT(self):
         body = self.rfile.read(int(self.headers['Content-Length']))
         self.calls.append((self.command, self.path, body, dict(self.headers)))
@@ -37,6 +45,40 @@ class ShadowStub(BaseHTTPRequestHandler):
 
 
 class GatewayEvidenceTest(unittest.TestCase):
+    def test_acquisition_reconciliation_is_forwarded_to_authenticated_shadow_api(self):
+        with tempfile.TemporaryDirectory() as root:
+            stub = ThreadingHTTPServer(('127.0.0.1', 0), ShadowStub)
+            gateway = ThreadingHTTPServer(('127.0.0.1', 0), server.Gateway)
+            old = server.SHADOW_CONFIG_PATH
+            server.SHADOW_CONFIG_PATH = Path(root) / 'shadow.json'
+            server.SHADOW_CONFIG_PATH.write_text(json.dumps({'token': 'x' * 64, 'port': stub.server_port}))
+            ShadowStub.calls = []
+            threads = [threading.Thread(target=s.serve_forever, daemon=True) for s in (stub, gateway)]
+            for thread in threads:
+                thread.start()
+            try:
+                connection = http.client.HTTPConnection('127.0.0.1', gateway.server_port)
+                connection.request('GET', '/api/shadow/position-identities/acquisition-reconciliation', headers={
+                    'Authorization': 'Bearer ' + server.CONFIG['token'],
+                })
+                response = connection.getresponse()
+                self.assertEqual(response.status, 200)
+                self.assertEqual(json.loads(response.read())['portfolio_changed'], False)
+                connection.close()
+                self.assertEqual(len(ShadowStub.calls), 1)
+                command, path, _, headers = ShadowStub.calls[0]
+                self.assertEqual(command, 'GET')
+                self.assertEqual(path, '/v1/position-identities/acquisition-reconciliation')
+                self.assertEqual(headers['Authorization'], 'Bearer ' + 'x' * 64)
+            finally:
+                server.SHADOW_CONFIG_PATH = old
+                gateway.shutdown()
+                stub.shutdown()
+                gateway.server_close()
+                stub.server_close()
+                for thread in threads:
+                    thread.join(timeout=2)
+
     def test_photo_is_hashed_and_stored_through_two_shadow_calls(self):
         with tempfile.TemporaryDirectory() as root:
             stub = ThreadingHTTPServer(('127.0.0.1', 0), ShadowStub)

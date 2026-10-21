@@ -13,6 +13,7 @@ import B3ReconciliationPanel from "./B3ReconciliationPanel";
 import ManualIntakePanel from "./ManualIntakePanel";
 import ManualB3Candidates from "./ManualB3Candidates";
 import ManualPhotoPanel from "./ManualPhotoPanel";
+import AcquisitionReconciliationPanel from "./AcquisitionReconciliationPanel";
 
 const tabs = [
   { id: "overview", label: "Visão geral", eyebrow: "Patrimônio consolidado", title: "Bom dia, Jorge.", subtitle: "Uma visão confiável do patrimônio de Jorge e Julia." },
@@ -85,7 +86,7 @@ export default function TabbedWorkspace() {
 
       <section className="tab-panel" role="tabpanel" aria-label={current.label}>
         {active === "overview" && <DashboardMetrics />}
-        {active === "reviews" && <><ReviewPanel /><ManualIntakePanel /><ManualB3Candidates /><ManualPhotoPanel /><B3ReconciliationPanel /></>}
+        {active === "reviews" && <><ReviewPanel /><ManualIntakePanel /><ManualB3Candidates /><ManualPhotoPanel /><B3ReconciliationPanel /><AcquisitionReconciliationPanel /></>}
         {active === "assistant" && <TransactionChat key={`${prefill?.owner??"manual"}:${prefill?.message??""}`} prefill={prefill} />}
         {active === "juanca" && <JuancaChat />}
         {active === "imports" && <DataImportPanel />}
