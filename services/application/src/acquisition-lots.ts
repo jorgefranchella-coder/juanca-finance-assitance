@@ -63,6 +63,40 @@ export async function listAcquisitionLots(db:pg.Pool,household:string,positionId
  return {position_id:positionId,lots:result.rows,current_lots:currentLots,quantity_comparison:summarizeAcquisitionQuantity(snapshot.snapshot_as_of,snapshot.snapshot_quantity===null?null:String(snapshot.snapshot_quantity),currentLots),mode:'shadow',authoritative:false as const,portfolio_changed:false as const};
 }
 
+export async function listAcquisitionReconciliation(db:pg.Pool,household:string){
+ const result=await db.query(`WITH latest_lots AS (
+   SELECT DISTINCT ON (l.household_id,l.id) l.household_id,l.id,l.position_id,l.effective_date,l.quantity,l.voided
+   FROM app.acquisition_lots l WHERE l.household_id=$1 ORDER BY l.household_id,l.id,l.revision DESC
+ ), rollup AS (
+   SELECT position_id,count(*)::int AS current_lot_count,count(*) FILTER (WHERE NOT voided)::int AS active_lot_count,
+     COALESCE(sum(quantity) FILTER (WHERE NOT voided),0)::text AS current_gross_acquisition_quantity,max(effective_date)::text AS latest_lot_date
+   FROM latest_lots GROUP BY position_id
+ ), identities AS (
+   SELECT p.id AS position_id,o.display_name AS owner,ci.canonical_name AS institution,
+     COALESCE(ir.custody_account_id,p.custody_account_id) AS custody_account_id,p.instrument_code,p.currency,
+     sd.effective_as_of::text AS snapshot_as_of,sa.quantity::text AS snapshot_quantity,
+     COALESCE(r.current_lot_count,0)::int AS current_lot_count,COALESCE(r.active_lot_count,0)::int AS active_lot_count,
+     COALESCE(r.current_gross_acquisition_quantity,'0') AS current_gross_acquisition_quantity,r.latest_lot_date
+   FROM app.position_identities p JOIN app.owners o ON o.household_id=p.household_id AND o.id=p.owner_id
+   JOIN app.custody_institutions ci ON ci.id=p.institution_id
+   LEFT JOIN LATERAL (SELECT custody_account_id FROM app.position_identity_resolutions x WHERE x.household_id=p.household_id AND x.position_id=p.id ORDER BY revision DESC LIMIT 1) ir ON true
+   LEFT JOIN app.source_assertions sa ON sa.household_id=p.household_id AND sa.id=p.source_assertion_id
+   LEFT JOIN app.source_documents sd ON sd.household_id=sa.household_id AND sd.id=sa.document_id
+   LEFT JOIN rollup r ON r.position_id=p.id WHERE p.household_id=$1
+ )
+ SELECT *,CASE WHEN snapshot_as_of IS NULL OR snapshot_quantity IS NULL THEN 'no_snapshot_quantity'
+   WHEN current_lot_count=0 THEN 'no_acquisition_lots'
+   WHEN latest_lot_date>snapshot_as_of THEN 'lots_after_snapshot'
+   WHEN current_gross_acquisition_quantity::numeric=snapshot_quantity::numeric THEN 'matches_snapshot'
+   WHEN current_gross_acquisition_quantity::numeric>snapshot_quantity::numeric THEN 'acquisitions_exceed_snapshot'
+   ELSE 'snapshot_exceeds_acquisitions' END AS status,
+   CASE WHEN snapshot_as_of IS NULL OR snapshot_quantity IS NULL OR current_lot_count=0 OR latest_lot_date>snapshot_as_of THEN NULL
+     ELSE (snapshot_quantity::numeric-current_gross_acquisition_quantity::numeric)::text END AS snapshot_minus_gross_acquisitions
+ FROM identities ORDER BY owner,institution,instrument_code,currency,position_id`,[household]);
+ const statusCounts:Record<string,number>={};for(const row of result.rows)statusCounts[row.status]=(statusCounts[row.status]??0)+1;
+ return {positions:result.rows,position_count:result.rowCount??0,status_counts:statusCounts,mode:'shadow',authoritative:false as const,portfolio_changed:false as const};
+}
+
 export async function listPositionAccountCandidates(db:pg.Pool,household:string,positionId:string){
  if(!UUID.test(positionId))throw new Conflict('VALIDATION',422);
  const result=await db.query(`SELECT p.id AS position_id,o.display_name AS owner,ci.canonical_name AS institution,
