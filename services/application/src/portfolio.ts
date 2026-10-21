@@ -2,7 +2,7 @@ import { D, exact, integer, localized, minor } from './money.ts';
 export type Row=Record<string,unknown>;
 export type SourceRow={id:string;import_id:string;file_type:string;owner:string;reference_date:string|null;created_at:string;payload:string};
 export type Inputs={snapshots:SourceRow[];trades:SourceRow[];quotes:Row[];fx:Row|null;facts_revision:string};
-export type PositionAccountResolution={custody_account_id:string;institution_id:string;assertion_id:string};
+export type PositionAccountResolution={custody_account_id:string;institution_id:string;assertion_id:string|null};
 export type Position={owner:string;account_id:string;identity_status:string;instrument_code:string;currency:string;quantity:string;current_unit_price:string;market_value_minor:string;market_value_cents:string|null;asset_class:string;product_name:string;institution:string;base_reference_date:string;reference_date:string;price_as_of:string;source:string};
 export type Issue={code:string;record_id?:string;owner?:string;instrument_code?:string};
 export function codeOf(value:unknown){return String(value??'').trim().toUpperCase().replace(/^(BVMF|NASDAQ|NYSE|NYSEARCA):/,'');}

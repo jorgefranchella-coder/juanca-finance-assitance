@@ -69,7 +69,7 @@ export async function publish(db:pg.Pool,run:string,h:string,effective:string,kn
    FROM app.position_account_resolutions par JOIN app.custody_accounts ca ON ca.household_id=par.household_id AND ca.id=par.custody_account_id
    JOIN app.custody_institutions ci ON ci.id=ca.institution_id JOIN app.owners o ON o.household_id=ca.household_id AND o.id=ca.owner_id
    WHERE par.run_id=$1 AND par.household_id=$2 ORDER BY par.source_record_id,par.resolution_version DESC`,[run,h]);
- const positionMap=new Map<string,{custody_account_id:string;institution_id:string;assertion_id:string}>(positionResolutions.rows.map(r=>[String(r.snapshot_id),{custody_account_id:String(r.custody_account_id),institution_id:String(r.institution_id),assertion_id:String(r.assertion_id)}]));
+ const positionMap=new Map<string,{custody_account_id:string;institution_id:string;assertion_id:string|null}>(positionResolutions.rows.map(r=>[String(r.snapshot_id),{custody_account_id:String(r.custody_account_id),institution_id:String(r.institution_id),assertion_id:r.assertion_id===null?null:String(r.assertion_id)}]));
  const resolvedScopes=new Map<string,string>(positionResolutions.rows.map(r=>[String(r.snapshot_id),JSON.stringify([String(r.owner),'custody:'+String(r.custody_account_id)])]));
  const resolutions=await db.query(`SELECT ar.source_record_id,ar.snapshot_id,a.source_scope FROM app.account_resolutions ar
    JOIN app.accounts a ON a.household_id=ar.household_id AND a.id=ar.account_id
