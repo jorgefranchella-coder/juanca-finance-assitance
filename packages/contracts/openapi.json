@@ -82,7 +82,14 @@
               "required": ["status", "candidates", "count", "limit", "mode", "authoritative", "portfolio_published"],
               "properties": {
                 "status": {"const": "candidate_only"},
-                "candidates": {"type": "array", "items": {"type": "object"}},
+                "candidates": {"type": "array", "items": {"type": "object", "properties": {
+                  "candidate_key": {"type": "string", "pattern": "^[0-9a-f]{32}$"},
+                  "review_status": {"enum": ["needs_review", "reviewed"]},
+                  "link_decisions": {"type": "array", "items": {"type": "object", "required": ["left_assertion_id", "right_assertion_id", "review"], "properties": {
+                    "left_assertion_id": {"type": "string"}, "right_assertion_id": {"type": "string"},
+                    "review": {"oneOf": [{"type": "null"}, {"type": "object", "required": ["decision", "revision", "actor_id", "decided_at"], "properties": {"decision": {"enum": ["same_event", "distinct_events"]}, "revision": {"type": "integer"}, "actor_id": {"type": "string"}, "decided_at": {"type": "string"}}}]}
+                  }}}
+                }}},
                 "count": {"type": "integer"},
                 "limit": {"type": "integer"},
                 "mode": {"const": "shadow"},
@@ -102,6 +109,7 @@
         "security": [{"bearerAuth": []}],
         "summary": "Record an audited decision for a pair of repeated B3 movement rows",
         "description": "Append-only evidence review. Decisions are versioned and idempotent; they do not merge source assertions or change the portfolio.",
+        "parameters": [{"name": "x-juanca-actor", "in": "header", "required": true, "schema": {"type": "string", "minLength": 1}}],
         "requestBody": {"required": true, "content": {"application/json": {"schema": {
           "type": "object", "additionalProperties": false,
           "required": ["request_key", "left_assertion_id", "right_assertion_id", "candidate_key", "decision"],
