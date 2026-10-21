@@ -116,6 +116,8 @@ Un comprobante de operación inequívocamente vinculado a la adquisición preval
 
 **Aceptación:** la ficha explica de dónde proviene cada precio/fecha; cambiar un costo conserva valor previo, actor, razón y evidencia. Compras múltiples no se convierten en una compra ficticia con fecha única. Una serie que cambia entre curva y MTM se señala antes de extrapolarla.
 
+**Avance:** se registraron 9 observaciones de adquisición B3 que coinciden con cuenta, instrumento, fecha, cantidad y precio de 5 posiciones de Jorge. Las comisiones se guardan como desconocidas porque el reporte no las declara. Son evidencia histórica en sombra; aún no se asignan a costo vigente ni alimentan la proyección.
+
 ### P0-04 — Saldos y flujos por período
 
 El saldo mensual es el valor de títulos vigentes al cierre. El saldo anual es el del cierre anual, nunca la suma de los saldos mensuales. Los vencimientos anuales son la suma de los flujos de vencimiento de los meses incluidos. El período de salida incluye el día exacto de vencimiento y ese título ya no integra el saldo de cierre. El dinero vencido se muestra como flujo proyectado; no se reinvierte ni se incorpora automáticamente a una cuenta de efectivo.

@@ -1,6 +1,7 @@
 import {createHash,randomUUID} from 'node:crypto';
 import type pg from 'pg';
 import {Conflict} from './commands.ts';
+import {exact,localized} from './money.ts';
 
 const KEY=/^[A-Za-z0-9._:-]{8,128}$/;
 const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -8,6 +9,7 @@ const DATE=/^\d{4}-\d{2}-\d{2}$/;
 const DECIMAL=/^\d{1,18}(?:\.\d{1,10})?$/;
 const hash=(value:string)=>createHash('sha256').update(value).digest('hex');
 const validDate=(value:string)=>{if(!DATE.test(value))return false;const date=new Date(value+'T00:00:00Z');return !Number.isNaN(date.valueOf())&&date.toISOString().slice(0,10)===value;};
+const norm=(value:unknown)=>String(value??'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toUpperCase().trim();
 
 export async function listPositionIdentities(db:pg.Pool,household:string){
  const result=await db.query(`SELECT p.id AS position_id,p.owner_id,o.display_name AS owner,p.institution_id,ci.canonical_name AS institution,
@@ -99,13 +101,13 @@ export async function recordAcquisitionLot(db:pg.Pool,household:string,actor:str
    typeof input.effective_date!=='string'||!validDate(input.effective_date)||
    typeof input.quantity!=='string'||!DECIMAL.test(input.quantity)||Number(input.quantity)<=0||
    typeof input.unit_price!=='string'||!DECIMAL.test(input.unit_price)||Number(input.unit_price)<=0||
-   (input.fees_minor!==undefined&&(!Number.isSafeInteger(input.fees_minor)||Number(input.fees_minor)<0))||
+   (input.fees_minor!==undefined&&input.fees_minor!==null&&(!Number.isSafeInteger(input.fees_minor)||Number(input.fees_minor)<0))||
    !['BRL','USD'].includes(String(input.currency))||
    !['source_assertion','event','manual','legacy_review'].includes(String(input.evidence_kind))||
    typeof input.evidence_id!=='string'||input.evidence_id.length<1||input.evidence_id.length>500||
    (input.voided!==undefined&&typeof input.voided!=='boolean'))throw new Conflict('VALIDATION',422);
  const value={request_key:input.request_key,acquisition_id:String(input.acquisition_id??randomUUID()),supersedes_revision:input.supersedes_revision as number|undefined,
-  effective_date:input.effective_date,quantity:input.quantity,unit_price:input.unit_price,fees_minor:Number(input.fees_minor??0),currency:input.currency,
+  effective_date:input.effective_date,quantity:input.quantity,unit_price:input.unit_price,fees_minor:input.fees_minor===undefined||input.fees_minor===null?null:Number(input.fees_minor),currency:input.currency,
   evidence_kind:input.evidence_kind,evidence_id:input.evidence_id,voided:Boolean(input.voided??false)};
  const requestHash=hash(JSON.stringify([positionId,{...value,acquisition_id:input.acquisition_id??null}]));const c=await db.connect();
  try{
@@ -118,9 +120,29 @@ export async function recordAcquisitionLot(db:pg.Pool,household:string,actor:str
    const row=replay.rows[0];if(row.request_hash!==requestHash)throw new Conflict('IDEMPOTENCY_MISMATCH',409);
    await c.query('COMMIT');return {acquisition_id:row.id,revision:row.revision,replayed:true,mode:'shadow',portfolio_changed:false};
   }
-  const position=await c.query('SELECT currency FROM app.position_identities WHERE household_id=$1 AND id=$2',[household,positionId]);
+  const position=await c.query(`SELECT p.owner_id,p.institution_id,p.instrument_code,p.currency,
+    COALESCE(r.custody_account_id,p.custody_account_id) AS custody_account_id
+    FROM app.position_identities p LEFT JOIN LATERAL(SELECT custody_account_id FROM app.position_identity_resolutions x
+      WHERE x.household_id=p.household_id AND x.position_id=p.id ORDER BY revision DESC LIMIT 1) r ON true
+    WHERE p.household_id=$1 AND p.id=$2`,[household,positionId]);
   if(!position.rowCount)throw new Conflict('NOT_FOUND',404);
   if(position.rows[0].currency!==value.currency)throw new Conflict('CURRENCY_MISMATCH',422);
+  if(value.evidence_kind==='source_assertion'){
+   const source=await c.query(`SELECT a.assertion_kind,a.owner_id,a.institution_id,a.custody_account_id,a.asserted_on::text AS effective_date,
+     a.direction,a.quantity::text AS quantity,a.raw_row->>'Preço unitário' AS unit_price,a.interpretation_status,
+     COALESCE(i.instrument_code,a.instrument_code) AS instrument_code,COALESCE(i.tentative_event_type,a.tentative_event_type) AS event_type,i.status AS parser_status
+     FROM app.source_assertions a LEFT JOIN LATERAL(SELECT instrument_code,tentative_event_type,status FROM app.source_interpretations x
+       WHERE x.household_id=a.household_id AND x.assertion_id=a.id ORDER BY interpreted_at DESC,parser_version DESC LIMIT 1)i ON true
+     WHERE a.household_id=$1 AND a.id=$2`,[household,value.evidence_id]);
+   if(!source.rowCount)throw new Conflict('EVIDENCE_NOT_FOUND',422);
+   const s=source.rows[0],p=position.rows[0];let price=null;
+   try{price=localized(s.unit_price);}catch{throw new Conflict('EVIDENCE_MISMATCH',422);}
+   if(s.assertion_kind!=='movement'||s.event_type!=='acquisition_observation'||s.parser_status!=='parsed'||norm(s.direction)!=='CREDITO'||
+      s.owner_id!==p.owner_id||s.institution_id!==p.institution_id||s.instrument_code!==p.instrument_code||
+      (p.custody_account_id&&s.custody_account_id!==p.custody_account_id)||
+      s.effective_date!==value.effective_date||s.quantity===null||!exact(String(s.quantity)).eq(exact(String(value.quantity)))||
+      !price||!price.eq(exact(String(value.unit_price))))throw new Conflict('EVIDENCE_MISMATCH',422);
+  }
   let revision=1,supersedesId:null|string=null,supersedesRevision:null|number=null;
   if(value.supersedes_revision!==undefined){
    if(!input.acquisition_id)throw new Conflict('VALIDATION',422);
