@@ -19,6 +19,35 @@
     }
   },
   "paths": {
+    "/v1/authority/readiness": {
+      "get": {
+        "security": [{"bearerAuth": []}],
+        "summary": "Read portfolio data and operational gates for PostgreSQL cutover",
+        "responses": {
+          "200": {
+            "description": "Read-only readiness report; never enables authority or writes",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["ready", "mode", "authoritative", "blockers", "counts", "gates", "note"],
+                  "properties": {
+                    "ready": {"type": "boolean", "const": false},
+                    "mode": {"type": "string", "const": "shadow"},
+                    "authoritative": {"type": "boolean", "const": false},
+                    "blockers": {"type": "array", "items": {"type": "string"}},
+                    "counts": {"type": "object"},
+                    "gates": {"type": "array", "items": {"type": "object", "required": ["id", "status", "detail"], "properties": {"id": {"type": "string"}, "status": {"type": "string", "const": "blocked"}, "detail": {"type": "string"}}}},
+                    "note": {"type": "string"}
+                  }
+                }
+              }
+            }
+          },
+          "401": {"description": "Authentication required"}
+        }
+      }
+    },
     "/v1/proposals": {
       "get": {
         "security": [

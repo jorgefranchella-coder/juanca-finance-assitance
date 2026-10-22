@@ -12,9 +12,19 @@ export function assessAuthorityReadiness(f:AuthorityReadinessFacts){
  if(f.command_account_known!==f.command_account_total||f.unresolved_command_account_references)blockers.push('unresolved_command_accounts');
  if(!f.holding_total||f.holding_verified!==f.holding_total)blockers.push('opening_holdings_not_fully_verified');
  if(f.portfolio_commandable_identity_unresolved)blockers.push('commandable_portfolio_position_identity_incomplete');
- blockers.push('coordinated_writer_cutover_not_completed');
+ // These are deployment/operational gates, not facts that can be inferred from
+ // portfolio rows. Keep them explicit so a clean snapshot cannot look cutover-ready.
+ blockers.push('legacy_financial_writers_still_active','ingestion_does_not_publish_portfolio',
+  'approver_role_not_assigned','final_delta_and_restore_not_verified','cutover_and_rollback_not_rehearsed');
  return {ready:false,mode:'shadow',authoritative:false,blockers,counts:f,
-  note:'La preparación de saldos iniciales no aprueba ni aplica movimientos. El escritor productivo debe cambiarse en una operación coordinada.'};
+  gates:[
+   {id:'legacy_financial_writers_still_active',status:'blocked',detail:'La web vigente aún escribe importaciones y revisiones financieras en D1/R2.'},
+   {id:'ingestion_does_not_publish_portfolio',status:'blocked',detail:'La ingesta PostgreSQL conserva afirmaciones como evidencia; una nueva fotografía B3 no reconstruye ni publica posiciones.'},
+   {id:'approver_role_not_assigned',status:'blocked',detail:'El actor autenticado tiene rol reviewer; no se asignan permisos de aprobación por inferencia.'},
+   {id:'final_delta_and_restore_not_verified',status:'blocked',detail:'Falta exportar, conciliar y verificar la restauración del delta final en la ventana del corte.'},
+   {id:'cutover_and_rollback_not_rehearsed',status:'blocked',detail:'Falta ensayar el cambio coordinado de lectura/escritura y la reversión con un único escritor.'},
+  ],
+  note:'La preparación de saldos iniciales no aprueba ni aplica movimientos. Esta lectura informa gates de datos y despliegue; no cambia el modo sombra.'};
 }
 
 export async function authorityReadiness(db:pg.Pool,household:string){
