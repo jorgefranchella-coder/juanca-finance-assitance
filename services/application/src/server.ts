@@ -3,7 +3,7 @@ import {readFile} from 'node:fs/promises';
 import {createHash,randomUUID,timingSafeEqual} from 'node:crypto';
 import {pool} from './db.ts';
 import {portfolio,positionPage} from './queries.ts';
-import {Conflict} from './commands.ts';
+import {Conflict,approve,createProposal,listProposals,rejectProposal,type Approval,type ProposalInput} from './commands.ts';
 import {chatHistory,sendChat} from './conversation.ts';
 import {getPhotoContent,getPhotoStatus,getSourceStatus,listPhotoEvidence,listTextIntakes,putPhoto,putSourceDocument,readJson,recordText,startPhoto,startSourceDocument,textStatus} from './manual-intake.ts';
 import {listManualB3Candidates} from './manual-b3-candidates.ts';
@@ -24,6 +24,18 @@ const server=createServer(async(req,res)=>{
   const provided=createHash('sha256').update(req.headers.authorization??'').digest();const expected=createHash('sha256').update('Bearer '+config.token).digest();
   if(!timingSafeEqual(provided,expected))throw new Conflict('UNAUTHENTICATED',401);
   if(url.pathname==='/v1/authority/readiness'&&req.method==='GET'){reply(200,await authorityReadiness(db,config.household_id));return;}
+  if(url.pathname==='/v1/proposals'&&req.method==='GET'){
+   reply(200,await listProposals(db,config.household_id,url.searchParams.get('status')??undefined));return;
+  }
+  if(url.pathname==='/v1/proposals'&&req.method==='POST'){
+   const actor=String(req.headers['x-juanca-actor']??''),key=String(req.headers['idempotency-key']??'');
+   reply(201,await createProposal(db,config.household_id,actor,key,await readJson(req) as ProposalInput));return;
+  }
+  const proposalCommand=url.pathname.match(/^\/v1\/proposals\/([0-9a-f-]{36})\/(approve|reject)$/i);
+  if(proposalCommand&&req.method==='POST'){
+   const actor=String(req.headers['x-juanca-actor']??''),key=String(req.headers['idempotency-key']??''),body=await readJson(req) as Approval;
+   reply(200,proposalCommand[2]==='approve'?await approve(db,config.household_id,actor,proposalCommand[1],key,body):await rejectProposal(db,config.household_id,actor,proposalCommand[1],key,body));return;
+  }
   if(url.pathname==='/v1/evidence/text'&&req.method==='POST'){reply(201,await recordText(db,config.household_id,await readJson(req)));return;}
   if(url.pathname==='/v1/evidence/text'&&req.method==='GET'){
    const limit=url.searchParams.has('limit')?Number(url.searchParams.get('limit')):50;if(!Number.isInteger(limit)||limit<1||limit>100)throw new Conflict('VALIDATION',422);
