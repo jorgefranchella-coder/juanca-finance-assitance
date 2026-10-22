@@ -24,7 +24,7 @@ npm run typecheck
 
 `test:backup` comprueba con bases SQLite sintéticas la verificación de integridad, la detección de cambios, la restauración aislada y la orquestación del runner local. El verificador rechaza rutas fuera del backup, enlaces simbólicos, archivos añadidos y manifests incompletos. `npm test` también verifica hashes, rutas seguras y el conjunto exacto de archivos del manifest PostgreSQL. No usa datos patrimoniales ni credenciales reales. Para restauraciones PostgreSQL existe `infra/backup/verify_restore.ts`, que valida la copia en una base aislada.
 
-`test:foundation` reconstruye el bundle Wrangler local y ejecuta ocho escenarios HTTP con una base D1 efímera y datos sintéticos: selección por fecha económica, importación fuera de orden, FX ausente, concurrencia/idempotencia, origen de evidencia, borradores en español, importación B3 duplicada y cola de confirmaciones. El runner cierra su proceso local, elimina el estado temporal y restaura exactamente el `wrangler.json` generado por el build; no usa el D1 de producción.
+`test:foundation` reconstruye el bundle Wrangler local y ejecuta nueve escenarios HTTP con una base D1 efímera y datos sintéticos: selección por fecha económica e importación fuera de orden, vencimiento de Jorge entre su referencia y la referencia posterior de Julia, exclusión de compra sin orden temporal el día del corte, FX ausente, concurrencia/idempotencia, origen de evidencia, borradores en español, importación B3 duplicada y cola de confirmaciones. El runner cierra su proceso local, elimina el estado temporal y restaura exactamente el `wrangler.json` generado por el build; no usa el D1 de producción.
 
 ## Respaldo PostgreSQL sombra
 

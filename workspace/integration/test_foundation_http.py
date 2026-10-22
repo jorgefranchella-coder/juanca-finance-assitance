@@ -61,7 +61,7 @@ class FoundationHttpTests(unittest.TestCase):
         status,positions=self.worker('/api/portfolio/positions');self.assertEqual(status,200)
         status,dashboard=self.worker('/api/portfolio/dashboard');self.assertEqual(status,200)
         self.assertEqual(positions['portfolio_version'],dashboard['portfolio_version'])
-        self.assertEqual(positions['total_value_cents'],30000);self.assertEqual(positions['total_value_cents'],dashboard['total_value_cents'])
+        self.assertEqual(positions['total_value_cents'],180000);self.assertEqual(positions['total_value_cents'],dashboard['total_value_cents'])
         self.assertFalse(positions['valuation_complete'])
         usd=[p for p in positions['positions'] if p['currency']=='USD'];self.assertIsNone(usd[0]['market_value_cents'])
     def test_02_concurrent_distinct_sales_and_replay(self):
@@ -176,5 +176,16 @@ class FoundationHttpTests(unittest.TestCase):
         self.assertEqual(status,409)
         status,final=self.worker('/api/portfolio/confirmations')
         self.assertEqual(status,200);self.assertEqual(final['open_count'],0)
+
+    def test_09_later_owner_reference_keeps_earlier_maturity_and_same_day_buy_unapplied(self):
+        status,result=self.worker('/api/portfolio/fixed-income-projection')
+        self.assertEqual(status,200)
+        jorge=next(item for item in result['items'] if item['instrument_code']=='FIXTURE-CDB-J')
+        julia=next(item for item in result['items'] if item['instrument_code']=='FIXTURE-CDB-U')
+        self.assertEqual((jorge['reference_date'],jorge['maturity_date']),('2026-08-01','2026-08-20'))
+        self.assertEqual(julia['reference_date'],'2026-09-01')
+        self.assertLess(jorge['maturity_date'],julia['reference_date'])
+        self.assertEqual(jorge['observationCount'],1)
+        self.assertNotIn('b3_movement',jorge['observation_sources'])
 
 if __name__=='__main__':unittest.main()
