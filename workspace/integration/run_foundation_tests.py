@@ -5,6 +5,7 @@ from pathlib import Path
 import socket
 import sqlite3
 import subprocess
+import sys
 import tempfile
 import time
 from urllib.request import Request,urlopen
@@ -32,31 +33,38 @@ def seed(state):
 def main():
     config=WEB/'dist/server/wrangler.json'
     if not config.exists():raise SystemExit('Build first with npm run build in an isolated checkout')
-    data=json.loads(config.read_text());data['d1_databases'][0]['migrations_dir']='../../drizzle';config.write_text(json.dumps(data))
-    with tempfile.TemporaryDirectory(prefix='juanca-synthetic-') as name:
-        root=Path(name);state=root/'state'
-        tool=[str(WEB/'node_modules/.bin/wrangler')]
-        subprocess.run(tool+['d1','migrations','apply','DB','--local','--config',str(config),'--persist-to',str(state)],cwd=WEB,check=True,stdout=subprocess.DEVNULL)
-        seed(state)
-        with socket.socket() as sock:sock.bind(('127.0.0.1',0));port=sock.getsockname()[1]
-        if port in (3040,3041,8644):raise ValueError('Reserved port')
-        with (root/'worker.log').open('w') as log:
-            process=subprocess.Popen(tool+['dev','--local','--config',str(config),'--ip','127.0.0.1','--port',str(port),'--persist-to',str(state)],cwd=WEB,stdout=log,stderr=log,start_new_session=True)
-            try:
-                base=f'http://127.0.0.1:{port}'
-                for _ in range(100):
-                    if process.poll() is not None:raise RuntimeError('Fixture Worker failed to start')
+    original_config=config.read_bytes()
+    try:
+        data=json.loads(original_config);data['d1_databases'][0]['migrations_dir']='../../drizzle';config.write_text(json.dumps(data))
+        with tempfile.TemporaryDirectory(prefix='juanca-synthetic-') as name:
+            root=Path(name);state=root/'state'
+            tool=[str(WEB/'node_modules/.bin/wrangler')]
+            subprocess.run(tool+['d1','migrations','apply','DB','--local','--config',str(config),'--persist-to',str(state)],cwd=WEB,check=True,stdout=subprocess.DEVNULL)
+            seed(state)
+            with socket.socket() as sock:sock.bind(('127.0.0.1',0));port=sock.getsockname()[1]
+            if port in (3040,3041,8644):raise ValueError('Reserved port')
+            with (root/'worker.log').open('w') as log:
+                process=subprocess.Popen(tool+['dev','--local','--config',str(config),'--ip','127.0.0.1','--port',str(port),'--persist-to',str(state)],cwd=WEB,stdout=log,stderr=log,start_new_session=True)
+                try:
+                    base=f'http://127.0.0.1:{port}'
+                    for _ in range(100):
+                        if process.poll() is not None:raise RuntimeError('Fixture Worker failed to start')
+                        try:
+                            with urlopen(Request(base+'/api/portfolio/positions',headers={'oai-authenticated-user-id':'fixture-family'}),timeout=1) as r:
+                                if r.status==200:break
+                        except OSError:time.sleep(0.2)
+                    else:raise RuntimeError('Fixture Worker not ready')
+                    env=dict(os.environ,JUANCA_TEST_WORKER_URL=base,JUANCA_TEST_STATE_PATH=str(state))
                     try:
-                        with urlopen(Request(base+'/api/portfolio/positions',headers={'oai-authenticated-user-id':'fixture-family'}),timeout=1) as r:
-                            if r.status==200:break
-                    except OSError:time.sleep(0.2)
-                else:raise RuntimeError('Fixture Worker not ready')
-                env=dict(os.environ,JUANCA_TEST_WORKER_URL=base,JUANCA_TEST_STATE_PATH=str(state))
-                subprocess.run(['python3','-m','unittest','discover','-s','integration','-p','test_foundation_http.py','-v'],cwd=ROOT,env=env,check=True)
-            finally:
-                import signal
-                os.killpg(process.pid,signal.SIGTERM)
-                try:process.wait(timeout=10)
-                except subprocess.TimeoutExpired:os.killpg(process.pid,signal.SIGKILL);process.wait()
+                        subprocess.run(['python3','-m','unittest','discover','-s','integration','-p','test_foundation_http.py','-v'],cwd=ROOT,env=env,check=True)
+                    except subprocess.CalledProcessError:
+                        log.flush();print('Synthetic Wrangler log:\n'+(root/'worker.log').read_text()[-12000:],file=sys.stderr);raise
+                finally:
+                    import signal
+                    os.killpg(process.pid,signal.SIGTERM)
+                    try:process.wait(timeout=10)
+                    except subprocess.TimeoutExpired:os.killpg(process.pid,signal.SIGKILL);process.wait()
+    finally:
+        config.write_bytes(original_config)
 
 if __name__=='__main__':main()

@@ -20,6 +20,11 @@ ROOT=Path(__file__).parent
 sys.path.insert(0,str(ROOT))
 WORKER=os.environ.get('JUANCA_TEST_WORKER_URL')
 
+def error_body(error):
+    body=error.read()
+    try:return json.loads(body)
+    except (json.JSONDecodeError,UnicodeDecodeError):return {'non_json_response':body.decode(errors='replace')}
+
 @unittest.skipUnless(WORKER, 'Run the synthetic harness; never point this at production.')
 class FoundationHttpTests(unittest.TestCase):
     @classmethod
@@ -45,13 +50,13 @@ class FoundationHttpTests(unittest.TestCase):
         else:data=json.dumps(body).encode() if body is not None else None
         try:
             with urlopen(Request(WORKER+path,data=data,headers=headers),timeout=20) as r:return r.status,json.load(r)
-        except HTTPError as e:return e.code,json.load(e)
+        except HTTPError as e:return e.code,error_body(e)
     def gateway_request(self,path,body=None,token=True,**extra):
         headers={'Authorization':'Bearer fixture-token'} if token else {}
         headers.update({'Content-Type':'application/json',**extra})
         try:
             with urlopen(Request(self.base+path,data=json.dumps(body).encode() if body is not None else None,headers=headers),timeout=25) as r:return r.status,json.load(r)
-        except HTTPError as e:return e.code,json.load(e)
+        except HTTPError as e:return e.code,error_body(e)
     def test_01_reference_dates_shared_totals_and_missing_fx(self):
         status,positions=self.worker('/api/portfolio/positions');self.assertEqual(status,200)
         status,dashboard=self.worker('/api/portfolio/dashboard');self.assertEqual(status,200)
