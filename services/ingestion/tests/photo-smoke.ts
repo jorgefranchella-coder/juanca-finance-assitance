@@ -19,7 +19,7 @@ try{
  await testDb.query(await readFile(new URL('../../../infra/postgres/roles.sql',import.meta.url),'utf8'));
  await admin.query('GRANT CREATE ON DATABASE "'+database+'" TO juanca_ingestion');
  const ing=new pg.Client({host:'/home/jorge/.local/share/juanca-shadow/socket',port:55432,user:'juanca_ingestion',database});await ing.connect();
- try{await ing.query(await readFile(new URL('../../../infra/postgres/006_ingestion.sql',import.meta.url),'utf8'));}finally{await ing.end();}
+ try{await ing.query(await readFile(new URL('../../../infra/postgres/006_ingestion.sql',import.meta.url),'utf8'));await ing.query(await readFile(new URL('../../../infra/postgres/009_ingestion_evidence_archive_status.sql',import.meta.url),'utf8'));}finally{await ing.end();}
  const listener=createServer();await new Promise<void>(resolve=>listener.listen(0,'127.0.0.1',resolve));const port=(listener.address() as {port:number}).port;await new Promise<void>(resolve=>listener.close(()=>resolve()));
  const token=randomBytes(32).toString('hex');const config=join(root,'config.json');await writeFile(config,JSON.stringify({token,port,object_root:join(root,'objects')}),{mode:0o600});
  child=spawn(process.execPath,['--experimental-strip-types','services/ingestion/src/server.ts'],{cwd:new URL('../../../',import.meta.url),env:{...process.env,JUANCA_DATABASE:database,JUANCA_INGESTION_CONFIG:config},stdio:'ignore'});
@@ -32,6 +32,14 @@ try{
  const status=await fetch(base+`/v1/uploads/${upload.upload_id}`,{headers:{Authorization:'Bearer '+token,'X-Household-Ref':'test-family'}});assert.equal(status.status,200);assert.equal((await status.json() as {status:string}).status,'stored');
  const wrongScope=await fetch(base+`/v1/uploads/${upload.upload_id}`,{headers:{Authorization:'Bearer '+token,'X-Household-Ref':'another-family'}});assert.equal(wrongScope.status,404);
  const rows=await testDb.query('SELECT d.object_key,d.content_sha256 FROM ingestion.documents d');assert.equal(rows.rowCount,1);assert.equal(createHash('sha256').update(await readFile(rows.rows[0].object_key)).digest('hex'),digest);
+ const documentId=randomUUID(),assignmentId=randomUUID(),uploadJobId=randomUUID(),importJobId=randomUUID(),jobHash='a'.repeat(64),parser='b3-test-v1',rowHash='c'.repeat(64);
+ await testDb.query('INSERT INTO ingestion.documents(id,content_sha256,byte_size,content_type,object_key) VALUES($1,$2,1,$3,$4)',[documentId,jobHash,'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',join(root,'b3.xlsx')]);
+ await testDb.query("INSERT INTO ingestion.document_assignments(id,document_id,household_ref,owner_ref,source,file_type,reference_date) VALUES($1,$2,'test-family','test-owner','b3','positions','2026-10-21')",[assignmentId,documentId]);
+ await testDb.query("INSERT INTO ingestion.upload_jobs(id,request_key,request_hash,household_ref,owner_ref,source,file_type,reference_date,file_name,content_sha256,expected_size,content_type,status,document_id,assignment_id) VALUES($1,'b3-smoke',$2,'test-family','test-owner','b3','positions','2026-10-21','b3.xlsx',$2,1,'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet','stored',$3,$4)",[uploadJobId,jobHash,documentId,assignmentId]);
+ await testDb.query("INSERT INTO ingestion.import_jobs(id,upload_job_id,document_id,assignment_id,status,parser_version,result) VALUES($1,$2,$3,$4,'awaiting_review',$5,$6)",[importJobId,uploadJobId,documentId,assignmentId,parser,JSON.stringify({record_count:1})]);
+ await testDb.query('INSERT INTO ingestion.raw_records(import_job_id,source_ordinal,record_kind,original,original_sha256,parser_version) VALUES($1,2,\'position\',$2,$3,$4)',[importJobId,JSON.stringify({Produto:'PETR4'}),rowHash,parser]);
+ const archived=await fetch(base+`/v1/import-jobs/${importJobId}/acknowledge`,{method:'POST',headers:{Authorization:'Bearer '+token,'X-Household-Ref':'test-family'}});assert.equal(archived.status,200);const archivedBody=await archived.json() as {status:string;portfolio_published:boolean};assert.equal(archivedBody.status,'evidence_archived');assert.equal(archivedBody.portfolio_published,false);
+ const replay=await fetch(base+`/v1/import-jobs/${importJobId}/acknowledge`,{method:'POST',headers:{Authorization:'Bearer '+token,'X-Household-Ref':'test-family'}});assert.equal(replay.status,200);const replayBody=await replay.json() as {status:string;portfolio_published:boolean;replayed:boolean};assert.equal(replayBody.status,'evidence_archived');assert.equal(replayBody.portfolio_published,false);assert.equal(replayBody.replayed,true);
  console.log(JSON.stringify({photo_upload_verified:true,isolated_database:true}));
 }finally{
  if(child){child.kill('SIGTERM');await delay(150);if(child.exitCode===null)child.kill('SIGKILL');}

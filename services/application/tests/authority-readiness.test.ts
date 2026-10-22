@@ -2,7 +2,7 @@ import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {assessAuthorityReadiness} from '../src/authority-readiness.ts';
 
-const operationalBlockers=['legacy_financial_writers_still_active','ingestion_does_not_publish_portfolio','approver_role_not_assigned','final_delta_and_restore_not_verified','cutover_and_rollback_not_rehearsed'];
+const operationalBlockers=['legacy_financial_writers_still_active','ingestion_does_not_publish_portfolio','approver_role_not_assigned','final_cutover_delta_not_verified','cutover_and_rollback_not_rehearsed'];
 
 test('authority stays shadow-only while command accounts or opening positions are incomplete',()=>{
  const result=assessAuthorityReadiness({command_account_total:22,command_account_known:4,unresolved_command_account_references:18,
