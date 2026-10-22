@@ -12,6 +12,7 @@ import {listB3SnapshotReviews,recordB3SnapshotReview} from './b3-snapshot-decisi
 import {listB3DuplicateMovementCandidates,recordB3DuplicateMovementDecision} from './b3-duplicate-candidates.ts';
 import {listAcquisitionLots,listAcquisitionReconciliation,listPositionAccountCandidates,listPositionIdentities,recordAcquisitionLot,recordPositionIdentityResolution} from './acquisition-lots.ts';
 import {authorityReadiness} from './authority-readiness.ts';
+import {fixedIncomeProjection} from './fixed-income.ts';
 const config=JSON.parse(await readFile(process.env.JUANCA_SHADOW_CONFIG??'/home/jorge/.local/share/juanca-shadow/application.json','utf8')) as {token:string;household_id:string;cursor_key:string;port:number};
 if(config.token.length<32||config.cursor_key.length<32||!config.household_id)throw new Error('INVALID_CONFIGURATION');
 const db=pool();
@@ -24,6 +25,7 @@ const server=createServer(async(req,res)=>{
   const provided=createHash('sha256').update(req.headers.authorization??'').digest();const expected=createHash('sha256').update('Bearer '+config.token).digest();
   if(!timingSafeEqual(provided,expected))throw new Conflict('UNAUTHENTICATED',401);
   if(url.pathname==='/v1/authority/readiness'&&req.method==='GET'){reply(200,await authorityReadiness(db,config.household_id));return;}
+  if(url.pathname==='/v1/fixed-income-projection'&&req.method==='GET'){reply(200,await fixedIncomeProjection(db,config.household_id));return;}
   if(url.pathname==='/v1/proposals'&&req.method==='GET'){
    reply(200,await listProposals(db,config.household_id,url.searchParams.get('status')??undefined));return;
   }

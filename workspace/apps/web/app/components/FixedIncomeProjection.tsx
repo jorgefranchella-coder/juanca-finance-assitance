@@ -52,7 +52,7 @@ function ValueCell({ value }: { value: ProjectionPeriodValue }) {
   </span>;
 }
 
-export default function FixedIncomeProjection() {
+export default function FixedIncomeProjection({ endpoint = "/api/portfolio/fixed-income-projection", shadow = false }: { endpoint?: string; shadow?: boolean }) {
   const [data, setData] = useState<ProjectionResponse | null>(null);
   const [owner, setOwner] = useState("Todos");
   const [error, setError] = useState("");
@@ -60,12 +60,12 @@ export default function FixedIncomeProjection() {
   const [expandedIssuers, setExpandedIssuers] = useState<Set<string>>(() => new Set());
   const load = useCallback(async () => {
     try {
-      const response = await fetch("/api/portfolio/fixed-income-projection", { cache: "no-store" });
+      const response = await fetch(endpoint, { cache: "no-store" });
       const result = await response.json() as ProjectionResponse & { detail?: string };
       if (!response.ok) throw new Error(result.detail ?? "Não foi possível calcular a projeção.");
       setData(result); setError("");
     } catch (loadError) { setError(loadError instanceof Error ? loadError.message : "Não foi possível calcular a projeção."); }
-  }, []);
+  }, [endpoint]);
   useEffect(() => {
     const timer = window.setTimeout(() => void load(), 0);
     window.addEventListener("portfolio-data-updated", load);
@@ -101,7 +101,7 @@ export default function FixedIncomeProjection() {
 
   return <section className="panel fixed-income-projection" id="renda-fixa">
     <div className="panel-title fixed-income-title">
-      <div><p>Projeção baseada no histórico</p><h2>Renda fixa até o vencimento</h2><span>Expanda um ano para ver os meses; expanda um emissor para ver cada título.</span></div>
+      <div><p>{shadow ? "PostgreSQL · sombra" : "Projeção baseada no histórico"}</p><h2>Renda fixa até o vencimento</h2><span>Expanda um ano para ver os meses; expanda um emissor para ver cada título.</span></div>
       <label>Investidor<select value={owner} onChange={(event) => { setOwner(event.target.value); setExpandedIssuers(new Set()); }}><option>Todos</option><option>Jorge</option><option>Julia</option></select></label>
     </div>
     {error ? <p className="projection-error">{error}</p> : !data ? <p className="projection-loading">Calculando histórico de preços…</p> : <>

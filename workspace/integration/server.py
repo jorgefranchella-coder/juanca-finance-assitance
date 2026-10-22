@@ -22,6 +22,7 @@ ALLOWED_ORIGINS = {'http://localhost:3040', 'http://127.0.0.1:3040', 'http://nbc
 HOP = {'connection', 'keep-alive', 'proxy-authenticate', 'proxy-authorization', 'te', 'trailer', 'transfer-encoding', 'upgrade', 'host', 'content-length', 'authorization', 'cookie'}
 SHADOW_CONFIG_PATH = Path(os.environ.get('JUANCA_SHADOW_CONFIG', '/home/jorge/.local/share/juanca-shadow/application.json'))
 SHADOW_ROUTES = {
+    '/api/shadow/fixed-income-projection': {'GET'},
     '/api/shadow/evidence/text': {'GET', 'POST'},
     '/api/shadow/evidence/photos': {'GET', 'POST'},
     '/api/shadow/evidence/documents': {'POST'},

@@ -515,6 +515,17 @@
         }
       }
     },
+    "/v1/fixed-income-projection": {
+      "get": {
+        "security": [{"bearerAuth": []}],
+        "summary": "Project shadow fixed-income holdings from archived price observations",
+        "responses": {
+          "200": {"description": "Issuer- and owner-scoped projection, explicitly non-authoritative"},
+          "401": {"description": "Authentication required"},
+          "503": {"description": "Projection source unavailable"}
+        }
+      }
+    },
     "/v1/portfolio": {
       "get": {
         "security": [
