@@ -27,7 +27,7 @@ El código canónico está en este repositorio. El despliegue local de la web ma
 | Web/API vigente | `workspace/apps/web/app`, `lib`, `db` | UI React, importadores y parsers, propuestas, valoración, proyección, lectura/escritura D1/R2 |
 | Gateway y compatibilidad | `workspace/integration` | Login/sesiones, origen permitido, identidad hacia Worker, chat guiado y rutas de sombra |
 | Aplicación sombra | `services/application` | Modelo familiar, vistas versionadas, chat propio, evidencia, conciliaciones candidatas |
-| Ingesta sombra | `services/ingestion` | Recepción por hash, documentos, jobs, parser B3, OCR local |
+| Ingesta sombra | `services/ingestion` | Recepción por hash, documentos, jobs, parsers B3/Avenue, OCR local |
 | Mercado sombra | `services/market` | Captura persistida de precios y FX, jobs y eventos de observación |
 | Migraciones y respaldo | `infra` | Esquemas PostgreSQL, exportación D1, comparación y restauración verificable |
 | Contratos | `packages/contracts` | OpenAPI y JSON Schema de las APIs/versiones |
@@ -51,7 +51,7 @@ Cada publicación de cartera lleva revisión de hechos, revisión de mercado, fe
 
 ### Evidencia y reconciliación
 
-Una importación guarda hash y bytes originales. Las filas normalizadas conservan documento, hoja/fila o página, fecha, parser y valores observados. Reinterpretar un archivo crea otra lectura trazable, sin borrar el bruto. Los snapshots B3 se comparan con movimientos por titular, custodio, cuenta e instrumento; una liquidación o transferencia no se convierte automáticamente en compra/venta. Fotos y mensajes se archivan de inmediato; OCR o parser produce una interpretación pendiente de revisión. El puente de sombra genera candidatos y decisiones auditadas, sin escribir la cartera vigente.
+Una importación guarda hash y bytes originales. B3 y Avenue generan filas brutas versionadas con vínculo a documento, hoja/fila, fecha y valores observados; Avenue usa el parser compartido con la interfaz anterior y excluye saldos de efectivo. El puente registra las posiciones Avenue como afirmaciones observadas asociadas a `avenue-securities` y a la cuenta cuyo número aparece en el extracto. Reinterpretar un archivo crea otra lectura trazable, sin borrar el bruto. Los snapshots B3 se comparan con movimientos por titular, custodio, cuenta e instrumento; una liquidación o transferencia no se convierte automáticamente en compra/venta. Fotos y mensajes se archivan de inmediato; OCR o parser produce una interpretación pendiente de revisión. El puente de sombra genera candidatos y decisiones auditadas, sin escribir la cartera vigente.
 
 ## 3. Cálculos vigentes de renta fija
 
