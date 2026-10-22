@@ -18,8 +18,13 @@ export function assessAuthorityReadiness(f:AuthorityReadinessFacts){
 
 export async function authorityReadiness(db:pg.Pool,household:string){
  const [accounts,holdings,portfolio,proposals,events]=await Promise.all([
-  db.query(`SELECT count(*)::int AS total,count(*) FILTER(WHERE identity_status='known')::int AS known FROM app.accounts
-    WHERE household_id=$1 AND source_scope::jsonb->>1 NOT LIKE 'unresolved:pension_statement:%'`,[household]),
+  db.query(`SELECT count(*)::int AS total,count(*) FILTER(WHERE identity_status='known' OR EXISTS(
+      SELECT 1 FROM (SELECT DISTINCT ON(account_id) account_id,canonical_account_id FROM app.command_account_identity_resolutions r
+       WHERE r.household_id=a.household_id AND r.account_id=a.id ORDER BY account_id,revision DESC) latest
+      JOIN app.accounts canonical ON canonical.household_id=a.household_id AND canonical.id=latest.canonical_account_id AND canonical.identity_status='known'
+    ))::int AS known FROM app.accounts a
+    WHERE household_id=$1 AND source_scope::jsonb->>1 NOT LIKE 'custody:%'
+      AND source_scope::jsonb->>1 NOT LIKE 'unresolved:pension_statement:%'`,[household]),
   db.query(`SELECT count(*)::int AS total,count(*) FILTER(WHERE coverage_status='verified')::int AS verified,
     count(*) FILTER(WHERE coverage_status='verified' AND right(instrument_code,5)='_CASH')::int AS cash_verified
     FROM app.holdings WHERE household_id=$1`,[household]),
