@@ -22,6 +22,8 @@ El gateway autenticado recibe la web local y el acceso TLS privado de Tailscale.
 
 El código canónico está en este repositorio. El despliegue local de la web mantiene una copia de trabajo en el perfil Juanca; los datos, archivos privados, claves y respaldos permanecen fuera de Git. El prototipo `workspace/apps/api` y `workspace/compose.yaml` son históricos y no forman parte del runtime patrimonial vigente.
 
+El cierre de escritores D1/R2 tiene un inventario verificable por ruta y servicio en [POSTGRES_CUTOVER_RUNBOOK.md](POSTGRES_CUTOVER_RUNBOOK.md#inventario-concreto-de-escritores-legacy-22102026). Incluye cargas y revisiones B3/Avenue/previsión, costos, chat y propuestas, confirmaciones, mercado y lecturas. La marca `legacy_financial_writers_still_active` permanece bloqueada hasta sustituir el circuito UI/API/lectura completo; desplegar módulos PostgreSQL o tener paridad de una fotografía no satisface el gate.
+
 | Frontera | Ubicación | Responsabilidad actual |
 |---|---|---|
 | Web/API vigente | `workspace/apps/web/app`, `lib`, `db` | UI React, importadores y parsers, propuestas, valoración, proyección, lectura/escritura D1/R2 |
