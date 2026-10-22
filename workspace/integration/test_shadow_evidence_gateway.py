@@ -45,6 +45,66 @@ class ShadowStub(BaseHTTPRequestHandler):
 
 
 class GatewayEvidenceTest(unittest.TestCase):
+    def test_proposal_command_uses_gateway_actor_and_preserves_idempotency_key(self):
+        with tempfile.TemporaryDirectory() as root:
+            stub = ThreadingHTTPServer(('127.0.0.1', 0), ShadowStub)
+            gateway = ThreadingHTTPServer(('127.0.0.1', 0), server.Gateway)
+            old = server.SHADOW_CONFIG_PATH
+            server.SHADOW_CONFIG_PATH = Path(root) / 'shadow.json'
+            server.SHADOW_CONFIG_PATH.write_text(json.dumps({'token': 'x' * 64, 'port': stub.server_port}))
+            ShadowStub.calls = []
+            threads = [threading.Thread(target=s.serve_forever, daemon=True) for s in (stub, gateway)]
+            for thread in threads:
+                thread.start()
+            try:
+                proposal_id = '12345678-1234-1234-1234-123456789abc'
+                payload = json.dumps({'version': 1, 'summary_hash': 'a' * 64, 'expected_facts_revision': '7'}).encode()
+                connection = http.client.HTTPConnection('127.0.0.1', gateway.server_port)
+                connection.request('POST', f'/api/shadow/proposals/{proposal_id}/approve', body=payload, headers={
+                    'Authorization': 'Bearer ' + server.CONFIG['token'],
+                    'Content-Type': 'application/json',
+                    'Idempotency-Key': 'approval-test-0001',
+                    'X-Juanca-Actor': 'attacker-controlled',
+                })
+                response = connection.getresponse()
+                self.assertEqual(response.status, 201)
+                response.read()
+                connection.close()
+                self.assertEqual(len(ShadowStub.calls), 1)
+                method, path, forwarded_body, headers = ShadowStub.calls[0]
+                self.assertEqual((method, path), ('POST', f'/v1/proposals/{proposal_id}/approve'))
+                self.assertEqual(forwarded_body, payload)
+                self.assertEqual(headers['Authorization'], 'Bearer ' + 'x' * 64)
+                self.assertEqual(headers['X-Juanca-Actor'], server.CONFIG['user_id'])
+                self.assertNotEqual(headers['X-Juanca-Actor'], 'attacker-controlled')
+                self.assertEqual(headers['Idempotency-Key'], 'approval-test-0001')
+            finally:
+                server.SHADOW_CONFIG_PATH = old
+                gateway.shutdown()
+                stub.shutdown()
+                gateway.server_close()
+                stub.server_close()
+                for thread in threads:
+                    thread.join(timeout=2)
+
+    def test_proposal_gateway_route_rejects_unknown_commands(self):
+        gateway = ThreadingHTTPServer(('127.0.0.1', 0), server.Gateway)
+        thread = threading.Thread(target=gateway.serve_forever, daemon=True)
+        thread.start()
+        try:
+            connection = http.client.HTTPConnection('127.0.0.1', gateway.server_port)
+            connection.request('POST', '/api/shadow/proposals/not-a-uuid/approve', body=b'{}', headers={
+                'Authorization': 'Bearer ' + server.CONFIG['token'],
+            })
+            response = connection.getresponse()
+            self.assertEqual(response.status, 404)
+            response.read()
+            connection.close()
+        finally:
+            gateway.shutdown()
+            gateway.server_close()
+            thread.join(timeout=2)
+
     def test_acquisition_reconciliation_is_forwarded_to_authenticated_shadow_api(self):
         with tempfile.TemporaryDirectory() as root:
             stub = ThreadingHTTPServer(('127.0.0.1', 0), ShadowStub)

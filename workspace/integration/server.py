@@ -30,8 +30,10 @@ SHADOW_ROUTES = {
     '/api/shadow/position-identities/acquisition-reconciliation': {'GET'},
     '/api/shadow/reconciliation/manual-b3/candidates': {'GET'},
     '/api/shadow/reconciliation/manual-b3/decisions': {'POST'},
+    '/api/shadow/proposals': {'GET', 'POST'},
 }
 SHADOW_ITEM = re.compile(r'^/api/shadow/evidence/(text|photos|documents)/([0-9a-fA-F-]{36})(/content)?$')
+SHADOW_PROPOSAL_COMMAND = re.compile(r'^/api/shadow/proposals/([0-9a-fA-F-]{36})/(approve|reject)$')
 PHOTO_TYPES = {'image/jpeg', 'image/png', 'image/webp', 'image/heic'}
 DOCUMENT_TYPES = {
     ('b3', 'positions'): 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
@@ -124,14 +126,18 @@ class Gateway(BaseHTTPRequestHandler):
         methods = SHADOW_ROUTES.get(path)
         if methods is None:
             match = SHADOW_ITEM.fullmatch(path)
-            if not match:
+            proposal_command = SHADOW_PROPOSAL_COMMAND.fullmatch(path)
+            if proposal_command:
+                methods = {'POST'}
+            elif not match:
                 self.reply_json(404, {'code': 'NOT_FOUND'})
                 return
-            methods = {'PUT'} if match.group(3) else {'GET'}
-            if match.group(1) == 'photos' and match.group(3):
-                methods = {'GET', 'PUT'}
-            if match.group(1) == 'text' and match.group(3):
-                methods = set()
+            else:
+                methods = {'PUT'} if match.group(3) else {'GET'}
+                if match.group(1) == 'photos' and match.group(3):
+                    methods = {'GET', 'PUT'}
+                if match.group(1) == 'text' and match.group(3):
+                    methods = set()
         if self.command not in methods:
             self.reply_json(405, {'code': 'METHOD_NOT_ALLOWED'})
             return
@@ -143,8 +149,13 @@ class Gateway(BaseHTTPRequestHandler):
             body = self.rfile.read(size) if size else None
             shadow = json.loads(SHADOW_CONFIG_PATH.read_text())
             target = '/v1' + path.removeprefix('/api/shadow')
+            query = urlsplit(self.path).query
+            if query:
+                target += '?' + query
             headers = {'Authorization': 'Bearer ' + shadow['token'], 'Accept-Encoding': 'identity'}
-            if path in {'/api/shadow/reconciliation/manual-b3/decisions', '/api/shadow/reconciliation/b3/decisions'} and self.command == 'POST':
+            if (path in {'/api/shadow/reconciliation/manual-b3/decisions', '/api/shadow/reconciliation/b3/decisions'} or
+                    path == '/api/shadow/proposals' and self.command == 'POST' or
+                    SHADOW_PROPOSAL_COMMAND.fullmatch(path)) and self.command == 'POST':
                 headers['X-Juanca-Actor'] = CONFIG['user_id']
             if self.headers.get('Content-Type'):
                 headers['Content-Type'] = self.headers['Content-Type']
