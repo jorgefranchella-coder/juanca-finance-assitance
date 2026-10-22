@@ -3,7 +3,7 @@ import type pg from 'pg';
 export type AuthorityReadinessFacts={
  command_account_total:number;command_account_known:number;unresolved_command_account_references:number;
  resolved_legacy_aliases:number;unused_unresolved_account_aliases:number;
- holding_total:number;holding_verified:number;cash_holding_verified:number;
+ holding_total:number;holding_verified:number;cash_holding_verified:number;required_cash_opening_balances:number;missing_cash_opening_balances:number;
  portfolio_positions:number;portfolio_identity_unresolved:number;portfolio_commandable_identity_unresolved:number;pending_proposals:number;applied_events:number;
 };
 
@@ -11,7 +11,7 @@ export function assessAuthorityReadiness(f:AuthorityReadinessFacts){
  const blockers:string[]=[];
  if(f.command_account_known!==f.command_account_total||f.unresolved_command_account_references)blockers.push('unresolved_command_accounts');
  if(!f.holding_total||f.holding_verified!==f.holding_total)blockers.push('opening_holdings_not_fully_verified');
- if(!f.cash_holding_verified)blockers.push('verified_cash_opening_balance_missing');
+ if(!f.cash_holding_verified||f.required_cash_opening_balances===0||f.missing_cash_opening_balances>0)blockers.push('verified_cash_opening_balance_missing');
  if(f.portfolio_commandable_identity_unresolved)blockers.push('commandable_portfolio_position_identity_incomplete');
  blockers.push('coordinated_writer_cutover_not_completed');
  return {ready:false,mode:'shadow',authoritative:false,blockers,counts:f,
@@ -40,9 +40,20 @@ export async function authorityReadiness(db:pg.Pool,household:string){
     LEFT JOIN refs ON refs.account_id=a.id
     WHERE a.household_id=$1 AND a.identity_status='unresolved'
       AND a.source_scope::jsonb->>1 NOT LIKE 'custody:%' AND a.source_scope::jsonb->>1 NOT LIKE 'unresolved:pension_statement:%'`,[household]),
-  db.query(`SELECT count(*)::int AS total,count(*) FILTER(WHERE coverage_status='verified')::int AS verified,
-    count(*) FILTER(WHERE coverage_status='verified' AND right(instrument_code,5)='_CASH')::int AS cash_verified
-    FROM app.holdings WHERE household_id=$1`,[household]),
+  db.query(`WITH positions AS (
+      SELECT DISTINCT account_id,currency FROM app.holdings
+      WHERE household_id=$1 AND right(instrument_code,5)<>'_CASH'
+    ), cash AS (
+      SELECT account_id,currency FROM app.holdings
+      WHERE household_id=$1 AND right(instrument_code,5)='_CASH' AND coverage_status='verified'
+        AND opening_as_of IS NOT NULL AND num_nonnulls(opening_assertion_id,opening_document_id)=1
+    )
+    SELECT (SELECT count(*)::int FROM app.holdings WHERE household_id=$1) AS total,
+      (SELECT count(*)::int FROM app.holdings WHERE household_id=$1 AND coverage_status='verified'
+        AND opening_as_of IS NOT NULL AND num_nonnulls(opening_assertion_id,opening_document_id)=1) AS verified,
+      (SELECT count(*)::int FROM cash) AS cash_verified,
+      (SELECT count(*)::int FROM positions) AS cash_required,
+      (SELECT count(*)::int FROM positions p LEFT JOIN cash c USING(account_id,currency) WHERE c.account_id IS NULL) AS cash_missing`,[household]),
   db.query(`SELECT jsonb_array_length(v.view->'positions')::int AS positions,
     (SELECT count(*)::int FROM jsonb_array_elements(v.view->'positions') p WHERE p->>'identity_status'<>'known') AS unresolved,
     (SELECT count(*)::int FROM jsonb_array_elements(v.view->'positions') p WHERE p->>'identity_status'<>'known' AND p->>'asset_class'<>'private_pension') AS commandable_unresolved
@@ -54,6 +65,7 @@ export async function authorityReadiness(db:pg.Pool,household:string){
   unresolved_command_account_references:accounts.rows[0].unresolved,resolved_legacy_aliases:aliases.rows[0].resolved,
   unused_unresolved_account_aliases:aliases.rows[0].unused_unresolved,
   holding_total:holdings.rows[0].total,holding_verified:holdings.rows[0].verified,cash_holding_verified:holdings.rows[0].cash_verified,
+  required_cash_opening_balances:holdings.rows[0].cash_required,missing_cash_opening_balances:holdings.rows[0].cash_missing,
   portfolio_positions:portfolio.rows[0]?.positions??0,portfolio_identity_unresolved:portfolio.rows[0]?.unresolved??0,
   portfolio_commandable_identity_unresolved:portfolio.rows[0]?.commandable_unresolved??0,
   pending_proposals:proposals.rows[0].pending,applied_events:events.rows[0].applied};
