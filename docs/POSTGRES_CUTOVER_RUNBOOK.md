@@ -12,6 +12,7 @@ Estado actualizado: 22/10/2026. D1/R2 sigue siendo la única autoridad de escrit
 - El inventario de transferencia legacy contiene 21 objetos (1,626,855 bytes) y dos referencias de chat virtuales omitidas. Referencias D1/R2, hashes y tipos concuerdan; un objeto de tamaño cero tiene copia recuperable verificada en el object store sombra. El dry-run no escribe. Los originales D1/R2 se conservan.
 - La prueba inicial del servicio de backup se canceló porque `Requires=patrimonio-juanca-worker.service` entraba en conflicto con la captura, que para la consistencia detiene el Worker. Se eliminó `Requires`, se mantuvo `After` y el servicio systemd completó una captura/restauración verificada. Web y Worker quedaron activos.
 - La readiness de PostgreSQL todavía falla solo en `coordinated_writer_cutover_not_completed`; la identidad no resuelta de previsión no es apta para comandos, pero queda visible como dato incompleto.
+- Relectura del endpoint autenticado `/v1/authority/readiness` el 22/10/2026: `ready=false`, `authoritative=false`; 10/10 cuentas de comando identificadas, cero referencias de cuenta operativa sin resolver, 15 alias históricos resueltos y dos alias heredados sin uso; 198/198 holdings con apertura verificada; 198 posiciones publicadas, una identidad de previsión no resuelta pero no habilitada para comandos; cero propuestas pendientes y cero eventos aplicados. El único blocker informado es `coordinated_writer_cutover_not_completed`. Esta lectura no ejecuta escrituras ni cambia el modo sombra.
 
 ## Secuencia segura
 
