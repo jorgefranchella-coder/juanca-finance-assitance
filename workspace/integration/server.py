@@ -31,6 +31,8 @@ SHADOW_ROUTES = {
     '/api/shadow/reconciliation/manual-b3/candidates': {'GET'},
     '/api/shadow/reconciliation/manual-b3/decisions': {'POST'},
     '/api/shadow/proposals': {'GET', 'POST'},
+    '/api/shadow/accounts': {'GET'},
+    '/api/shadow/owners': {'GET'},
 }
 SHADOW_ITEM = re.compile(r'^/api/shadow/evidence/(text|photos|documents)/([0-9a-fA-F-]{36})(/content)?$')
 SHADOW_PROPOSAL_COMMAND = re.compile(r'^/api/shadow/proposals/([0-9a-fA-F-]{36})/(approve|reject)$')

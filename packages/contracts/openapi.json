@@ -733,6 +733,46 @@
         }
       }
     },
+    "/v1/accounts": {
+      "get": {
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Custody account identities scoped to the authenticated household",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["accounts"],
+                  "properties": {
+                    "accounts": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "required": ["id", "owner_id", "owner", "identity_status", "account_scope"],
+                        "properties": {
+                          "id": {"type": "string", "minLength": 1},
+                          "owner_id": {"type": "string", "minLength": 1},
+                          "owner": {"type": "string", "minLength": 1},
+                          "identity_status": {"type": "string", "enum": ["known", "unresolved"]},
+                          "account_scope": {"type": "string", "minLength": 1}
+                        },
+                        "additionalProperties": false
+                      }
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/owners": {
       "get": {
         "security": [

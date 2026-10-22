@@ -112,6 +112,9 @@ const server=createServer(async(req,res)=>{
   if(url.pathname==='/v1/portfolio'){reply(200,await portfolio(db,config.household_id,version));return;}
   if(url.pathname==='/v1/positions'){reply(200,await positionPage(db,config.household_id,config.cursor_key,{version,cursor:url.searchParams.get('cursor')??undefined,owner:url.searchParams.get('owner_id')??undefined,limit:url.searchParams.has('limit')?Number(url.searchParams.get('limit')):undefined}));return;}
   if(url.pathname==='/v1/owners'){const r=await db.query('SELECT id,display_name FROM app.owners WHERE household_id=$1 ORDER BY display_name',[config.household_id]);reply(200,{owners:r.rows});return;}
+  if(url.pathname==='/v1/accounts'){const r=await db.query(`SELECT a.id,a.owner_id,o.display_name AS owner,a.identity_status,a.source_scope AS account_scope
+    FROM app.accounts a JOIN app.owners o ON o.household_id=a.household_id AND o.id=a.owner_id
+    WHERE a.household_id=$1 ORDER BY o.display_name,a.identity_status,a.source_scope`,[config.household_id]);reply(200,{accounts:r.rows});return;}
   throw new Conflict('NOT_FOUND',404);
  }catch(error){const code=error instanceof Conflict?error.code:'DEPENDENCY_UNAVAILABLE';const status=error instanceof Conflict?error.status:503;reply(status,{code,message:code,request_id:requestId,retryable:status===503,details:{}});}
 });
