@@ -22,8 +22,8 @@ def require_upload_authorized(upload, env=None):
     env = os.environ if env is None else env
     if not upload:
         return None
-    if env.get('JUANCA_OFFSITE_KEY_STORED_OFFLINE') != '1':
-        raise ValueError('Confirm the private recipient key is stored offline before uploading')
+    if env.get('JUANCA_OFFSITE_KEY_RECOVERY_CONFIRMED') != '1':
+        raise ValueError('Confirm the private recipient key is recoverable from a separate protected location before uploading')
     remote = env.get('JUANCA_OFFSITE_REMOTE', '')
     if ':' not in remote or not remote.split(':', 1)[0] or not remote.split(':', 1)[1].strip('/'):
         raise ValueError('Set JUANCA_OFFSITE_REMOTE to a configured remote and destination folder')

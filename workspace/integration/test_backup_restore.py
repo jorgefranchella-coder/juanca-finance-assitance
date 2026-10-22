@@ -43,6 +43,9 @@ class BackupRestoreTests(unittest.TestCase):
             manifest = backup_restore.create(self.source, self.backup, self.profile)
         self.assertEqual(manifest['table_counts']['imports'], 1)
         self.assertEqual(backup_restore.verify(self.backup), manifest)
+        backup_restore.check_databases(self.backup / 'private')
+        self.assertFalse((self.backup / 'private/hermes-state.db-wal').exists())
+        self.assertFalse((self.backup / 'private/hermes-state.db-shm').exists())
         restored = self.root / 'restored'
         result = backup_restore.restore(self.backup, restored)
         self.assertEqual(result, {'restored': True, 'credentials_copied': False,

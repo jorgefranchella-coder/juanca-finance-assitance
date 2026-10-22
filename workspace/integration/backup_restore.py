@@ -23,7 +23,7 @@ def check_databases(root):
     for path in sorted(root.rglob('*')):
         if path.suffix not in ('.db', '.sqlite', '.sqlite3') or not path.is_file():
             continue
-        with sqlite3.connect(path.resolve().as_uri() + '?mode=ro', uri=True) as db:
+        with sqlite3.connect(path.resolve().as_uri() + '?mode=ro&immutable=1', uri=True) as db:
             if db.execute('PRAGMA integrity_check').fetchall() != [('ok',)]:
                 raise ValueError('SQLite integrity check failed')
             if db.execute('PRAGMA foreign_key_check').fetchall():

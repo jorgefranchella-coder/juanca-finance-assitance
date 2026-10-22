@@ -6,14 +6,19 @@ from offsite_export import hash_stream, require_upload_authorized, validate_remo
 
 
 class OffsiteExportTests(unittest.TestCase):
-    def test_upload_requires_explicit_offline_key_confirmation(self):
-        with self.assertRaisesRegex(ValueError, 'stored offline'):
+    def test_upload_requires_explicit_recovery_copy_confirmation(self):
+        with self.assertRaisesRegex(ValueError, 'separate protected location'):
             require_upload_authorized(True, {'JUANCA_OFFSITE_REMOTE': 'pcloud:juanca'})
 
     def test_upload_requires_configured_remote_and_folder(self):
-        env = {'JUANCA_OFFSITE_KEY_STORED_OFFLINE': '1', 'JUANCA_OFFSITE_REMOTE': 'pcloud:'}
+        env = {'JUANCA_OFFSITE_KEY_RECOVERY_CONFIRMED': '1', 'JUANCA_OFFSITE_REMOTE': 'pcloud:'}
         with self.assertRaisesRegex(ValueError, 'destination folder'):
             require_upload_authorized(True, env)
+
+    def test_upload_accepts_verified_recovery_location_and_explicit_destination(self):
+        env = {'JUANCA_OFFSITE_KEY_RECOVERY_CONFIRMED': '1',
+               'JUANCA_OFFSITE_REMOTE': 'pcloud:Backups/Juanca'}
+        self.assertEqual(require_upload_authorized(True, env), 'pcloud:Backups/Juanca')
 
     def test_local_prepare_does_not_need_upload_confirmation(self):
         self.assertIsNone(require_upload_authorized(False, {}))
