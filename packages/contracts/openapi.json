@@ -243,7 +243,7 @@
             "description": "Actor cannot approve"
           },
           "409": {
-            "description": "Stale portfolio, unresolved account, missing source run, or insufficient position"
+            "description": "Stale portfolio, unresolved account, missing source run, insufficient position, or event dated on/before the account snapshot (requires reconciliation)"
           },
           "422": {
             "description": "Invalid request"

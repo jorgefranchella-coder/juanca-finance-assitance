@@ -66,6 +66,13 @@ export async function approve(db:pg.Pool,h:string,actor:string,id:string,key:str
   if(p.status==='applied'){const result={proposal_id:id,event_id:p.applied_event_id,status:'applied',replayed:true};await c.query('INSERT INTO app.command_results VALUES($1,$2,$3,$4,$5)',[h,actor,key,digest,result]);await c.query('COMMIT');return result;}
   if(p.status!=='pending')throw new Conflict('PROPOSAL_NOT_PENDING');
   if(state.rows[0].facts_revision!==body.expected_facts_revision)throw new Conflict('STALE_PORTFOLIO');
+  if(state.rows[0].latest_version){
+   const published=await c.query('SELECT view FROM app.portfolio_versions WHERE household_id=$1 AND id=$2',[h,state.rows[0].latest_version]);
+   const positions=Array.isArray(published.rows[0]?.view?.positions)?published.rows[0].view.positions:[];
+   const snapshotDates=positions.filter((position:Record<string,unknown>)=>position.account_id===p.account_id&&position.currency===p.currency&&/^\d{4}-\d{2}-\d{2}$/.test(String(position.base_reference_date??''))).map((position:Record<string,unknown>)=>String(position.base_reference_date)).sort();
+   const accountSnapshotDate=snapshotDates.at(-1);
+   if(accountSnapshotDate&&String(p.effective_date)<=accountSnapshotDate)throw new Conflict('EVENT_AT_OR_BEFORE_SNAPSHOT');
+  }
   const account=await c.query('SELECT identity_status FROM app.accounts WHERE household_id=$1 AND id=$2',[h,p.account_id]);if(account.rows[0]?.identity_status!=='known')throw new Conflict('UNRESOLVED_ACCOUNT');
   const holdings=await c.query('SELECT * FROM app.holdings WHERE household_id=$1 AND account_id=$2 AND currency=$3 FOR UPDATE',[h,p.account_id,p.currency]);
   const holding=holdings.rows.find(r=>r.instrument_code===p.instrument_code);
