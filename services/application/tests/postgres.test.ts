@@ -11,7 +11,7 @@ import {Ajv2020} from 'ajv/dist/2020.js';
 import {randomUUID} from 'node:crypto';
 import {pool,migrate} from '../src/db.ts';
 import {approve,createProposal,listProposals,rejectProposal,Conflict} from '../src/commands.ts';
-import {summaryHash,hash,importEnvelope,publish,type Envelope} from '../src/migration.ts';
+import {summaryHash,hash,ownerId,importEnvelope,publish,type Envelope} from '../src/migration.ts';
 import {portfolio,positionPage} from '../src/queries.ts';
 import {answerGuided,chatHistory,classify,sendChat} from '../src/conversation.ts';
 import {confirmSameAccount} from '../src/resolution.ts';
@@ -116,6 +116,25 @@ test('approving a proposal atomically publishes a rebuilt portfolio that include
   const before=await publish(db,run.run_id,h,'2026-08-03','2026-08-03T00:00:00.000Z'),proposalEvidence=await manualEvidence(h,ownerId);const proposalInput={owner_id:ownerId,account_id:accountId,instrument_code:'PETR4',currency:'BRL',side:'sell',quantity:'2',unit_price:'31',fees_minor:'25',effective_date:'2026-08-04',source_evidence:{kind:'manual_text' as const,id:proposalEvidence}},proposal=await createProposal(db,h,actor,'publish-request-01',proposalInput);
   const result=await approve(db,h,actor,proposal.proposal_id,'publish-approve-01',{version:proposal.version,summary_hash:proposal.summary_hash,expected_facts_revision:'0'});assert.equal(result.status,'applied');assert.ok(result.portfolio_version);assert.notEqual(result.portfolio_version,before.portfolio_version);
   const after=await portfolio(db,h);assert.equal(after.portfolio_version,result.portfolio_version);assert.equal(after.positions.find((p:{instrument_code:string;quantity:string})=>p.instrument_code==='PETR4')?.quantity,'8');assert.equal((await db.query('SELECT quantity FROM app.holdings WHERE household_id=$1 AND account_id=$2 AND instrument_code=\'PETR4\'',[h,accountId])).rows[0].quantity,'8');assert.equal((await db.query('SELECT facts_revision FROM app.household_state WHERE household_id=$1',[h])).rows[0].facts_revision,'1');assert.equal((await db.query('SELECT count(*) FROM app.audit_log WHERE household_id=$1 AND action=\'proposal_applied\'',[h])).rows[0].count,'1');assert.equal((await db.query("SELECT evidence_id FROM app.events WHERE household_id=$1 AND id=$2",[h,'proposal:'+proposal.proposal_id])).rows[0].evidence_id,`manual_text:${proposalEvidence}`);
+ }finally{await rm(dir,{recursive:true,force:true});}
+});
+test('a reviewed buy with evidence can open a new invested position without a prior snapshot',async()=>{
+ const dir=await mkdtemp(join(tmpdir(),'juanca-opening-event-'));
+ try{
+  const h='opening-event-'+randomUUID(),actor='opening-actor-'+randomUUID();
+  const tables={imports:[{id:'empty-position-import',user_id:h,owner:'Fixture',status:'processed',file_type:'positions',reference_date:'2026-08-01',created_at:'2026-08-02 00:00:00'}],import_records:[],market_quotes:[],fx_observations:[],portfolio_revisions:[{user_id:h,revision:0}],transaction_proposals:[],review_decisions:[],cost_basis:[],chat_messages:[],proposal_applications:[]};
+  const content={format:1,tables,conversation_archive:[]},canonical=JSON.stringify(content),path=join(dir,'empty.json');await writeFile(path,JSON.stringify({source_sha256:hash(canonical),exported_at:'2026-08-03T00:00:00.000Z',canonical_content:canonical,content}));
+  const run=await importEnvelope(db,path);await db.query('INSERT INTO app.actors VALUES($1,$2)',[actor,'Opening fixture actor']);
+  // importEnvelope creates the household and owner from the envelope.
+  const owner=ownerId('Fixture');await db.query("INSERT INTO app.owners VALUES($1,$2,'Fixture')",[h,owner]);
+  await db.query("INSERT INTO app.memberships VALUES($1,$2,'owner')",[h,actor]);await db.query("INSERT INTO app.accounts(household_id,id,owner_id,source_scope,identity_status) VALUES($1,'new-account',$2,'[\"Fixture\",\"custody:fixture\"]','known')",[h,owner]);
+  const before=await publish(db,run.run_id,h,'2026-08-03','2026-08-03T00:00:00.000Z'),evidenceId=await manualEvidence(h,owner,'Compré 2 VALE3 a BRL 60 el 04/08/2026');
+  const input={owner_id:owner,account_id:'new-account',instrument_code:'VALE3',currency:'BRL',side:'buy',quantity:'2',unit_price:'60',effective_date:'2026-08-04',source_evidence:{kind:'manual_text' as const,id:evidenceId}};
+  const proposal=await createProposal(db,h,actor,'new-opening-proposal',input),result=await approve(db,h,actor,proposal.proposal_id,'new-opening-approve',{version:proposal.version,summary_hash:proposal.summary_hash,expected_facts_revision:'0'});
+  assert.equal(result.status,'applied');assert.notEqual(result.portfolio_version,before.portfolio_version);
+  const position=(await portfolio(db,h)).positions.find((p:{instrument_code:string})=>p.instrument_code==='VALE3');assert.equal(position?.quantity,'2');
+  const holding=(await db.query("SELECT quantity::text,coverage_status,opening_as_of::text,opening_event_id FROM app.holdings WHERE household_id=$1 AND instrument_code='VALE3'",[h])).rows[0];assert.deepEqual(holding,{quantity:'2',coverage_status:'verified',opening_as_of:'2026-08-04',opening_event_id:`proposal:${proposal.proposal_id}`});
+  const readiness=await db.query('SELECT num_nonnulls(opening_assertion_id,opening_document_id,opening_event_id)::int AS evidence_count FROM app.holdings WHERE household_id=$1 AND instrument_code=\'VALE3\'',[h]);assert.equal(readiness.rows[0].evidence_count,1);
  }finally{await rm(dir,{recursive:true,force:true});}
 });
 test('real PostgreSQL serializes concurrent sales without tracking cash, and commits ledger/audit atomically',async()=>{

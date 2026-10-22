@@ -41,7 +41,7 @@ export async function authorityReadiness(db:pg.Pool,household:string){
       AND a.source_scope::jsonb->>1 NOT LIKE 'custody:%' AND a.source_scope::jsonb->>1 NOT LIKE 'unresolved:pension_statement:%'`,[household]),
   db.query(`SELECT count(*)::int AS total,
       (SELECT count(*)::int FROM app.holdings WHERE household_id=$1 AND coverage_status='verified'
-        AND opening_as_of IS NOT NULL AND num_nonnulls(opening_assertion_id,opening_document_id)=1) AS verified
+        AND opening_as_of IS NOT NULL AND num_nonnulls(opening_assertion_id,opening_document_id,opening_event_id)=1) AS verified
       FROM app.holdings WHERE household_id=$1`,[household]),
   db.query(`SELECT jsonb_array_length(v.view->'positions')::int AS positions,
     (SELECT count(*)::int FROM jsonb_array_elements(v.view->'positions') p WHERE p->>'identity_status'<>'known') AS unresolved,

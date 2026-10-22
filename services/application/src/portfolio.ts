@@ -36,7 +36,8 @@ export function buildPortfolio(input:Inputs,resolutions:Map<string,string>=new M
   const scope=resolutions.get(row.id)??attribution?.source_scope??(t.account?accountAliases.get(owner+'\0'+String(t.account))??accountScope(owner,row.file_type,t):null);
   const base=scope?bases.get(owner+'\0'+currency+'\0'+scope):legacyBases.get(owner+'\0'+currency);if(base&&date<base)continue;
   if(base&&date===base){issues.push({code:'same_day_trade',owner,instrument_code:code,record_id:row.id});continue;}
-  if(!base&&(currency==='USD'||scope)){issues.push({code:'missing_base',owner,instrument_code:code,record_id:row.id});continue;}
+  const eventBackedOpening=t.source==='application_event'&&side==='buy';
+  if(!base&&(currency==='USD'||scope)&&!eventBackedOpening){issues.push({code:'missing_base',owner,instrument_code:code,record_id:row.id});continue;}
   const candidates=positions.filter(p=>p.owner===owner&&p.currency===currency&&p.instrument_code===code&&(!scope||p.account_id===scope));
   if(candidates.length>1){issues.push({code:'ambiguous_account',owner,instrument_code:code,record_id:row.id});continue;}
   let p=candidates[0];

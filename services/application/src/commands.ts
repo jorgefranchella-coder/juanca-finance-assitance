@@ -69,15 +69,18 @@ export async function approve(db:pg.Pool,h:string,actor:string,id:string,key:str
   const account=await c.query('SELECT identity_status FROM app.accounts WHERE household_id=$1 AND id=$2',[h,p.account_id]);if(account.rows[0]?.identity_status!=='known')throw new Conflict('UNRESOLVED_ACCOUNT');
   const holdings=await c.query('SELECT * FROM app.holdings WHERE household_id=$1 AND account_id=$2 AND currency=$3 FOR UPDATE',[h,p.account_id,p.currency]);
   const holding=holdings.rows.find(r=>r.instrument_code===p.instrument_code);
-  if(!holding||holding.coverage_status!=='verified')throw new Conflict('UNKNOWN_POSITION');
-  const quantity=exact(p.quantity);const current=exact(holding.quantity);const next=current.add(p.side==='sell'?quantity.neg():quantity);
+  if(holding&&holding.coverage_status!=='verified')throw new Conflict('UNKNOWN_POSITION');
+  if(!holding&&p.side!=='buy')throw new Conflict('UNKNOWN_POSITION');
+  const quantity=exact(p.quantity);const current=exact(holding?.quantity??'0');const next=current.add(p.side==='sell'?quantity.neg():quantity);
   if(next.lt(0))throw new Conflict('INSUFFICIENT_POSITION');
   const principal=minor(quantity.mul(exact(p.unit_price)).mul(100));const fees=integer(p.fees_minor);
   const event='proposal:'+id,commandKnownAt=new Date().toISOString();
   const evidenceId=p.source_evidence_kind&&p.source_evidence_id?`${p.source_evidence_kind}:${p.source_evidence_id}`:p.source_message_id??`legacy_proposal:${id}`;
   await c.query(`INSERT INTO app.events(household_id,id,owner_id,account_id,instrument_code,currency,side,quantity,unit_price,fees_minor,effective_date,settlement_date,known_at,evidence_id,application_status) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,NULL,$12,$13,'applied')`,[h,event,p.owner_id,p.account_id,p.instrument_code,p.currency,p.side,quantity.toFixed(),p.unit_price,p.fees_minor,p.effective_date,commandKnownAt,evidenceId]);
   await c.query('INSERT INTO app.event_legs VALUES($1,$2,1,$3,$4,$5,NULL),($1,$2,2,$6,$4,NULL,$7),($1,$2,3,$8,$4,NULL,$9)',[h,event,'position',p.currency,p.side==='sell'?quantity.neg().toFixed():quantity.toFixed(),'principal',p.side==='sell'?principal:'-'+principal,'fees',new D(fees).neg().toFixed(0)]);
-  await c.query('UPDATE app.holdings SET quantity=$5 WHERE household_id=$1 AND account_id=$2 AND instrument_code=$3 AND currency=$4',[h,p.account_id,p.instrument_code,p.currency,exact(next.toFixed()).toFixed()]);
+  if(holding)await c.query('UPDATE app.holdings SET quantity=$5 WHERE household_id=$1 AND account_id=$2 AND instrument_code=$3 AND currency=$4',[h,p.account_id,p.instrument_code,p.currency,exact(next.toFixed()).toFixed()]);
+  else await c.query(`INSERT INTO app.holdings(household_id,account_id,instrument_code,currency,quantity,coverage_status,opening_as_of,opening_event_id)
+    VALUES($1,$2,$3,$4,$5,'verified',$6,$7)`,[h,p.account_id,p.instrument_code,p.currency,exact(next.toFixed()).toFixed(),p.effective_date,event]);
   await c.query("UPDATE app.proposals SET status='applied',applied_event_id=$3 WHERE household_id=$1 AND id=$2",[h,id,event]);
   const revision=await c.query('UPDATE app.household_state SET facts_revision=facts_revision+1 WHERE household_id=$1 RETURNING facts_revision',[h]);
   let portfolioVersion:string|undefined;
