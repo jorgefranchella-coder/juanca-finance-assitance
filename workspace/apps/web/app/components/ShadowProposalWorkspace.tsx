@@ -3,14 +3,17 @@
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 type Account = { id: string; owner_id: string; owner: string; identity_status: "known" | "unresolved"; account_scope: string };
-type Proposal = { id: string; owner_id: string; owner: string; account_id: string; account_scope: string; instrument_code: string; currency: string; side: "buy" | "sell"; quantity: string; unit_price: string; fees_minor: string; effective_date: string; status: string };
+type Evidence = { id: string; kind: "manual_text" | "manual_photo"; owner_id: string; owner: string; description: string; occurred_on: string | null; status: string };
+type Proposal = { id: string; owner_id: string; owner: string; account_id: string; account_scope: string; instrument_code: string; currency: string; side: "buy" | "sell"; quantity: string; unit_price: string; fees_minor: string; effective_date: string; status: string; source_evidence_kind?: string | null; source_evidence_id?: string | null; source_evidence_text?: string | null };
 const money = (value: string, currency: string) => new Intl.NumberFormat("pt-BR", { style: "currency", currency }).format(Number(value));
 
 export default function ShadowProposalWorkspace() {
   const [accounts, setAccounts] = useState<Account[]>([]);
+  const [evidence, setEvidence] = useState<Evidence[]>([]);
   const [proposals, setProposals] = useState<Proposal[]>([]);
   const [ownerId, setOwnerId] = useState("");
   const [accountId, setAccountId] = useState("");
+  const [evidenceId, setEvidenceId] = useState("");
   const [side, setSide] = useState<"buy" | "sell">("buy");
   const [instrument, setInstrument] = useState("");
   const [currency, setCurrency] = useState("BRL");
@@ -26,19 +29,30 @@ export default function ShadowProposalWorkspace() {
 
   const owners = useMemo(() => Array.from(new Map(accounts.map(a => [a.owner_id, { id: a.owner_id, name: a.owner }])).values()), [accounts]);
   const ownerAccounts = useMemo(() => accounts.filter(a => a.owner_id === ownerId), [accounts, ownerId]);
+  const ownerEvidence = useMemo(() => evidence.filter(item => item.owner_id === ownerId && item.status === "awaiting_review"), [evidence, ownerId]);
+  const selectedEvidence = ownerEvidence.find(item => `${item.kind}:${item.id}` === evidenceId);
+  const selectedEvidenceId = selectedEvidence ? evidenceId : "";
   const selectedAccountId = ownerAccounts.some(a => a.id === accountId) ? accountId : ownerAccounts.find(a => a.identity_status === "known")?.id ?? "";
 
   const load = useCallback(async () => {
     setLoading(true); setError("");
     try {
-      const [accountResponse, proposalResponse] = await Promise.all([
+      const [accountResponse, proposalResponse, evidenceResponse, photoResponse] = await Promise.all([
         fetch("/api/shadow/accounts", { cache: "no-store" }),
         fetch("/api/shadow/proposals?status=pending", { cache: "no-store" }),
+        fetch("/api/shadow/evidence/text", { cache: "no-store" }),
+        fetch("/api/shadow/evidence/photos", { cache: "no-store" }),
       ]);
-      if (!accountResponse.ok || !proposalResponse.ok) throw new Error("A API sombra ainda não está disponível neste gateway.");
+      if (!accountResponse.ok || !proposalResponse.ok || !evidenceResponse.ok || !photoResponse.ok) throw new Error("La API sombra todavía no ofrece cuentas, propuestas y evidencias.");
       const accountData = await accountResponse.json() as { accounts: Account[] };
       const proposalData = await proposalResponse.json() as { proposals: Proposal[] };
+      const evidenceData = await evidenceResponse.json() as { items: Array<Omit<Evidence, "kind" | "description"> & { original_text: string }> };
+      const photoData = await photoResponse.json() as { items: Array<{ upload_id: string; owner_id: string; owner: string; file_name: string; status: string; proposal_evidence_status: string }> };
       setAccounts(accountData.accounts ?? []); setProposals(proposalData.proposals ?? []);
+      setEvidence([
+        ...(evidenceData.items ?? []).map(item => ({ ...item, kind: "manual_text" as const, description: item.original_text })),
+        ...(photoData.items ?? []).filter(item => item.status === "stored" && item.proposal_evidence_status === "awaiting_review").map(item => ({ id: item.upload_id, kind: "manual_photo" as const, owner_id: item.owner_id, owner: item.owner, description: item.file_name, occurred_on: null, status: item.proposal_evidence_status })),
+      ]);
       const firstOwner = accountData.accounts?.[0]?.owner_id ?? "";
       setOwnerId(current => current || firstOwner);
     } catch (cause) {
@@ -51,7 +65,8 @@ export default function ShadowProposalWorkspace() {
   async function submit(event: FormEvent) {
     event.preventDefault(); setSaving(true); setError(""); setMessage("");
     try {
-      const input = { owner_id: ownerId, account_id: selectedAccountId, instrument_code: instrument.trim().toUpperCase(), currency, side, quantity, unit_price: unitPrice, fees_minor: fees, effective_date: effectiveDate };
+      if (!selectedEvidence) throw new Error("Selecciona una evidencia pendiente del mismo titular.");
+      const input = { owner_id: ownerId, account_id: selectedAccountId, instrument_code: instrument.trim().toUpperCase(), currency, side, quantity, unit_price: unitPrice, fees_minor: fees, effective_date: effectiveDate, source_evidence: { kind: selectedEvidence.kind, id: selectedEvidence.id } };
       const fingerprint = JSON.stringify(input);
       if (pendingRequest.current?.fingerprint !== fingerprint) pendingRequest.current = { fingerprint, key: crypto.randomUUID().replaceAll("-", "_") };
       const key = pendingRequest.current.key;
@@ -75,6 +90,7 @@ export default function ShadowProposalWorkspace() {
     <form className="shadow-proposal-form" onSubmit={submit}>
       <label>Inversor<select value={ownerId} onChange={e => setOwnerId(e.target.value)} required><option value="">Elegir</option>{owners.map(o => <option key={o.id} value={o.id}>{o.name}</option>)}</select></label>
       <label>Cuenta de custodia<select value={selectedAccountId} onChange={e => setAccountId(e.target.value)} required><option value="">Elegir cuenta conocida</option>{ownerAccounts.map(a => <option key={a.id} value={a.id} disabled={a.identity_status !== "known"}>{a.account_scope} · {a.identity_status === "known" ? "identificada" : "pendiente de identificar"}</option>)}</select></label>
+      <label className="shadow-evidence-field">Evidencia de la operación<select value={selectedEvidenceId} onChange={e => setEvidenceId(e.target.value)} required><option value="">Elegir evidencia pendiente</option>{ownerEvidence.map(item => <option key={`${item.kind}:${item.id}`} value={`${item.kind}:${item.id}`}>{item.kind === "manual_photo" ? "Foto" : "Texto"} · {item.occurred_on ?? "sin fecha"} · {item.description.slice(0, 100)}</option>)}</select></label>
       <label>Operación<select value={side} onChange={e => setSide(e.target.value as "buy" | "sell")}><option value="buy">Compra</option><option value="sell">Venta</option></select></label>
       <label>Ticker<input value={instrument} onChange={e => setInstrument(e.target.value)} maxLength={32} required /></label>
       <label>Moneda<select value={currency} onChange={e => setCurrency(e.target.value)}><option>BRL</option><option>USD</option></select></label>
@@ -84,6 +100,6 @@ export default function ShadowProposalWorkspace() {
       <label>Comisiones (centavos)<input type="number" min="0" step="1" value={fees} onChange={e => setFees(e.target.value)} required /></label>
       <button className="primary-button" disabled={saving || loading || !selectedAccountId}>{saving ? "Guardando…" : "Guardar propuesta pendiente"}</button>
     </form>
-    <div className="shadow-proposal-queue"><h3>Propuestas pendientes ({proposals.length})</h3>{loading ? <p>Cargando…</p> : proposals.length === 0 ? <p>No hay propuestas pendientes.</p> : <div className="table-wrap"><table><thead><tr><th>Fecha</th><th>Inversor / cuenta</th><th>Movimiento</th><th>Cantidad</th><th>Precio</th><th>Estado</th></tr></thead><tbody>{proposals.map(p => <tr key={p.id}><td>{p.effective_date}</td><td>{p.owner}<small>{p.account_scope}</small></td><td>{p.side === "buy" ? "Compra" : "Venta"} {p.instrument_code}</td><td>{p.quantity}</td><td>{money(p.unit_price, p.currency)}</td><td>Pendiente de aprobación</td></tr>)}</tbody></table></div>}</div>
+    <div className="shadow-proposal-queue"><h3>Propuestas pendientes ({proposals.length})</h3>{loading ? <p>Cargando…</p> : proposals.length === 0 ? <p>No hay propuestas pendientes.</p> : <div className="table-wrap"><table><thead><tr><th>Fecha</th><th>Inversor / cuenta</th><th>Movimiento</th><th>Cantidad</th><th>Precio</th><th>Evidencia</th><th>Estado</th></tr></thead><tbody>{proposals.map(p => <tr key={p.id}><td>{p.effective_date}</td><td>{p.owner}<small>{p.account_scope}</small></td><td>{p.side === "buy" ? "Compra" : "Venta"} {p.instrument_code}</td><td>{p.quantity}</td><td>{money(p.unit_price, p.currency)}</td><td>{p.source_evidence_kind === "manual_photo" && p.source_evidence_id ? <a href={`/api/shadow/evidence/photos/${p.source_evidence_id}/content`} target="_blank" rel="noreferrer">{p.source_evidence_text ?? "Abrir foto"}</a> : p.source_evidence_text ?? "Evidencia histórica pendiente"}</td><td>Pendiente de aprobación</td></tr>)}</tbody></table></div>}</div>
   </section>;
 }

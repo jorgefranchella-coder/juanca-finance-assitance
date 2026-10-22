@@ -67,7 +67,7 @@ La propuesta presenta un resumen antes de habilitar `Aprovar` o `Rejeitar`. El u
 
 ### Registro de movimientos en sombra
 
-La pestaña separada de movimientos pide inversor y cuenta identificada antes de guardar ticker, lado, moneda, cantidad, precio, comisiones y fecha. Las cuentas no resueltas aparecen deshabilitadas. El resultado queda en «Pendiente de aprobación» y la pantalla repite que no modifica la cartera vigente; esta identidad con rol `reviewer` puede preparar borradores, pero no aprobarlos ni descartarlos. Si las rutas sombra no están disponibles, se conserva el formulario y se explica que el servicio aún no está conectado. No se ofrece una acción de aplicación en esta pantalla.
+La pestaña separada de movimientos pide inversor, cuenta identificada y evidencia escrita o foto pendiente del mismo titular antes de guardar ticker, lado, moneda, cantidad, precio, comisiones y fecha. La evidencia se enlaza una sola vez y aparece en la cola de propuestas junto con el movimiento. Las cuentas no resueltas aparecen deshabilitadas. El resultado queda en «Pendiente de aprobación» y la pantalla repite que no modifica la cartera vigente; esta identidad con rol `reviewer` puede preparar borradores, pero no aprobarlos ni descartarlos. Si las rutas sombra no están disponibles, se conserva el formulario y se explica que el servicio aún no está conectado. No se ofrece una acción de aplicación en esta pantalla.
 
 ## 5. Estados transversales
 

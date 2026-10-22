@@ -53,7 +53,7 @@ Avenue aporta extractos de posición y confirmaciones; la previsión aporta sald
 
 ### Movimientos y aprobaciones
 
-El chat transaccional interpreta texto o comprobantes y prepara una propuesta. Antes de aprobar se muestran titular, activo, lado, cantidad, precio, moneda, fecha, cuenta y comisiones disponibles. Campos ausentes o ambiguos requieren completar o revisar. Aprobar o rechazar es una acción explícita; una consulta nunca aprueba. La aprobación debe ser idempotente y no puede aplicar dos veces una misma propuesta. No se ejecutan órdenes de inversión.
+El chat transaccional interpreta texto o comprobantes y prepara una propuesta. Toda propuesta debe quedar ligada a una evidencia escrita o foto pendiente del mismo titular; esa evidencia se consume una sola vez y se conserva enlazada al evento aprobado. Antes de aprobar se muestran titular, activo, lado, cantidad, precio, moneda, fecha, cuenta, evidencia y comisiones disponibles. Campos ausentes o ambiguos requieren completar o revisar. Aprobar o rechazar es una acción explícita; una consulta nunca aprueba. La aprobación debe ser idempotente y no puede aplicar dos veces una misma propuesta. No se ejecutan órdenes de inversión.
 
 El chat guiado propio responde consultas habituales sin Hermes. El chat libre mediante Hermes permanece como integración heredada opcional. **Objetivo:** todos los recorridos patrimoniales habituales funcionan con Hermes detenido; un modelo directo puede ayudar a interpretar lenguaje libre, pero no decide custodia, deduplicación ni aprobaciones.
 

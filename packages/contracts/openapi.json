@@ -95,7 +95,8 @@
                   "side",
                   "quantity",
                   "unit_price",
-                  "effective_date"
+                  "effective_date",
+                  "source_evidence"
                 ],
                 "properties": {
                   "owner_id": {
@@ -134,8 +135,14 @@
                     "type": "string",
                     "format": "date"
                   },
-                  "source_message_id": {
-                    "type": "string"
+                  "source_evidence": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": ["kind", "id"],
+                    "properties": {
+                      "kind": { "enum": ["manual_text", "manual_photo"] },
+                      "id": { "type": "string", "format": "uuid" }
+                    }
                   }
                 }
               }
