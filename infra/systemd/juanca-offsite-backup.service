@@ -1,0 +1,19 @@
+[Unit]
+Description=Encrypt and copy verified Juanca backups to pCloud
+Requires=juanca-backup-health.service
+After=juanca-backup-health.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/jorge/.hermes/profiles/juanca/workspace/patrimonio-familiar-source
+ExecStart=/usr/bin/python3 integration/offsite_export.py --upload
+Environment=HOME=/home/jorge
+Environment=JUANCA_OFFSITE_KEY_RECOVERY_CONFIRMED=1
+Environment=JUANCA_OFFSITE_REMOTE=pcloud:Backups/Juanca
+Environment=JUANCA_OFFSITE_KEY_DIR=/home/jorge/.local/share/juanca/offsite-keys
+Environment=JUANCA_OFFSITE_OUTBOX=/home/jorge/.local/share/juanca/backups/offsite-outbox
+Environment=JUANCA_AUTHORITY_BACKUP_ROOT=/home/jorge/.local/share/juanca/backups/authority
+Environment=JUANCA_SHADOW_BACKUP_ROOT=/home/jorge/.local/share/juanca/backups/postgres
+UMask=0077
+NoNewPrivileges=true
+TimeoutStartSec=30min
