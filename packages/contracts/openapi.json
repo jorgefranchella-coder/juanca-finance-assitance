@@ -59,7 +59,7 @@
           }
         ],
         "summary": "Create an idempotent pending investment proposal",
-        "description": "Requires an authorized actor and an identified account belonging to the selected owner. Creates a proposal only; it does not apply an event.",
+        "description": "A reviewer, owner, or approver may create a pending draft for an identified account belonging to the selected owner. Only an owner or approver may approve or reject it. Creating a proposal does not apply an event.",
         "parameters": [
           {
             "name": "X-Juanca-Actor",

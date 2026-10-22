@@ -15,12 +15,14 @@ import ManualB3Candidates from "./ManualB3Candidates";
 import ManualPhotoPanel from "./ManualPhotoPanel";
 import AcquisitionReconciliationPanel from "./AcquisitionReconciliationPanel";
 import ConfirmationQueue from "./ConfirmationQueue";
+import ShadowProposalWorkspace from "./ShadowProposalWorkspace";
 
 const tabs = [
   { id: "overview", label: "Visão geral", eyebrow: "Patrimônio consolidado", title: "Bom dia, Jorge.", subtitle: "Uma visão confiável do patrimônio de Jorge e Julia." },
   { id: "reviews", label: "Revisões", eyebrow: "Qualidade dos dados", title: "Pendências de conciliação", subtitle: "Confirme eventos ambíguos antes que influenciem recomendações." },
   { id: "juanca", label: "Juanca", eyebrow: "Seu patrimônio", title: "Converse com Juanca", subtitle: "Seu assistente de patrimônio, conectado aos dados da família." },
   { id: "assistant", label: "Assistente", eyebrow: "Entrada conversacional", title: "Transações", subtitle: "Interprete ordens e comprovantes antes de ajustar a carteira." },
+  { id: "postgres-shadow", label: "PostgreSQL", eyebrow: "Livro em sombra", title: "Movimentos PostgreSQL", subtitle: "Registre movimentos com investidor e conta explícitos para revisão." },
   { id: "imports", label: "Importar", eyebrow: "Fontes patrimoniais", title: "Entrada de dados", subtitle: "Atualize B3, Avenue e previdência em um só lugar." },
   { id: "fixed-income", label: "Renda fixa", eyebrow: "Projeções por ativo", title: "Até o vencimento", subtitle: "Acompanhe o histórico de preços e a cobertura das estimativas." },
   { id: "projections", label: "Projeções", eyebrow: "Planejamento", title: "Cenários patrimoniais", subtitle: "Compare valores nominais e reais para diferentes horizontes." },
@@ -89,6 +91,7 @@ export default function TabbedWorkspace() {
         {active === "overview" && <DashboardMetrics />}
         {active === "reviews" && <><ConfirmationQueue /><ReviewPanel /><ManualIntakePanel /><ManualB3Candidates /><ManualPhotoPanel /><B3ReconciliationPanel /><AcquisitionReconciliationPanel /></>}
         {active === "assistant" && <TransactionChat key={`${prefill?.owner??"manual"}:${prefill?.message??""}`} prefill={prefill} />}
+        {active === "postgres-shadow" && <ShadowProposalWorkspace />}
         {active === "juanca" && <JuancaChat />}
         {active === "imports" && <DataImportPanel />}
         {active === "fixed-income" && <FixedIncomeProjection />}

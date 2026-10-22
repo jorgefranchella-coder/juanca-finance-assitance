@@ -65,6 +65,10 @@ La recepción se confirma aunque la extracción no haya terminado. Se puede abri
 
 La propuesta presenta un resumen antes de habilitar `Aprovar` o `Rejeitar`. El usuario ve los datos económicos, la cuenta y la evidencia utilizada; un campo no confirmado se señala de forma específica. Tras decidir se muestra estado final e identificador estable. Reintentar una aprobación por latencia debe mostrar el mismo resultado, sin crear una segunda operación. Si la identidad de custodia o la cantidad de la posición invertida es insuficiente, se explica el bloqueo. La aprobación no pide ni consulta saldo de caja; ese control queda en manos del usuario.
 
+### Registro de movimientos en sombra
+
+La pestaña separada de movimientos pide inversor y cuenta identificada antes de guardar ticker, lado, moneda, cantidad, precio, comisiones y fecha. Las cuentas no resueltas aparecen deshabilitadas. El resultado queda en «Pendiente de aprobación» y la pantalla repite que no modifica la cartera vigente; esta identidad con rol `reviewer` puede preparar borradores, pero no aprobarlos ni descartarlos. Si las rutas sombra no están disponibles, se conserva el formulario y se explica que el servicio aún no está conectado. No se ofrece una acción de aplicación en esta pantalla.
+
 ## 5. Estados transversales
 
 | Estado | Respuesta de la interfaz |

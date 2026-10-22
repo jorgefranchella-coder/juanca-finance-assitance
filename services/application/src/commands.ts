@@ -24,7 +24,8 @@ export async function listProposals(db:pg.Pool,h:string,status?:string){
 export async function createProposal(db:pg.Pool,h:string,actor:string,key:string,input:ProposalInput){
  commandKey(key);const normalized=normalizeProposal(input);const digest=hash(JSON.stringify(normalized)),c=await db.connect();
  try{
-  await c.query('BEGIN');const member=await c.query("SELECT 1 FROM app.memberships WHERE household_id=$1 AND actor_id=$2 AND role IN ('owner','approver')",[h,actor]);if(!member.rowCount)throw new Conflict('FORBIDDEN',403);
+  // Reviewers may prepare a draft. Only owners/approvers can reject or apply it.
+  await c.query('BEGIN');const member=await c.query("SELECT 1 FROM app.memberships WHERE household_id=$1 AND actor_id=$2 AND role IN ('reviewer','owner','approver')",[h,actor]);if(!member.rowCount)throw new Conflict('FORBIDDEN',403);
   const state=await c.query('SELECT facts_revision FROM app.household_state WHERE household_id=$1 FOR UPDATE',[h]);if(!state.rowCount)throw new Conflict('NOT_FOUND',404);
   const old=await c.query('SELECT request_hash,result FROM app.command_results WHERE household_id=$1 AND actor_id=$2 AND idempotency_key=$3',[h,actor,key]);if(old.rowCount){if(old.rows[0].request_hash!==digest)throw new Conflict('IDEMPOTENCY_MISMATCH');await c.query('COMMIT');return {...old.rows[0].result,replayed:true};}
   const account=await c.query('SELECT owner_id,identity_status FROM app.accounts WHERE household_id=$1 AND id=$2',[h,normalized.account_id]);if(!account.rowCount||account.rows[0].owner_id!==normalized.owner_id)throw new Conflict('ACCOUNT_OWNER_MISMATCH',422);if(account.rows[0].identity_status!=='known')throw new Conflict('UNRESOLVED_ACCOUNT');
