@@ -54,3 +54,7 @@ npm run backup:restore-check -- "$SHADOW_BACKUP"
 ```
 
 El comando crea una base `juanca_verify_<id>`, restaura aplicación, ingesta y mercado, compara el conjunto de tablas con el manifest y elimina esa base al salir. Nunca apunta a `juanca_shadow` ni promueve el backup a producción.
+
+### Copia cifrada fuera del equipo (preparación local)
+
+`workspace/integration/offsite_export.py` genera archivos `.tar.gz.gpg` de los backups de autoridad y PostgreSQL usando la llave pública dedicada, y deja los cifrados en `~/.local/share/juanca/backups/offsite-outbox` con permisos privados. No genera un tar sin cifrar en disco. Ejecutar `npm run backup:offsite:prepare` solo prepara los artefactos; no los transmite. La subida es una acción separada con `--upload`, requiere `JUANCA_OFFSITE_KEY_STORED_OFFLINE=1`, un destino explícito `JUANCA_OFFSITE_REMOTE=<remote>:<carpeta>` ya configurado en rclone y verificación del hash remoto. La llave privada permanece local y fuera del repositorio. No se configuró una subida programada.
