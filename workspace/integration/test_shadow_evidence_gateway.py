@@ -259,6 +259,46 @@ class GatewayEvidenceTest(unittest.TestCase):
                 for thread in threads:
                     thread.join(timeout=2)
 
+    def test_acquisition_lot_reads_and_writes_use_server_actor(self):
+        with tempfile.TemporaryDirectory() as root:
+            stub = ThreadingHTTPServer(('127.0.0.1', 0), ShadowStub)
+            gateway = ThreadingHTTPServer(('127.0.0.1', 0), server.Gateway)
+            old = server.SHADOW_CONFIG_PATH
+            server.SHADOW_CONFIG_PATH = Path(root) / 'shadow.json'
+            server.SHADOW_CONFIG_PATH.write_text(json.dumps({'token': 'x' * 64, 'port': stub.server_port}))
+            ShadowStub.calls = []
+            threads = [threading.Thread(target=s.serve_forever, daemon=True) for s in (stub, gateway)]
+            for thread in threads:
+                thread.start()
+            try:
+                position_id = '12345678-1234-1234-1234-123456789abc'
+                connection = http.client.HTTPConnection('127.0.0.1', gateway.server_port)
+                connection.request('GET', f'/api/shadow/position-identities/{position_id}/acquisitions', headers={
+                    'Authorization': 'Bearer ' + server.CONFIG['token'],
+                })
+                response = connection.getresponse()
+                self.assertEqual(response.status, 200)
+                response.read()
+                connection.close()
+                payload = json.dumps({'request_key': 'acquisition-lot-001'}).encode()
+                connection = http.client.HTTPConnection('127.0.0.1', gateway.server_port)
+                connection.request('POST', f'/api/shadow/position-identities/{position_id}/acquisitions', body=payload, headers={
+                    'Authorization': 'Bearer ' + server.CONFIG['token'], 'Content-Type': 'application/json', 'X-Juanca-Actor': 'attacker-controlled',
+                })
+                response = connection.getresponse()
+                self.assertEqual(response.status, 201)
+                response.read()
+                connection.close()
+                self.assertEqual([call[1] for call in ShadowStub.calls], [
+                    f'/v1/position-identities/{position_id}/acquisitions',
+                    f'/v1/position-identities/{position_id}/acquisitions',
+                ])
+                self.assertEqual(ShadowStub.calls[1][3]['X-Juanca-Actor'], server.CONFIG['user_id'])
+            finally:
+                server.SHADOW_CONFIG_PATH = old
+                gateway.shutdown();stub.shutdown();gateway.server_close();stub.server_close()
+                for thread in threads: thread.join(timeout=2)
+
     def test_photo_is_hashed_and_stored_through_two_shadow_calls(self):
         with tempfile.TemporaryDirectory() as root:
             stub = ThreadingHTTPServer(('127.0.0.1', 0), ShadowStub)

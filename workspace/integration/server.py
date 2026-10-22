@@ -33,6 +33,7 @@ SHADOW_ROUTES = {
     '/api/shadow/reconciliation/external/snapshots': {'GET'},
     '/api/shadow/reconciliation/b3/decisions': {'POST'},
     '/api/shadow/position-identities/acquisition-reconciliation': {'GET'},
+    '/api/shadow/position-identities': {'GET'},
     '/api/shadow/reconciliation/manual-b3/candidates': {'GET'},
     '/api/shadow/reconciliation/manual-b3/decisions': {'POST'},
     '/api/shadow/proposals': {'GET', 'POST'},
@@ -43,6 +44,7 @@ SHADOW_ITEM = re.compile(r'^/api/shadow/evidence/(text|photos|documents)/([0-9a-
 SHADOW_PROPOSAL_COMMAND = re.compile(r'^/api/shadow/proposals/([0-9a-fA-F-]{36})/(approve|reject)$')
 SHADOW_B3_PUBLISH = re.compile(r'^/api/shadow/reconciliation/b3/snapshots/([A-Za-z0-9._:-]+)/publish$')
 SHADOW_EXTERNAL_PUBLISH = re.compile(r'^/api/shadow/reconciliation/external/snapshots/([A-Za-z0-9._:-]+)/publish$')
+SHADOW_POSITION_ACQUISITIONS = re.compile(r'^/api/shadow/position-identities/([0-9a-fA-F-]{36})/acquisitions$')
 PHOTO_TYPES = {'image/jpeg', 'image/png', 'image/webp', 'image/heic'}
 DOCUMENT_TYPES = {
     ('b3', 'positions'): 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
@@ -138,12 +140,15 @@ class Gateway(BaseHTTPRequestHandler):
             proposal_command = SHADOW_PROPOSAL_COMMAND.fullmatch(path)
             b3_publish = SHADOW_B3_PUBLISH.fullmatch(path)
             external_publish = SHADOW_EXTERNAL_PUBLISH.fullmatch(path)
+            position_acquisitions = SHADOW_POSITION_ACQUISITIONS.fullmatch(path)
             if proposal_command:
                 methods = {'POST'}
             elif b3_publish:
                 methods = {'POST'}
             elif external_publish:
                 methods = {'POST'}
+            elif position_acquisitions:
+                methods = {'GET', 'POST'}
             elif not match:
                 self.reply_json(404, {'code': 'NOT_FOUND'})
                 return
@@ -171,6 +176,7 @@ class Gateway(BaseHTTPRequestHandler):
             if (path in {'/api/shadow/reconciliation/manual-b3/decisions', '/api/shadow/reconciliation/b3/decisions'} or
                     SHADOW_B3_PUBLISH.fullmatch(path) or
                     SHADOW_EXTERNAL_PUBLISH.fullmatch(path) or
+                    SHADOW_POSITION_ACQUISITIONS.fullmatch(path) or
                     path == '/api/shadow/proposals' and self.command == 'POST' or
                     SHADOW_PROPOSAL_COMMAND.fullmatch(path)) and self.command == 'POST':
                 headers['X-Juanca-Actor'] = CONFIG['user_id']
