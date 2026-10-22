@@ -5,6 +5,7 @@ export type AuthorityReadinessFacts={
  resolved_legacy_aliases:number;unused_unresolved_account_aliases:number;approver_membership_total:number;
  holding_total:number;holding_verified:number;
  b3_snapshot_publication_total:number;
+ external_snapshot_publication_total:number;
  portfolio_positions:number;portfolio_identity_unresolved:number;portfolio_commandable_identity_unresolved:number;pending_proposals:number;applied_events:number;
 };
 
@@ -18,11 +19,13 @@ export function assessAuthorityReadiness(f:AuthorityReadinessFacts){
  if(f.approver_membership_total<1)blockers.push('approver_role_not_assigned');
  blockers.push('legacy_financial_writers_still_active');
  if(f.b3_snapshot_publication_total<1)blockers.push('reviewed_b3_snapshot_publication_not_verified');
+ if(f.external_snapshot_publication_total<1)blockers.push('reviewed_external_snapshot_publication_not_verified');
  blockers.push('final_cutover_delta_not_verified','cutover_and_rollback_not_rehearsed');
  return {ready:false,mode:'shadow',authoritative:false,blockers,counts:f,
   gates:[
    {id:'legacy_financial_writers_still_active',status:'blocked',detail:'La web vigente aún escribe importaciones y revisiones financieras en D1/R2.'},
    {id:'reviewed_b3_snapshot_publication_not_verified',status:f.b3_snapshot_publication_total>0?'passed':'blocked',detail:f.b3_snapshot_publication_total>0?'Hay snapshots B3 publicados mediante el flujo auditado y reconstrucción transaccional.':'La publicación auditada de snapshots B3 está implementada; falta ejercerla sobre una fotografía aprobada para verificarla con datos reales.'},
+   {id:'reviewed_external_snapshot_publication_not_verified',status:f.external_snapshot_publication_total>0?'passed':'blocked',detail:f.external_snapshot_publication_total>0?'Hay snapshots externos (Avenue o previsión) publicados mediante el flujo auditado.':'La publicación auditada de Avenue y previsión está implementada; falta ejercerla sobre extractos aprobados para validar datos reales.'},
    ...(f.approver_membership_total<1?[{id:'approver_role_not_assigned',status:'blocked',detail:'Ningún miembro del hogar tiene rol owner o approver para aprobar/rechazar movimientos.'}]:[]),
    {id:'final_cutover_delta_not_verified',status:'blocked',detail:'Los backups actuales de D1/R2 y PostgreSQL se restauraron en aislamiento; falta exportar y conciliar el delta final durante la ventana de corte.'},
    {id:'cutover_and_rollback_not_rehearsed',status:'blocked',detail:'Falta ensayar el cambio coordinado de lectura/escritura y la reversión con un único escritor.'},
@@ -72,6 +75,7 @@ export async function authorityReadiness(db:pg.Pool,household:string){
   portfolio_positions:portfolio.rows[0]?.positions??0,portfolio_identity_unresolved:portfolio.rows[0]?.unresolved??0,
   portfolio_commandable_identity_unresolved:portfolio.rows[0]?.commandable_unresolved??0,
   b3_snapshot_publication_total:(await db.query('SELECT count(*)::int AS total FROM app.b3_snapshot_publications WHERE household_id=$1',[household])).rows[0].total,
+  external_snapshot_publication_total:(await db.query('SELECT count(*)::int AS total FROM app.external_position_snapshot_publications WHERE household_id=$1',[household])).rows[0].total,
   pending_proposals:proposals.rows[0].pending,applied_events:events.rows[0].applied};
  return assessAuthorityReadiness(facts);
 }

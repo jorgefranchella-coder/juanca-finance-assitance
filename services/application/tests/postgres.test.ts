@@ -19,6 +19,7 @@ import {recordText,textStatus} from '../src/manual-intake.ts';
 import {receiveMarketEvent} from '../src/market-bridge.ts';
 import {listB3DuplicateMovementCandidates,recordB3DuplicateMovementDecision} from '../src/b3-duplicate-candidates.ts';
 import {publishB3PositionSnapshot,listB3PositionSnapshots} from '../src/b3-snapshot-publications.ts';
+import {publishExternalPositionSnapshot,listExternalPositionSnapshots} from '../src/external-snapshot-publications.ts';
 const database='juanca_test_'+randomUUID().replaceAll('-','');
 const admin=pool('jorge','postgres');const db=pool('juanca_app',database);const migrator=pool('jorge',database);
 before(async()=>{assert.match(database,/^juanca_test_[0-9a-f]+$/);await admin.query('CREATE DATABASE "'+database+'"');await migrator.query(await readFile(new URL('../../../infra/postgres/roles.sql',import.meta.url),'utf8'));await migrate(db);});
@@ -74,6 +75,34 @@ test('an approver can publish a complete B3 position snapshot atomically without
   assert.equal((await db.query("SELECT count(*)::int n FROM app.events WHERE household_id=$1 AND application_status='applied'",[h])).rows[0].n,0);
   assert.equal((await db.query("SELECT count(*)::int n FROM app.audit_log WHERE household_id=$1 AND action='b3_position_snapshot_published'",[h])).rows[0].n,1);
   await assert.rejects(()=>db.query("UPDATE app.b3_snapshot_publications SET position_count=0 WHERE household_id=$1 AND document_id=$2",[h,doc]),/B3_SNAPSHOT_PUBLICATIONS_APPEND_ONLY/);
+ }finally{await rm(dir,{recursive:true,force:true});}
+});
+test('an approver can publish an Avenue position snapshot with USD valuation and immutable evidence',async()=>{
+ const dir=await mkdtemp(join(tmpdir(),'juanca-external-publish-'));
+ try{
+  const h='external-publish-'+randomUUID(),actor='external-approver-'+randomUUID();
+  await db.query('INSERT INTO app.households VALUES($1)',[h]);await db.query('INSERT INTO app.actors VALUES($1,$2)',[actor,'Authorized approver']);await db.query("INSERT INTO app.memberships VALUES($1,$2,'approver')",[h,actor]);await db.query('INSERT INTO app.household_state(household_id) VALUES($1)',[h]);
+  const imports=[{id:'baseline-external',user_id:h,owner:'Jorge',status:'processed',file_type:'positions',reference_date:'2026-08-01',created_at:'2026-08-02 00:00:00'}];
+  const tables={imports,import_records:[{id:1,import_id:'baseline-external',record_kind:'position',payload:JSON.stringify({owner:'Jorge',account:'old-account',currency:'BRL',instrument_code:'PETR4',quantity:'2',unit_price:'30',market_value_cents:'6000',reference_date:'2026-08-01'})}],market_quotes:[],fx_observations:[],portfolio_revisions:[{user_id:h,revision:0}],transaction_proposals:[],review_decisions:[],cost_basis:[],chat_messages:[],proposal_applications:[]};
+  const content={format:1,tables,conversation_archive:[]},canonical=JSON.stringify(content),file=join(dir,'fixture.json');await writeFile(file,JSON.stringify({source_sha256:hash(canonical),exported_at:'2026-08-02T00:00:00.000Z',canonical_content:canonical,content}));const imported=await importEnvelope(db,file);await publish(db,imported.run_id,h,'2026-08-01','2026-08-02T00:00:00.000Z');
+  await db.query("INSERT INTO app.custody_institutions(id,canonical_name,kind) VALUES('avenue-securities','Avenue Securities','custodian') ON CONFLICT(id) DO NOTHING");
+  const owner=ownerId('Jorge'),custody='avenue-custody-'+randomUUID();await db.query("INSERT INTO app.custody_accounts(household_id,id,owner_id,institution_id,external_reference,identity_basis) VALUES($1,$2,$3,'avenue-securities','acct-123','observed_reference')",[h,custody,owner]);
+  const doc='avenue-snapshot-'+randomUUID(),digest='f'.repeat(64);await db.query(`INSERT INTO app.source_documents(household_id,id,owner_id,source_system,report_kind,original_name,content_sha256,storage_key,effective_as_of,date_basis) VALUES($1,$2,$3,'Avenue','position','statement.pdf',$4,'ingestion:fixture','2026-08-03','statement_reference_date')`,[h,doc,owner,digest]);
+  const assertion='avenue-assertion-'+randomUUID(),raw={owner:'Jorge',asset_class:'international_equity',product_name:'Apple Inc.',account:'acct-123',instrument_code:'AAPL',quantity:'2',unit_price:'200',market_value_minor:'40000',currency:'USD',reference_date:'2026-08-03'};
+  await db.query(`INSERT INTO app.source_assertions(household_id,id,document_id,owner_id,source_sheet,source_row,assertion_kind,institution_id,custody_account_id,instrument_code,asserted_on,quantity,raw_row,interpretation_status) VALUES($1,$2,$3,$4,'Statement',2,'position','avenue-securities',$5,'AAPL','2026-08-03',2,$6,'observed')`,[h,assertion,doc,owner,custody,raw]);
+  const listed=await listExternalPositionSnapshots(db,h);assert.equal(listed.snapshots.length,1);assert.equal(listed.snapshots[0].invalid_rows,0);
+  const body={request_key:'publish-external-001',content_sha256:digest};const result=await publishExternalPositionSnapshot(db,h,actor,doc,body),again=await publishExternalPositionSnapshot(db,h,actor,doc,body);assert.equal(result.portfolio_published,true);assert.equal(again.replayed,true);
+  const latest=await portfolio(db,h),avenuePosition=latest.positions.find((position:{instrument_code:string})=>position.instrument_code==='AAPL');assert.ok(avenuePosition);assert.equal(avenuePosition.quantity,'2');assert.equal(avenuePosition.currency,'USD');
+  const holdings=await db.query("SELECT quantity::text,opening_document_id,opening_assertion_id FROM app.holdings WHERE household_id=$1",[h]);assert.equal(holdings.rows[0].quantity,'2');assert.equal(holdings.rows[0].opening_document_id,null);assert.equal(holdings.rows[0].opening_assertion_id,assertion);
+  assert.equal((await db.query("SELECT count(*)::int AS n FROM app.events WHERE household_id=$1 AND application_status='applied'",[h])).rows[0].n,0);
+  await assert.rejects(()=>db.query("UPDATE app.external_position_snapshot_publications SET position_count=0 WHERE household_id=$1 AND document_id=$2",[h,doc]),/EXTERNAL_SNAPSHOT_PUBLICATIONS_APPEND_ONLY/);
+  await db.query("INSERT INTO app.custody_institutions(id,canonical_name,kind) VALUES('fixture-pension-provider','Santander Seguros','pension_provider')");
+  const pensionCustody='pension-custody-'+randomUUID();await db.query("INSERT INTO app.custody_accounts(household_id,id,owner_id,institution_id,external_reference,identity_basis) VALUES($1,$2,$3,'fixture-pension-provider','12345678000199','observed_reference')",[h,pensionCustody,owner]);
+  const pensionDoc='pension-snapshot-'+randomUUID(),pensionDigest='1'.repeat(64),pensionAssertion='pension-assertion-'+randomUUID();await db.query(`INSERT INTO app.source_documents(household_id,id,owner_id,source_system,report_kind,original_name,content_sha256,storage_key,effective_as_of,date_basis) VALUES($1,$2,$3,'Santander Seguros','position','pension.pdf',$4,'ingestion:fixture','2026-08-03','statement_reference_date')`,[h,pensionDoc,owner,pensionDigest]);
+  const pensionRaw={owner_ref:owner,institution:'Santander Seguros',fund:'Plano Participante',fund_cnpj:'12345678000199',instrument_code:'PREV-12345678000199',currency:'BRL',reference_date:'2026-08-03',quantity:'10',unit_price:'12.34',market_value:'123.40'};
+  await db.query(`INSERT INTO app.source_assertions(household_id,id,document_id,owner_id,source_sheet,source_row,assertion_kind,institution_id,custody_account_id,instrument_code,asserted_on,quantity,raw_row,interpretation_status) VALUES($1,$2,$3,$4,'Position',2,'position','fixture-pension-provider',$5,'PREV-12345678000199','2026-08-03',10,$6,'observed')`,[h,pensionAssertion,pensionDoc,owner,pensionCustody,pensionRaw]);
+  const pension=await publishExternalPositionSnapshot(db,h,actor,pensionDoc,{request_key:'publish-pension-001',content_sha256:pensionDigest});assert.equal(pension.source_system,'Santander Seguros');
+  const withPension=await portfolio(db,h),pensionPosition=withPension.positions.find((position:{instrument_code:string})=>position.instrument_code==='PREV-12345678000199');assert.ok(pensionPosition);assert.equal(pensionPosition.asset_class,'private_pension');assert.equal(pensionPosition.quantity,'10');
  }finally{await rm(dir,{recursive:true,force:true});}
 });
 test('source attribution corrections preserve raw ownership and are append-only',async()=>{

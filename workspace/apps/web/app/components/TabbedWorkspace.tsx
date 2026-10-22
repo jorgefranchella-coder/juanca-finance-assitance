@@ -11,6 +11,7 @@ import MobileApp from "./MobileApp";
 import SessionControls from "./SessionControls";
 import B3ReconciliationPanel from "./B3ReconciliationPanel";
 import B3SnapshotPublicationPanel from "./B3SnapshotPublicationPanel";
+import ExternalSnapshotPublicationPanel from "./ExternalSnapshotPublicationPanel";
 import ManualIntakePanel from "./ManualIntakePanel";
 import ManualB3Candidates from "./ManualB3Candidates";
 import ManualPhotoPanel from "./ManualPhotoPanel";
@@ -91,7 +92,7 @@ export default function TabbedWorkspace() {
 
       <section className="tab-panel" role="tabpanel" aria-label={current.label}>
         {active === "overview" && <DashboardMetrics />}
-        {active === "reviews" && <><ConfirmationQueue /><ReviewPanel /><ManualIntakePanel /><ManualB3Candidates /><ManualPhotoPanel /><B3SnapshotPublicationPanel /><B3ReconciliationPanel /><AcquisitionReconciliationPanel /></>}
+        {active === "reviews" && <><ConfirmationQueue /><ReviewPanel /><ManualIntakePanel /><ManualB3Candidates /><ManualPhotoPanel /><B3SnapshotPublicationPanel /><ExternalSnapshotPublicationPanel /><B3ReconciliationPanel /><AcquisitionReconciliationPanel /></>}
         {active === "assistant" && <TransactionChat key={`${prefill?.owner??"manual"}:${prefill?.message??""}`} prefill={prefill} />}
         {active === "postgres-shadow" && <><ShadowPortfolioPanel /><FixedIncomeProjection endpoint="/api/shadow/fixed-income-projection" shadow /><ShadowProposalWorkspace /></>}
         {active === "juanca" && <JuancaChat />}

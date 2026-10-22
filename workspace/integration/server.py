@@ -30,6 +30,7 @@ SHADOW_ROUTES = {
     '/api/shadow/evidence/documents': {'POST'},
     '/api/shadow/reconciliation/b3/candidates': {'GET'},
     '/api/shadow/reconciliation/b3/snapshots': {'GET'},
+    '/api/shadow/reconciliation/external/snapshots': {'GET'},
     '/api/shadow/reconciliation/b3/decisions': {'POST'},
     '/api/shadow/position-identities/acquisition-reconciliation': {'GET'},
     '/api/shadow/reconciliation/manual-b3/candidates': {'GET'},
@@ -41,6 +42,7 @@ SHADOW_ROUTES = {
 SHADOW_ITEM = re.compile(r'^/api/shadow/evidence/(text|photos|documents)/([0-9a-fA-F-]{36})(/content)?$')
 SHADOW_PROPOSAL_COMMAND = re.compile(r'^/api/shadow/proposals/([0-9a-fA-F-]{36})/(approve|reject)$')
 SHADOW_B3_PUBLISH = re.compile(r'^/api/shadow/reconciliation/b3/snapshots/([A-Za-z0-9._:-]+)/publish$')
+SHADOW_EXTERNAL_PUBLISH = re.compile(r'^/api/shadow/reconciliation/external/snapshots/([A-Za-z0-9._:-]+)/publish$')
 PHOTO_TYPES = {'image/jpeg', 'image/png', 'image/webp', 'image/heic'}
 DOCUMENT_TYPES = {
     ('b3', 'positions'): 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
@@ -135,9 +137,12 @@ class Gateway(BaseHTTPRequestHandler):
             match = SHADOW_ITEM.fullmatch(path)
             proposal_command = SHADOW_PROPOSAL_COMMAND.fullmatch(path)
             b3_publish = SHADOW_B3_PUBLISH.fullmatch(path)
+            external_publish = SHADOW_EXTERNAL_PUBLISH.fullmatch(path)
             if proposal_command:
                 methods = {'POST'}
             elif b3_publish:
+                methods = {'POST'}
+            elif external_publish:
                 methods = {'POST'}
             elif not match:
                 self.reply_json(404, {'code': 'NOT_FOUND'})
@@ -165,6 +170,7 @@ class Gateway(BaseHTTPRequestHandler):
             headers = {'Authorization': 'Bearer ' + shadow['token'], 'Accept-Encoding': 'identity'}
             if (path in {'/api/shadow/reconciliation/manual-b3/decisions', '/api/shadow/reconciliation/b3/decisions'} or
                     SHADOW_B3_PUBLISH.fullmatch(path) or
+                    SHADOW_EXTERNAL_PUBLISH.fullmatch(path) or
                     path == '/api/shadow/proposals' and self.command == 'POST' or
                     SHADOW_PROPOSAL_COMMAND.fullmatch(path)) and self.command == 'POST':
                 headers['X-Juanca-Actor'] = CONFIG['user_id']

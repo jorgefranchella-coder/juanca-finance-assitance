@@ -13,6 +13,7 @@ import {listB3DuplicateMovementCandidates,recordB3DuplicateMovementDecision} fro
 import {listAcquisitionLots,listAcquisitionReconciliation,listPositionAccountCandidates,listPositionIdentities,recordAcquisitionLot,recordPositionIdentityResolution} from './acquisition-lots.ts';
 import {authorityReadiness} from './authority-readiness.ts';
 import {listB3PositionSnapshots,publishB3PositionSnapshot} from './b3-snapshot-publications.ts';
+import {listExternalPositionSnapshots,publishExternalPositionSnapshot} from './external-snapshot-publications.ts';
 import {fixedIncomeProjection} from './fixed-income.ts';
 const config=JSON.parse(await readFile(process.env.JUANCA_SHADOW_CONFIG??'/home/jorge/.local/share/juanca-shadow/application.json','utf8')) as {token:string;household_id:string;cursor_key:string;port:number};
 if(config.token.length<32||config.cursor_key.length<32||!config.household_id)throw new Error('INVALID_CONFIGURATION');
@@ -70,6 +71,13 @@ const server=createServer(async(req,res)=>{
   }
   if(url.pathname==='/v1/reconciliation/b3/snapshots'&&req.method==='GET'){
    reply(200,await listB3PositionSnapshots(db,config.household_id));return;
+  }
+  if(url.pathname==='/v1/reconciliation/external/snapshots'&&req.method==='GET'){
+   reply(200,await listExternalPositionSnapshots(db,config.household_id));return;
+  }
+  const externalPublish=url.pathname.match(/^\/v1\/reconciliation\/external\/snapshots\/([^/]+)\/publish$/);
+  if(externalPublish&&req.method==='POST'){
+   const actor=String(req.headers['x-juanca-actor']??'');reply(201,await publishExternalPositionSnapshot(db,config.household_id,actor,externalPublish[1],await readJson(req)));return;
   }
   const b3Publish=url.pathname.match(/^\/v1\/reconciliation\/b3\/snapshots\/([^/]+)\/publish$/);
   if(b3Publish&&req.method==='POST'){
