@@ -1,6 +1,5 @@
 [Unit]
 Description=Juanca D1 authority backup and isolated restore check
-Requires=patrimonio-juanca-worker.service
 After=patrimonio-juanca-worker.service
 
 [Service]
