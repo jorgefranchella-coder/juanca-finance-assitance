@@ -83,15 +83,6 @@ export async function loadAvenuePortfolio(userId: string) {
           currency: "USD", reference_date: baseDates.get(trade.owner) ?? trade.trade_date,
         });
       }
-      const cashKey = `${trade.owner}\0USD_CASH`;
-      const cash = holdings.get(cashKey);
-      if (cash) {
-        const delta = trade.side === "sell"
-          ? trade.principal_minor - trade.fees_minor
-          : -(trade.principal_minor + trade.fees_minor);
-        cash.market_value_minor += delta;
-        cash.quantity = cash.market_value_minor / 100;
-      }
       latestTradeDates.set(key, trade.trade_date);
     } catch { /* malformed rows remain excluded */ }
   }
@@ -101,7 +92,7 @@ export async function loadAvenuePortfolio(userId: string) {
     .bind(userId).first<{ rate: number; date: string }>();
   const ptax: PtaxRate = observed ?? null;
   const positions: ConsolidatedAvenuePosition[] = Array.from(holdings.entries())
-    .filter(([, item]) => item.quantity > 0.000001)
+    .filter(([, item]) => item.instrument_code !== "USD_CASH" && item.quantity > 0.000001)
     .map(([key, item]) => ({
       ...item,
       market_value_cents: ptax ? Math.round(item.market_value_minor * ptax.rate) : null,

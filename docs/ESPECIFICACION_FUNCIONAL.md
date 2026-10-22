@@ -49,6 +49,8 @@ Julia confirmó una cuenta por institución. Esa regla ya está aplicada a sus 2
 
 Avenue aporta extractos de posición y confirmaciones; la previsión aporta saldo del participante según el documento del proveedor. Una foto o un movimiento escrito se guarda desde su recepción aun si OCR, cuenta, fecha o interpretación quedan pendientes. La sombra dispone de carga documental, OCR local para formatos compatibles y bandejas de candidatos; su aplicación al patrimonio autoritativo sigue bajo revisión.
 
+**Alcance de caja:** el sistema registra y valora patrimonio invertido (posiciones y cantidades por titular, institución/cuenta e instrumento). Los saldos bancarios y efectivo en custodia quedan fuera del alcance y bajo control del usuario: no se solicitan extractos para reconstruirlos, no se incluyen en el patrimonio invertido y no se usan como condición para aprobar una compra o venta. La aplicación conserva precio, principal y comisiones de la operación como datos del hecho histórico, pero no deriva ni mantiene un saldo de caja. En compras/ventas se valida la identidad de la cuenta y la cantidad disponible del activo cuando corresponde.
+
 ### Movimientos y aprobaciones
 
 El chat transaccional interpreta texto o comprobantes y prepara una propuesta. Antes de aprobar se muestran titular, activo, lado, cantidad, precio, moneda, fecha, cuenta y comisiones disponibles. Campos ausentes o ambiguos requieren completar o revisar. Aprobar o rechazar es una acción explícita; una consulta nunca aprueba. La aprobación debe ser idempotente y no puede aplicar dos veces una misma propuesta. No se ejecutan órdenes de inversión.

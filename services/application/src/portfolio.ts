@@ -48,12 +48,8 @@ export function buildPortfolio(input:Inputs,resolutions:Map<string,string>=new M
   const quote=quotes.get((currency==='USD'?'US':'B3')+'\0'+code);const current=quote?exact(quote.price):price;p.current_unit_price=current.toFixed();p.price_as_of=String(quote?.quoted_at??date);p.source=String(quote?.provider??t.source??'transaction_chat');
   p.market_value_minor=minor(qty.mul(current).mul(100));p.market_value_cents=currency==='USD'?fx?minor((quote?qty.mul(current).mul(100):new D(p.market_value_minor)).mul(fx)):null:p.market_value_minor;
   if(qty.lt(0)){p.market_value_cents=null;issues.push({code:'negative_position',owner,instrument_code:code,record_id:row.id});}
-  if(currency==='USD'){
-   const cash=positions.find(c=>c.owner===owner&&c.currency==='USD'&&c.instrument_code==='USD_CASH'&&c.account_id===p.account_id);
-   if(cash){const principal=new D(integer(t.principal_minor??minor(quantity.mul(price).mul(100))));const fees=new D(integer(t.fees_minor??'0'));cash.market_value_minor=minor(new D(cash.market_value_minor).add(side==='sell'?principal.sub(fees):principal.add(fees).neg()));cash.quantity=new D(cash.market_value_minor).div(100).toFixed();cash.market_value_cents=fx?minor(new D(cash.market_value_minor).mul(fx)):null;cash.reference_date=date;}
-  }
  }catch{issues.push({code:'invalid_trade',record_id:row.id});}}
- const visible=positions.filter(p=>p.currency!=='USD'||!new D(p.quantity).isZero());
+ const visible=positions.filter(p=>p.instrument_code!=='USD_CASH'&&(p.currency!=='USD'||!new D(p.quantity).isZero()));
  for(const p of visible)if(p.market_value_cents===null&&!issues.some(i=>i.code==='negative_position'&&i.owner===p.owner&&i.instrument_code===p.instrument_code))issues.push({code:'missing_fx',owner:p.owner,instrument_code:p.instrument_code});
  return {positions:visible,total_value_cents:minor(visible.reduce((sum,p)=>sum.add(p.market_value_cents??'0'),new D(0))),valuation_complete:issues.length===0,identity_complete:visible.every(p=>p.identity_status==='known'),issues,unvalued_count:visible.filter(p=>p.market_value_cents===null).length,count:visible.length,reference_date:visible.map(p=>p.reference_date).sort().at(-1)??'',ptax:input.fx?{rate:fx!.toFixed(),date:String(input.fx.quoted_at),provider:String(input.fx.provider)}:null};
 }

@@ -3,15 +3,14 @@ import test from "node:test";
 
 import { parseAvenueConfirmations, parseAvenueStatement } from "../lib/avenue.ts";
 
-test("parses an Avenue statement with positions and cash", () => {
+test("parses Avenue invested positions and ignores cash balances", () => {
   const pages = [
     "PORTFOLIO SUMMARY July 01, 2026 - July 31, 2026 AVENUE ACCOUNT NUMBER: 123 TOTAL PRICED PORTFOLIO Total Cash (Net Portfolio Balance) $ 23.69",
     "EQUITIES / OPTIONS\nMicrosoft Corporation\nMSFT C 5 464.72 $ 2,323.60\nNVIDIA Corp\nNVDA C 22 200.75 $ 4,416.50\nTotal Equities",
   ];
   const positions = parseAvenueStatement(pages, "Jorge");
-  assert.equal(positions.length, 3);
+  assert.equal(positions.length, 2);
   assert.equal(positions[0].instrument_code, "MSFT");
-  assert.equal(positions[2].market_value_minor, 2369);
   assert.equal(positions[0].reference_date, "2026-07-31");
 });
 

@@ -126,25 +126,6 @@ export function parseAvenueStatement(pages: string[], owner: string): AvenuePosi
     }
   }
 
-  const cashMatch = /Total Cash \(Net Portfolio Balance\)\s+\$\s*([\d,.]+)/.exec(allText);
-  if (cashMatch) {
-    const cash = decimal(cashMatch[1]);
-    positions.push({
-      kind: "position",
-      source: "avenue",
-      owner,
-      asset_class: "cash",
-      product_name: "Caixa Avenue",
-      institution: "Avenue",
-      account,
-      instrument_code: "USD_CASH",
-      quantity: cash,
-      unit_price: 1,
-      market_value_minor: Math.round(cash * 100),
-      currency: "USD",
-      reference_date: referenceDate,
-    });
-  }
   if (positions.length < 2) throw new Error("Nenhuma posição reconhecida no extrato Avenue.");
   return positions;
 }

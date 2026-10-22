@@ -18,6 +18,13 @@ test('missing foreign exchange retains USD and marks the total incomplete',()=>{
  assert.equal(view.positions[0].market_value_minor,45000);assert.equal(view.positions[0].market_value_cents,null);
  assert.equal(view.total_value_cents,0);assert.equal(view.unvalued_count,1);assert.equal(view.valuation_complete,false);
 });
+test('USD transactions update invested quantities without tracking the statement cash balance',()=>{
+ const cash=snapshot({instrument_code:'USD_CASH',currency:'USD',quantity:100,unit_price:1,market_value_minor:10000,asset_class:'cash'},'avenue_statement');
+ const asset=snapshot({instrument_code:'AAPL',currency:'USD',quantity:2,unit_price:50,market_value_minor:10000,asset_class:'international_equity'},'avenue_statement');
+ const sale=trade({instrument_code:'AAPL',currency:'USD',quantity:1,unit_price:50,trade_date:'2026-08-02',principal_minor:5000});
+ const view=buildPortfolioView([cash,asset],[sale],[],{rate:5,date:'2026-08-02'});
+ assert.deepEqual(view.positions.map(p=>p.instrument_code),['AAPL']);assert.equal(view.positions[0].quantity,1);
+});
 test('same-day trades require an explicit snapshot cutoff',()=>{
  const view=buildPortfolioView([snapshot({})],[trade({trade_date:'2026-08-01'})],[],null);
  assert.equal(view.positions[0].quantity,10);assert.equal(view.issues[0].code,'same_day_trade');

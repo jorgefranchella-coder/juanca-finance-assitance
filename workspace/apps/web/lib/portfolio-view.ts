@@ -104,20 +104,9 @@ export function buildPortfolioView(snapshots: SourceRow[], trades: SourceRow[], 
         position.market_value_cents = null;
         issues.push({ code: 'negative_position', owner, instrument_code: code, record_id: row.id });
       }
-      if (currency === 'USD') {
-        const cash = positions.find(p => p.owner === owner && p.currency === 'USD' && p.instrument_code === 'USD_CASH');
-        if (cash) {
-          const principal = Number(trade.principal_minor ?? Math.round(quantity * price * 100));
-          const fees = Number(trade.fees_minor ?? 0);
-          cash.market_value_minor += side === 'sell' ? principal - fees : -(principal + fees);
-          cash.quantity = cash.market_value_minor / 100;
-          cash.market_value_cents = fx ? Math.round(cash.market_value_minor * fx.rate) : null;
-          cash.reference_date = date;
-        }
-      }
     } catch { issues.push({ code: 'invalid_trade', record_id: row.id }); }
   }
-  const visible = positions.filter(p => p.currency !== 'USD' || Math.abs(p.quantity) > 0.000001);
+  const visible = positions.filter(p => p.instrument_code !== 'USD_CASH' && (p.currency !== 'USD' || Math.abs(p.quantity) > 0.000001));
   for (const p of visible) if (p.market_value_cents === null && !issues.some(i => i.code === 'negative_position' && i.owner === p.owner && i.instrument_code === p.instrument_code)) {
     issues.push({ code: 'missing_fx', owner: p.owner, instrument_code: p.instrument_code });
   }
