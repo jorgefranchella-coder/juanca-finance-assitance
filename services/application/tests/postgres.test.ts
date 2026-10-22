@@ -11,13 +11,14 @@ import {Ajv2020} from 'ajv/dist/2020.js';
 import {randomUUID} from 'node:crypto';
 import {pool,migrate} from '../src/db.ts';
 import {approve,createProposal,listProposals,rejectProposal,Conflict} from '../src/commands.ts';
-import {summaryHash,hash,ownerId,importEnvelope,publish,type Envelope} from '../src/migration.ts';
+import {summaryHash,hash,ownerId,accountId,importEnvelope,publish,type Envelope} from '../src/migration.ts';
 import {portfolio,positionPage} from '../src/queries.ts';
 import {answerGuided,chatHistory,classify,sendChat} from '../src/conversation.ts';
 import {confirmSameAccount} from '../src/resolution.ts';
 import {recordText,textStatus} from '../src/manual-intake.ts';
 import {receiveMarketEvent} from '../src/market-bridge.ts';
 import {listB3DuplicateMovementCandidates,recordB3DuplicateMovementDecision} from '../src/b3-duplicate-candidates.ts';
+import {publishB3PositionSnapshot,listB3PositionSnapshots} from '../src/b3-snapshot-publications.ts';
 const database='juanca_test_'+randomUUID().replaceAll('-','');
 const admin=pool('jorge','postgres');const db=pool('juanca_app',database);const migrator=pool('jorge',database);
 before(async()=>{assert.match(database,/^juanca_test_[0-9a-f]+$/);await admin.query('CREATE DATABASE "'+database+'"');await migrator.query(await readFile(new URL('../../../infra/postgres/roles.sql',import.meta.url),'utf8'));await migrate(db);});
@@ -48,6 +49,33 @@ test('overlapping B3 movement decisions are append-only, idempotent review evide
  await assert.rejects(()=>db.query('UPDATE app.source_assertion_link_decisions SET decision=\'same_event\' WHERE household_id=$1 AND id=$2',[h,first.decision_id]),/SOURCE_ASSERTION_LINK_DECISIONS_APPEND_ONLY/);
  assert.equal((await db.query('SELECT facts_revision FROM app.household_state WHERE household_id=$1',[h])).rows[0].facts_revision,'0');assert.equal((await db.query("SELECT count(*) FROM app.audit_log WHERE household_id=$1 AND action='b3_duplicate_movement_link_decision'",[h])).rows[0].count,'2');
 });
+test('an approver can publish a complete B3 position snapshot atomically without applying movements',async()=>{
+ const dir=await mkdtemp(join(tmpdir(),'juanca-b3-publish-'));
+ try{
+  const h='b3-publish-'+randomUUID(),actor='approver-'+randomUUID();
+  await db.query('INSERT INTO app.households VALUES($1)',[h]);await db.query('INSERT INTO app.actors VALUES($1,$2)',[actor,'Authorized approver']);await db.query("INSERT INTO app.memberships VALUES($1,$2,'approver')",[h,actor]);await db.query('INSERT INTO app.household_state(household_id) VALUES($1)',[h]);
+  const imports=[{id:'baseline',user_id:h,owner:'Jorge',status:'processed',file_type:'positions',reference_date:'2026-08-01',created_at:'2026-08-02 00:00:00'}];
+  const tables={imports,import_records:[{id:1,import_id:'baseline',record_kind:'position',payload:JSON.stringify({owner:'Jorge',account:'old-account',currency:'BRL',instrument_code:'PETR4',quantity:'2',unit_price:'30',market_value_cents:'6000',reference_date:'2026-08-01'})}],market_quotes:[],fx_observations:[],portfolio_revisions:[{user_id:h,revision:0}],transaction_proposals:[],review_decisions:[],cost_basis:[],chat_messages:[],proposal_applications:[]};
+  const content={format:1,tables,conversation_archive:[]},canonical=JSON.stringify(content),file=join(dir,'fixture.json');await writeFile(file,JSON.stringify({source_sha256:hash(canonical),exported_at:'2026-08-02T00:00:00.000Z',canonical_content:canonical,content}));
+  const imported=await importEnvelope(db,file);await publish(db,imported.run_id,h,'2026-08-01','2026-08-02T00:00:00.000Z');
+  await db.query("INSERT INTO app.custody_institutions(id,canonical_name,kind) VALUES('fixture-btg','BTG','custodian') ON CONFLICT(id) DO NOTHING");await db.query("INSERT INTO app.custody_institution_aliases(normalized_alias,institution_id) VALUES('BTG PACTUAL','fixture-btg') ON CONFLICT DO NOTHING");
+  const owner=ownerId('Jorge'),custody='custody-btg-'+randomUUID();await db.query('INSERT INTO app.custody_accounts(household_id,id,owner_id,institution_id,external_reference,identity_basis) VALUES($1,$2,$3,\'fixture-btg\',\'fixture-acct\',\'observed_reference\')',[h,custody,owner]);
+  const doc='b3-fixture-'+randomUUID(),digest='d'.repeat(64);await db.query(`INSERT INTO app.source_documents(household_id,id,owner_id,source_system,report_kind,original_name,content_sha256,storage_key,effective_as_of,date_basis)
+   VALUES($1,$2,$3,'B3','position','posicao.xlsx',$4,'fixture','2026-08-03','ingestion_declared')`,[h,doc,owner,digest]);
+  const assertion='assert-'+randomUUID(),raw={'Instituição':'BTG Pactual','Conta':'fixture-acct','Produto':'PETR4','Quantidade':'10','Preço de Fechamento':'35','Valor Atualizado':'350','Emissor':'Petrobras'};
+  await db.query(`INSERT INTO app.source_assertions(household_id,id,document_id,owner_id,source_sheet,source_row,assertion_kind,institution_id,custody_account_id,instrument_code,asserted_on,quantity,raw_row,interpretation_status)
+   VALUES($1,$2,$3,$4,'Acoes',2,'position','fixture-btg',$5,'PETR4','2026-08-03',10,$6,'observed')`,[h,assertion,doc,owner,custody,raw]);
+  const listed=await listB3PositionSnapshots(db,h);assert.equal(listed.snapshots.length,1);assert.equal(listed.snapshots[0].invalid_rows,0);
+  const body={request_key:'publish-b3-snapshot-001',content_sha256:digest};
+  const result=await publishB3PositionSnapshot(db,h,actor,doc,body),again=await publishB3PositionSnapshot(db,h,actor,doc,body);
+  assert.equal(result.portfolio_published,true);assert.equal(result.replayed,false);assert.equal(again.replayed,true);
+  const latest=await portfolio(db,h);assert.equal(latest.positions.length,1);assert.equal(latest.positions[0].quantity,'10');assert.equal(latest.positions[0].account_id,accountId(JSON.stringify(['Jorge','custody:'+custody])));
+  assert.equal((await db.query("SELECT quantity::text,coverage_status,opening_assertion_id,opening_document_id FROM app.holdings WHERE household_id=$1",[h])).rows[0].quantity,'10');
+  assert.equal((await db.query("SELECT count(*)::int n FROM app.events WHERE household_id=$1 AND application_status='applied'",[h])).rows[0].n,0);
+  assert.equal((await db.query("SELECT count(*)::int n FROM app.audit_log WHERE household_id=$1 AND action='b3_position_snapshot_published'",[h])).rows[0].n,1);
+  await assert.rejects(()=>db.query("UPDATE app.b3_snapshot_publications SET position_count=0 WHERE household_id=$1 AND document_id=$2",[h,doc]),/B3_SNAPSHOT_PUBLICATIONS_APPEND_ONLY/);
+ }finally{await rm(dir,{recursive:true,force:true});}
+});
 test('source attribution corrections preserve raw ownership and are append-only',async()=>{
  const h='attribution-'+randomUUID();await db.query('INSERT INTO app.households VALUES($1)',[h]);await db.query("INSERT INTO app.owners VALUES($1,'jorge','Jorge'),($1,'julia','Julia')",[h]);await db.query('INSERT INTO app.household_state(household_id) VALUES($1)',[h]);
  await db.query("INSERT INTO app.custody_institutions(id,canonical_name,kind) VALUES('avenue-securities','Avenue Securities','custodian') ON CONFLICT(id) DO NOTHING");
@@ -66,10 +94,11 @@ test('guided chat transaction creates one manual evidence record for a known own
 });
 test('market outbox event is received once without publishing a portfolio revision',async()=>{
  const event={id:'1',event_id:randomUUID(),event_type:'market.observations.published',payload:{status:'succeeded',quotes:[{market_code:'B3' as const,symbol:'PETR4',currency:'BRL' as const,price:'39.99',provider:'fixture',observed_at:'2026-10-09T18:00:00-03:00'}],fx:[{pair:'USD/BRL' as const,rate:'5.25',provider:'fixture',observed_at:'2026-10-09'}]}};
+ const versionsBefore=Number((await db.query('SELECT count(*)::int n FROM app.portfolio_versions')).rows[0].n);
  const first=await receiveMarketEvent(db,event),again=await receiveMarketEvent(db,event);assert.equal(first.quotes,1);assert.equal(again.replayed,true);
  assert.equal((await db.query('SELECT count(*)::int n FROM app.market_quote_observations')).rows[0].n,1);
  assert.equal((await db.query('SELECT count(*)::int n FROM app.market_fx_observations')).rows[0].n,1);
- assert.equal((await db.query('SELECT count(*)::int n FROM app.portfolio_versions')).rows[0].n,0);
+ assert.equal((await db.query('SELECT count(*)::int n FROM app.portfolio_versions')).rows[0].n,versionsBefore);
 });
 async function fixture(){
  const h='fixture-'+randomUUID();const actor='actor-'+h;await db.query('INSERT INTO app.households VALUES($1)',[h]);await db.query('INSERT INTO app.actors VALUES($1,$2)',[actor,'Explicit fixture actor']);await db.query("INSERT INTO app.memberships VALUES($1,$2,'owner')",[h,actor]);await db.query("INSERT INTO app.owners VALUES($1,'owner1','Fixture')",[h]);await db.query("INSERT INTO app.accounts VALUES($1,'account1','owner1','fixture','known')",[h]);await db.query('INSERT INTO app.household_state(household_id) VALUES($1)',[h]);

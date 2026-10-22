@@ -12,6 +12,7 @@ import {listB3SnapshotReviews,recordB3SnapshotReview} from './b3-snapshot-decisi
 import {listB3DuplicateMovementCandidates,recordB3DuplicateMovementDecision} from './b3-duplicate-candidates.ts';
 import {listAcquisitionLots,listAcquisitionReconciliation,listPositionAccountCandidates,listPositionIdentities,recordAcquisitionLot,recordPositionIdentityResolution} from './acquisition-lots.ts';
 import {authorityReadiness} from './authority-readiness.ts';
+import {listB3PositionSnapshots,publishB3PositionSnapshot} from './b3-snapshot-publications.ts';
 import {fixedIncomeProjection} from './fixed-income.ts';
 const config=JSON.parse(await readFile(process.env.JUANCA_SHADOW_CONFIG??'/home/jorge/.local/share/juanca-shadow/application.json','utf8')) as {token:string;household_id:string;cursor_key:string;port:number};
 if(config.token.length<32||config.cursor_key.length<32||!config.household_id)throw new Error('INVALID_CONFIGURATION');
@@ -66,6 +67,14 @@ const server=createServer(async(req,res)=>{
   if(url.pathname==='/v1/reconciliation/b3/candidates'&&req.method==='GET'){
    const rawLimit=url.searchParams.has('limit')?Number(url.searchParams.get('limit')):50;if(!Number.isInteger(rawLimit)||rawLimit<1||rawLimit>100)throw new Conflict('VALIDATION',422);
    reply(200,await listB3SnapshotReviews(db,config.household_id,rawLimit));return;
+  }
+  if(url.pathname==='/v1/reconciliation/b3/snapshots'&&req.method==='GET'){
+   reply(200,await listB3PositionSnapshots(db,config.household_id));return;
+  }
+  const b3Publish=url.pathname.match(/^\/v1\/reconciliation\/b3\/snapshots\/([^/]+)\/publish$/);
+  if(b3Publish&&req.method==='POST'){
+   const actor=String(req.headers['x-juanca-actor']??'');
+   reply(201,await publishB3PositionSnapshot(db,config.household_id,actor,b3Publish[1],await readJson(req)));return;
   }
   if(url.pathname==='/v1/reconciliation/b3/duplicate-movements'&&req.method==='GET'){
    const rawLimit=url.searchParams.has('limit')?Number(url.searchParams.get('limit')):100;if(!Number.isInteger(rawLimit)||rawLimit<1||rawLimit>500)throw new Conflict('VALIDATION',422);
