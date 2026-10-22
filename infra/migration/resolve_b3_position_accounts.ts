@@ -59,7 +59,7 @@ try{
  for(const p of nextView.positions){const key=String(p.owner_id)+'\0'+(aliasMap.get(norm(p.institution))??''),custodyAccount=accountByInstitution.get(key);if(!custodyAccount)continue;p.account_id=accountId(JSON.stringify([String(p.owner),'custody:'+custodyAccount]));p.identity_status='known';relabeled++;}
  if(!countAligned||relabeled!==unique.length)throw new Error('POSITION_CROSSWALK_COUNT_MISMATCH');
  nextView.identity_complete=nextView.positions.every(p=>p.identity_status==='known');
- const summary={mode:apply?'apply':'dry_run',source_version:currentVersion,snapshot_dates:snapshotDates,assertion_rows:assertions.length,eligible_positions:unique.length,replayed,ready_to_resolve:inserts.length,positions_relabeled:relabeled,skipped_known:skippedKnown,unmapped_institution:unmappedInstitution,no_unique_assertion:noAssertion,ambiguous,projection_bucket_counts_aligned:countAligned,portfolio_published:false,financial_quantities_changed:false};
+ const summary={mode:apply?'apply':'dry_run',source_version:currentVersion,snapshot_dates:snapshotDates,assertion_rows:assertions.length,eligible_positions:unique.length,replayed,ready_to_resolve:inserts.length,positions_relabeled:relabeled,skipped_known:skippedKnown,unmapped_institution:unmappedInstitution,account_not_unique:accountNotUnique,no_unique_assertion:noAssertion,ambiguous,projection_bucket_counts_aligned:countAligned,portfolio_published:false,financial_quantities_changed:false};
  if(!apply){console.log(JSON.stringify(summary));process.exitCode=0;}
  else if(!inserts.length){console.log(JSON.stringify({...summary,mode:'replayed',portfolio_version:currentVersion,facts_revision:state.rows[0].facts_revision,identity_complete:priorView.identity_complete}));}
  else{
