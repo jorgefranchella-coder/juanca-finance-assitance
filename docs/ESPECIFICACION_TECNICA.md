@@ -202,7 +202,7 @@ La migración 029 añade `app.b3_snapshot_publications`, un registro append-only
 
 La transacción verifica fecha no histórica, hash, instrumento/cantidad/valor, duplicados y cuenta de custodia. Acepta una referencia de cuenta observada que coincide con la institución o la unicidad de cuenta previamente confirmada por el usuario; no deriva identidad solo del titular o ticker. Registra las resoluciones de cuenta por fila, agrega un import normalizado al archivo recibido y reconstruye una nueva versión de cartera. Actualiza el saldo invertido y su evidencia de apertura para las instituciones representadas en el archivo. Una posición ausente en una institución incluida se marca en cero con evidencia del propio snapshot; instituciones no representadas no se modifican. No crea eventos ni aplica movimientos B3, no incorpora caja y no cambia la autoridad de D1/R2. Cada resultado queda asociado al documento, hash, actor, revisión de hechos y versión de cartera.
 
-El gate `reviewed_b3_snapshot_publication_not_verified` se libera cuando existe al menos una publicación real auditada; el desarrollo aislado y sus pruebas no lo liberan. Los cortes anteriores a la fecha vigente requieren un flujo separado de corrección y no se publican con este comando.
+Los gates `reviewed_b3_snapshot_publication_not_verified` y `reviewed_external_snapshot_publication_not_verified` se liberan por separado cuando existe al menos una publicación real auditada de cada familia de fuente; el desarrollo aislado y sus pruebas no los liberan. Los cortes anteriores a la fecha vigente requieren un flujo separado de corrección y no se publican con estos comandos.
 
 ### Proyección de renta fija en PostgreSQL sombra
 
