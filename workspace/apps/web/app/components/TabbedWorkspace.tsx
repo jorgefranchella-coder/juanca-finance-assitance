@@ -16,6 +16,7 @@ import ManualPhotoPanel from "./ManualPhotoPanel";
 import AcquisitionReconciliationPanel from "./AcquisitionReconciliationPanel";
 import ConfirmationQueue from "./ConfirmationQueue";
 import ShadowProposalWorkspace from "./ShadowProposalWorkspace";
+import ShadowPortfolioPanel from "./ShadowPortfolioPanel";
 
 const tabs = [
   { id: "overview", label: "Visão geral", eyebrow: "Patrimônio consolidado", title: "Bom dia, Jorge.", subtitle: "Uma visão confiável do patrimônio de Jorge e Julia." },
@@ -91,7 +92,7 @@ export default function TabbedWorkspace() {
         {active === "overview" && <DashboardMetrics />}
         {active === "reviews" && <><ConfirmationQueue /><ReviewPanel /><ManualIntakePanel /><ManualB3Candidates /><ManualPhotoPanel /><B3ReconciliationPanel /><AcquisitionReconciliationPanel /></>}
         {active === "assistant" && <TransactionChat key={`${prefill?.owner??"manual"}:${prefill?.message??""}`} prefill={prefill} />}
-        {active === "postgres-shadow" && <><ShadowProposalWorkspace /><FixedIncomeProjection endpoint="/api/shadow/fixed-income-projection" shadow /></>}
+        {active === "postgres-shadow" && <><ShadowPortfolioPanel /><FixedIncomeProjection endpoint="/api/shadow/fixed-income-projection" shadow /><ShadowProposalWorkspace /></>}
         {active === "juanca" && <JuancaChat />}
         {active === "imports" && <DataImportPanel />}
         {active === "fixed-income" && <FixedIncomeProjection />}

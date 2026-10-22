@@ -45,6 +45,29 @@ class ShadowStub(BaseHTTPRequestHandler):
 
 
 class GatewayEvidenceTest(unittest.TestCase):
+    def test_shadow_portfolio_reads_use_authenticated_service_routes(self):
+        with tempfile.TemporaryDirectory() as root:
+            stub = ThreadingHTTPServer(('127.0.0.1', 0), ShadowStub)
+            gateway = ThreadingHTTPServer(('127.0.0.1', 0), server.Gateway)
+            old = server.SHADOW_CONFIG_PATH
+            server.SHADOW_CONFIG_PATH = Path(root) / 'shadow.json'
+            server.SHADOW_CONFIG_PATH.write_text(json.dumps({'token': 'x' * 64, 'port': stub.server_port}))
+            ShadowStub.calls = []
+            threads = [threading.Thread(target=s.serve_forever, daemon=True) for s in (stub, gateway)]
+            for thread in threads:
+                thread.start()
+            try:
+                for path, expected in [('/api/shadow/portfolio','/v1/portfolio'),('/api/shadow/positions?limit=200','/v1/positions?limit=200')]:
+                    connection = http.client.HTTPConnection('127.0.0.1', gateway.server_port)
+                    connection.request('GET', path, headers={'Authorization':'Bearer '+server.CONFIG['token']})
+                    response=connection.getresponse();self.assertEqual(response.status,200);response.read();connection.close()
+                    self.assertEqual(ShadowStub.calls[-1][1],expected)
+                    self.assertEqual(ShadowStub.calls[-1][3]['Authorization'],'Bearer '+'x'*64)
+            finally:
+                server.SHADOW_CONFIG_PATH = old
+                gateway.shutdown();stub.shutdown();gateway.server_close();stub.server_close()
+                for thread in threads: thread.join(timeout=2)
+
     def test_fixed_income_projection_is_forwarded_to_shadow_application(self):
         with tempfile.TemporaryDirectory() as root:
             stub = ThreadingHTTPServer(('127.0.0.1', 0), ShadowStub)
