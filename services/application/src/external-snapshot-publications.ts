@@ -12,11 +12,13 @@ const sha=(value:string)=>createHash('sha256').update(value).digest('hex');
 export async function listExternalPositionSnapshots(db:pg.Pool,household:string){
  const result=await db.query(`SELECT d.id AS document_id,d.owner_id,o.display_name AS owner,d.source_system,d.original_name,d.content_sha256,
    d.effective_as_of::text AS effective_as_of,d.status,count(a.id)::int AS rows,
-   count(*) FILTER(WHERE a.instrument_code IS NULL OR a.quantity IS NULL OR a.quantity<=0 OR
-    (a.custody_account_id IS NULL AND NOT (d.source_system<>'Avenue' AND a.raw_row->>'institution'=d.source_system AND regexp_replace(COALESCE(a.raw_row->>'fund_cnpj',''),'[^0-9]','','g') ~ '^[0-9]{14}$')) )::int AS invalid_rows,
+   count(*) FILTER(WHERE a.owner_id<>d.owner_id OR a.instrument_code IS NULL OR a.quantity IS NULL OR a.quantity<=0 OR ca.identity_basis='pending' OR
+    (d.source_system='Avenue' AND (ca.id IS NULL OR ca.external_reference IS DISTINCT FROM NULLIF(btrim(a.raw_row->>'account'),''))) OR
+    (a.custody_account_id IS NULL AND NOT (d.source_system<>'Avenue' AND a.raw_row->>'institution'=d.source_system AND regexp_replace(COALESCE(a.raw_row->>'fund_cnpj',''),'[^0-9]','','g') ~ '^[0-9]{14}$' AND a.instrument_code='PREV-'||regexp_replace(COALESCE(a.raw_row->>'fund_cnpj',''),'[^0-9]','','g'))))::int AS invalid_rows,
    bool_or(p.document_id IS NOT NULL) AS published
    FROM app.source_documents d JOIN app.owners o ON o.household_id=d.household_id AND o.id=d.owner_id
    JOIN app.source_assertions a ON a.household_id=d.household_id AND a.document_id=d.id AND a.assertion_kind='position'
+   LEFT JOIN app.custody_accounts ca ON ca.household_id=a.household_id AND ca.id=a.custody_account_id
    LEFT JOIN app.external_position_snapshot_publications p ON p.household_id=d.household_id AND p.document_id=d.id
    WHERE d.household_id=$1 AND d.source_system<>'B3' AND d.report_kind='position'
    GROUP BY d.id,d.owner_id,o.display_name,d.source_system,d.original_name,d.content_sha256,d.effective_as_of,d.status,d.registered_at
