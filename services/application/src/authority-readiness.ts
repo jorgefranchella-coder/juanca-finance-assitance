@@ -2,7 +2,7 @@ import type pg from 'pg';
 
 export type AuthorityReadinessFacts={
  command_account_total:number;command_account_known:number;unresolved_command_account_references:number;
- resolved_legacy_aliases:number;unused_unresolved_account_aliases:number;
+ resolved_legacy_aliases:number;unused_unresolved_account_aliases:number;approver_membership_total:number;
  holding_total:number;holding_verified:number;
  portfolio_positions:number;portfolio_identity_unresolved:number;portfolio_commandable_identity_unresolved:number;pending_proposals:number;applied_events:number;
 };
@@ -14,13 +14,14 @@ export function assessAuthorityReadiness(f:AuthorityReadinessFacts){
  if(f.portfolio_commandable_identity_unresolved)blockers.push('commandable_portfolio_position_identity_incomplete');
  // These are deployment/operational gates, not facts that can be inferred from
  // portfolio rows. Keep them explicit so a clean snapshot cannot look cutover-ready.
+ if(f.approver_membership_total<1)blockers.push('approver_role_not_assigned');
  blockers.push('legacy_financial_writers_still_active','ingestion_does_not_publish_portfolio',
-  'approver_role_not_assigned','final_cutover_delta_not_verified','cutover_and_rollback_not_rehearsed');
+  'final_cutover_delta_not_verified','cutover_and_rollback_not_rehearsed');
  return {ready:false,mode:'shadow',authoritative:false,blockers,counts:f,
   gates:[
    {id:'legacy_financial_writers_still_active',status:'blocked',detail:'La web vigente aún escribe importaciones y revisiones financieras en D1/R2.'},
    {id:'ingestion_does_not_publish_portfolio',status:'blocked',detail:'La ingesta PostgreSQL conserva afirmaciones como evidencia; una nueva fotografía B3 no reconstruye ni publica posiciones.'},
-   {id:'approver_role_not_assigned',status:'blocked',detail:'El actor autenticado tiene rol reviewer; no se asignan permisos de aprobación por inferencia.'},
+   ...(f.approver_membership_total<1?[{id:'approver_role_not_assigned',status:'blocked',detail:'Ningún miembro del hogar tiene rol owner o approver para aprobar/rechazar movimientos.'}]:[]),
    {id:'final_cutover_delta_not_verified',status:'blocked',detail:'Los backups actuales de D1/R2 y PostgreSQL se restauraron en aislamiento; falta exportar y conciliar el delta final durante la ventana de corte.'},
    {id:'cutover_and_rollback_not_rehearsed',status:'blocked',detail:'Falta ensayar el cambio coordinado de lectura/escritura y la reversión con un único escritor.'},
   ],
@@ -28,7 +29,7 @@ export function assessAuthorityReadiness(f:AuthorityReadinessFacts){
 }
 
 export async function authorityReadiness(db:pg.Pool,household:string){
- const [accounts,aliases,holdings,portfolio,proposals,events]=await Promise.all([
+ const [accounts,aliases,approvers,holdings,portfolio,proposals,events]=await Promise.all([
   db.query(`WITH refs AS (
       SELECT account_id FROM app.proposals WHERE household_id=$1 AND status='pending'
       UNION SELECT account_id FROM app.events WHERE household_id=$1 AND application_status='applied'
@@ -49,6 +50,7 @@ export async function authorityReadiness(db:pg.Pool,household:string){
     LEFT JOIN refs ON refs.account_id=a.id
     WHERE a.household_id=$1 AND a.identity_status='unresolved'
       AND a.source_scope::jsonb->>1 NOT LIKE 'custody:%' AND a.source_scope::jsonb->>1 NOT LIKE 'unresolved:pension_statement:%'`,[household]),
+  db.query("SELECT count(*)::int AS total FROM app.memberships WHERE household_id=$1 AND role IN ('owner','approver')",[household]),
   db.query(`SELECT count(*)::int AS total,
       (SELECT count(*)::int FROM app.holdings WHERE household_id=$1 AND coverage_status='verified'
         AND opening_as_of IS NOT NULL AND num_nonnulls(opening_assertion_id,opening_document_id,opening_event_id)=1) AS verified
@@ -63,6 +65,7 @@ export async function authorityReadiness(db:pg.Pool,household:string){
  const facts:AuthorityReadinessFacts={command_account_total:accounts.rows[0].total,command_account_known:accounts.rows[0].known,
   unresolved_command_account_references:accounts.rows[0].unresolved,resolved_legacy_aliases:aliases.rows[0].resolved,
   unused_unresolved_account_aliases:aliases.rows[0].unused_unresolved,
+  approver_membership_total:approvers.rows[0].total,
   holding_total:holdings.rows[0].total,holding_verified:holdings.rows[0].verified,
   portfolio_positions:portfolio.rows[0]?.positions??0,portfolio_identity_unresolved:portfolio.rows[0]?.unresolved??0,
   portfolio_commandable_identity_unresolved:portfolio.rows[0]?.commandable_unresolved??0,
