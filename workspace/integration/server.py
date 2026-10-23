@@ -7,7 +7,7 @@ from http.client import HTTPConnection
 import json
 import ipaddress
 import re
-from urllib.parse import urlsplit, unquote
+from urllib.parse import urlsplit, unquote, parse_qs
 from pathlib import Path
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from browser_sessions import Sessions, COOKIE_NAME, password_valid, session_cookie
@@ -21,6 +21,8 @@ HTTPS_HOST = 'nbcriancas.tailcb43eb.ts.net:8443'
 ALLOWED_ORIGINS = {'http://localhost:3040', 'http://127.0.0.1:3040', 'http://nbcriancas:3040', 'http://nbcriancas.local:3040', 'http://192.168.68.128:3040', 'http://100.105.79.77:3040', 'http://nbcriancas.tailcb43eb.ts.net:3040', 'https://' + HTTPS_HOST}
 HOP = {'connection', 'keep-alive', 'proxy-authenticate', 'proxy-authorization', 'te', 'trailer', 'transfer-encoding', 'upgrade', 'host', 'content-length', 'authorization', 'cookie'}
 SHADOW_CONFIG_PATH = Path(os.environ.get('JUANCA_SHADOW_CONFIG', '/home/jorge/.local/share/juanca-shadow/application.json'))
+MARKET_CONFIG_PATH = Path(os.environ.get('JUANCA_MARKET_CONFIG', '/home/jorge/.local/share/juanca-shadow/market.json'))
+MARKET_JOB = re.compile(r'^/api/shadow/market/jobs/([0-9a-fA-F-]{36})$')
 SHADOW_ROUTES = {
     '/api/shadow/portfolio': {'GET'},
     '/api/shadow/authority/readiness': {'GET'},
@@ -197,6 +199,67 @@ class Gateway(BaseHTTPRequestHandler):
         except (OSError, ValueError, KeyError, http.client.HTTPException):
             self.reply_json(502, {'code': 'SHADOW_UNAVAILABLE'})
 
+    def shadow_market(self, path):
+        job = MARKET_JOB.fullmatch(path)
+        methods = {'POST'} if path == '/api/shadow/market/refresh' else {'GET'} if path in {'/api/shadow/market/quotes', '/api/shadow/market/fx/USD-BRL'} or job else set()
+        if not methods:
+            self.reply_json(404, {'code': 'NOT_FOUND'})
+            return
+        if self.command not in methods:
+            self.reply_json(405, {'code': 'METHOD_NOT_ALLOWED'})
+            return
+        try:
+            query = urlsplit(self.path).query
+            if path == '/api/shadow/market/quotes':
+                raw_params = parse_qs(query, keep_blank_values=True, strict_parsing=True)
+                if set(raw_params) != {'market', 'symbols'} or any(len(values) != 1 for values in raw_params.values()):
+                    self.reply_json(422, {'code': 'INVALID_QUERY'})
+                    return
+                params = {key: values[0] for key, values in raw_params.items()}
+                if params['market'] not in {'B3', 'US'} or not re.fullmatch(r'[A-Z0-9.,]{1,1299}', params['symbols']):
+                    self.reply_json(422, {'code': 'INVALID_QUERY'})
+                    return
+            elif query:
+                self.reply_json(400, {'code': 'INVALID_QUERY'})
+                return
+            body = None
+            headers = {'Accept-Encoding': 'identity'}
+            if self.command == 'POST':
+                size = int(self.headers.get('Content-Length', '0'))
+                key = self.headers.get('Idempotency-Key', '')
+                if not 0 < size <= 16_000 or self.headers.get('Transfer-Encoding') or self.headers.get('Content-Type', '').split(';')[0] != 'application/json' or not re.fullmatch(r'[A-Za-z0-9._:-]{8,128}', key):
+                    self.reply_json(422, {'code': 'INVALID_REFRESH_REQUEST'})
+                    return
+                body = self.rfile.read(size)
+                try:
+                    payload = json.loads(body)
+                    if not isinstance(payload, dict) or set(payload) != {'b3_symbols', 'us_symbols', 'include_fx'} or not isinstance(payload['b3_symbols'], list) or not isinstance(payload['us_symbols'], list) or payload['include_fx'] is not True:
+                        raise ValueError()
+                    if len(payload['b3_symbols']) > 100 or len(payload['us_symbols']) > 100 or any(not isinstance(x, str) or not re.fullmatch(r'[A-Z]{4}\d{1,2}[A-Z]?', x) for x in payload['b3_symbols']) or any(not isinstance(x, str) or not re.fullmatch(r'[A-Z.]{1,10}', x) for x in payload['us_symbols']) or not payload['b3_symbols'] and not payload['us_symbols']:
+                        raise ValueError()
+                except (ValueError, KeyError, TypeError):
+                    self.reply_json(422, {'code': 'INVALID_REFRESH_REQUEST'})
+                    return
+                headers.update({'Content-Type': 'application/json', 'Idempotency-Key': key})
+            market = json.loads(MARKET_CONFIG_PATH.read_text())
+            if not isinstance(market.get('token'), str) or len(market['token']) < 32 or not isinstance(market.get('port'), int) or not 1024 <= market['port'] <= 65535:
+                raise ValueError()
+            target = '/v1' + path.removeprefix('/api/shadow/market')
+            if query:
+                target += '?' + query
+            headers['Authorization'] = 'Bearer ' + market['token']
+            connection = HTTPConnection('127.0.0.1', market['port'], timeout=25)
+            try:
+                connection.request(self.command, target, body=body, headers=headers)
+                response = connection.getresponse()
+                content = response.read()
+                mime = response.getheader('Content-Type', 'application/json').split(';')[0]
+                self.reply(response.status, content, mime)
+            finally:
+                connection.close()
+        except (OSError, ValueError, KeyError, http.client.HTTPException):
+            self.reply_json(502, {'code': 'MARKET_UNAVAILABLE'})
+
     def shadow_document_file(self):
         if self.command != 'POST':
             self.reply_json(405, {'code': 'METHOD_NOT_ALLOWED'})
@@ -324,6 +387,9 @@ class Gateway(BaseHTTPRequestHandler):
                 self.send_error(403, 'Origen no autorizado')
                 return
         if path.startswith('/api/shadow/'):
+            if path.startswith('/api/shadow/market/'):
+                self.shadow_market(path)
+                return
             self.shadow_evidence(path)
             return
         if path == '/api/juanca/chat':

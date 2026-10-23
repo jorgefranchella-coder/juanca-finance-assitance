@@ -45,6 +45,45 @@ class ShadowStub(BaseHTTPRequestHandler):
 
 
 class GatewayEvidenceTest(unittest.TestCase):
+    def test_market_shadow_routes_use_separate_market_credentials_and_validate_refresh(self):
+        with tempfile.TemporaryDirectory() as root:
+            stub = ThreadingHTTPServer(('127.0.0.1', 0), ShadowStub)
+            gateway = ThreadingHTTPServer(('127.0.0.1', 0), server.Gateway)
+            old = server.MARKET_CONFIG_PATH
+            server.MARKET_CONFIG_PATH = Path(root) / 'market.json'
+            server.MARKET_CONFIG_PATH.write_text(json.dumps({'token': 'm' * 64, 'port': stub.server_port}))
+            ShadowStub.calls = []
+            threads = [threading.Thread(target=s.serve_forever, daemon=True) for s in (stub, gateway)]
+            for thread in threads: thread.start()
+            try:
+                payload = json.dumps({'b3_symbols': ['ITUB4'], 'us_symbols': ['AAPL'], 'include_fx': True}).encode()
+                connection = http.client.HTTPConnection('127.0.0.1', gateway.server_port)
+                connection.request('POST', '/api/shadow/market/refresh', body=payload, headers={
+                    'Authorization': 'Bearer ' + server.CONFIG['token'], 'Content-Type': 'application/json',
+                    'Idempotency-Key': 'market-test-0001', 'X-Juanca-Actor': 'untrusted',
+                })
+                response = connection.getresponse();self.assertEqual(response.status, 202);response.read();connection.close()
+                method, path, body, headers = ShadowStub.calls[-1]
+                self.assertEqual((method, path, body), ('POST', '/v1/refresh', payload))
+                self.assertEqual(headers['Authorization'], 'Bearer ' + 'm' * 64)
+                self.assertNotIn('X-Juanca-Actor', headers)
+                self.assertEqual(headers['Idempotency-Key'], 'market-test-0001')
+                connection = http.client.HTTPConnection('127.0.0.1', gateway.server_port)
+                connection.request('GET', '/api/shadow/market/quotes?market=B3&symbols=ITUB4%2CBBDC4', headers={'Authorization': 'Bearer ' + server.CONFIG['token']})
+                response = connection.getresponse();self.assertEqual(response.status, 200);response.read();connection.close()
+                self.assertEqual(ShadowStub.calls[-1][1], '/v1/quotes?market=B3&symbols=ITUB4%2CBBDC4')
+                calls_before = len(ShadowStub.calls)
+                connection = http.client.HTTPConnection('127.0.0.1', gateway.server_port)
+                connection.request('POST', '/api/shadow/market/refresh', body=b'{"b3_symbols":["../../etc"],"us_symbols":[],"include_fx":true}', headers={
+                    'Authorization': 'Bearer ' + server.CONFIG['token'], 'Content-Type': 'application/json', 'Idempotency-Key': 'market-test-0002',
+                })
+                response = connection.getresponse();self.assertEqual(response.status, 422);response.read();connection.close()
+                self.assertEqual(len(ShadowStub.calls), calls_before)
+            finally:
+                server.MARKET_CONFIG_PATH = old
+                gateway.shutdown();stub.shutdown();gateway.server_close();stub.server_close()
+                for thread in threads: thread.join(timeout=2)
+
     def test_external_snapshot_routes_are_forwarded_with_server_actor(self):
         with tempfile.TemporaryDirectory() as root:
             stub = ThreadingHTTPServer(('127.0.0.1', 0), ShadowStub)
