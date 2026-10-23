@@ -74,6 +74,7 @@ export async function listAcquisitionReconciliation(db:pg.Pool,household:string)
  ), identities AS (
    SELECT p.id AS position_id,o.display_name AS owner,ci.canonical_name AS institution,
      COALESCE(ir.custody_account_id,p.custody_account_id) AS custody_account_id,p.instrument_code,p.currency,
+     (ir.custody_account_id IS NOT NULL OR p.identity_status='resolved') AS custody_identity_resolved,
      sd.effective_as_of::text AS snapshot_as_of,sa.quantity::text AS snapshot_quantity,
      COALESCE(r.current_lot_count,0)::int AS current_lot_count,COALESCE(r.active_lot_count,0)::int AS active_lot_count,
      COALESCE(r.current_gross_acquisition_quantity,'0') AS current_gross_acquisition_quantity,r.latest_lot_date

@@ -65,6 +65,8 @@ Despliegue sombra del 22/10/2026: backup/restauración verificados antes de la m
 
 ## Progreso del 22/10/2026: API de lotes de adquisición
 
+El panel de conciliación ahora permite abrir el historial versionado por posición y registrar lotes manuales con referencia de evidencia. El alta se bloquea si la identidad de custodia no está resuelta, y cada resultado indica que sigue fuera de la cartera y proyección oficiales. La web canónica compila y pasa 39/39 pruebas; el checkout local de Hermes compila y pasa 38/38 pruebas. La suite del servicio pasa 50/50 y el gateway canónico pasa 10/10; el checkout local pasa sus 6 pruebas del gateway.
+
 El gateway del repositorio ahora expone `GET /api/shadow/position-identities` y `GET/POST /api/shadow/position-identities/{position_id}/acquisitions`. La prueba verifica que una cabecera de actor falsificada por el cliente se sustituya por el usuario configurado en el servidor. Se mantiene solo en sombra y no modifica saldos ni costos usados por el dashboard. `npm run typecheck` y las 10 pruebas del gateway pasan. Siguiente paso: una interfaz controlada para revisar/registrar lotes y después comparar el costo/proyección PostgreSQL con la lectura actual antes de considerar el corte.
 
 ## Gates que siguen bloqueando el corte
