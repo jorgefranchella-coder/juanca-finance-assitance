@@ -19,6 +19,7 @@ type ProjectionResponse = {
   summary: { total_current_cents: number; covered_current_cents: number; covered_projected_cents: number;
     projected_gain_cents: number; coverage: number; projected_count: number; total_count: number };
   items: ProjectionItem[];
+  acquisition_lot_diagnostics?: { active_lots: number; voided_lots: number; account_unresolved: number; no_current_position: number; ambiguous_position: number; invalid_or_not_historical: number; used_lots: number };
   methodology: string;
 };
 type IssuerGroup = { key: string; owner: string; issuer: string; items: ProjectionItem[] };
@@ -105,6 +106,7 @@ export default function FixedIncomeProjection({ endpoint = "/api/portfolio/fixed
       <label>Investidor<select value={owner} onChange={(event) => { setOwner(event.target.value); setExpandedIssuers(new Set()); }}><option>Todos</option><option>Jorge</option><option>Julia</option></select></label>
     </div>
     {error ? <p className="projection-error">{error}</p> : !data ? <p className="projection-loading">Calculando histórico de preços…</p> : <>
+      {shadow && data.acquisition_lot_diagnostics && <p className="projection-lot-diagnostics" role="status"><strong>Lotes de adquisición para la tasa histórica:</strong> {data.acquisition_lot_diagnostics.used_lots} usados de {data.acquisition_lot_diagnostics.active_lots} activos. {data.acquisition_lot_diagnostics.no_current_position > 0 && `${data.acquisition_lot_diagnostics.no_current_position} sin título vigente compatible. `}{data.acquisition_lot_diagnostics.ambiguous_position > 0 && `${data.acquisition_lot_diagnostics.ambiguous_position} ambiguos entre cuentas. `}{data.acquisition_lot_diagnostics.account_unresolved > 0 && `${data.acquisition_lot_diagnostics.account_unresolved} con cuenta sin resolver. `}{data.acquisition_lot_diagnostics.invalid_or_not_historical > 0 && `${data.acquisition_lot_diagnostics.invalid_or_not_historical} fuera del período histórico válido.`} Estos datos solo afectan la proyección sombra.</p>}
       <div className="fixed-income-metrics">
         <div><small>Valor atual coberto</small><strong>{money.format(summary.coveredCurrent / 100)}</strong><span>{summary.projectedCount} de {items.length} títulos</span></div>
         <div><small>Estimativa nos vencimentos</small><strong>{summary.projectedCount ? money.format(summary.coveredProjected / 100) : "Aguardando histórico"}</strong><span>cada título em sua própria data</span></div>

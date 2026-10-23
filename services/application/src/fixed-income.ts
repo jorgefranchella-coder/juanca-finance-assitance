@@ -72,19 +72,27 @@ export async function fixedIncomeProjection(db:pg.Pool,household:string){
    LEFT JOIN app.source_assertions sa ON sa.household_id=p.household_id AND sa.id=p.source_assertion_id
    WHERE p.household_id=$1 ORDER BY o.display_name,ci.canonical_name,p.instrument_code,l.effective_date`,[household]);
  const acquisitionPrices=new Map<string,{group:FixedIncomeGroup;quantity:number;total:number;date:string}>(),projectionKeys=new Set<string>();
+ const acquisitionLotDiagnostics={active_lots:0,voided_lots:0,account_unresolved:0,no_current_position:0,ambiguous_position:0,invalid_or_not_historical:0,used_lots:0};
  for(const lot of acquisitionRows.rows){
-  if(lot.voided||!lot.custody_identity_resolved||String(lot.lot_currency)!==String(lot.currency))continue;
-  const candidates=[...groups.values()].filter(group=>group.isCurrent&&group.owner===String(lot.owner)&&group.institution.trim().toUpperCase()===String(lot.institution).trim().toUpperCase()&&code(group.instrumentCode)===code(lot.instrument_code)&&group.currency===String(lot.currency)&&fixedClasses.has(group.assetClass)&&(group.account?(group.account===String(lot.account_reference??'').trim()||group.account===String(lot.external_reference??'').trim()):Number(lot.resolved_account_count)===1));
-  if(candidates.length!==1)continue;
+  if(lot.voided){acquisitionLotDiagnostics.voided_lots++;continue;}
+  acquisitionLotDiagnostics.active_lots++;
+  if(!lot.custody_identity_resolved){acquisitionLotDiagnostics.account_unresolved++;continue;}
+  const matching=[...groups.values()].filter(group=>group.isCurrent&&group.owner===String(lot.owner)&&group.institution.trim().toUpperCase()===String(lot.institution).trim().toUpperCase()&&code(group.instrumentCode)===code(lot.instrument_code)&&group.currency===String(lot.currency)&&fixedClasses.has(group.assetClass));
+  if(matching.length===0){acquisitionLotDiagnostics.no_current_position++;continue;}
+  if(Number(lot.resolved_account_count)>1&&matching.some(group=>!group.account)){acquisitionLotDiagnostics.ambiguous_position++;continue;}
+  const candidates=matching.filter(group=>group.account?(group.account===String(lot.account_reference??'').trim()||group.account===String(lot.external_reference??'').trim()):Number(lot.resolved_account_count)===1);
+  if(candidates.length===0){acquisitionLotDiagnostics.no_current_position++;continue;}
+  if(candidates.length!==1){acquisitionLotDiagnostics.ambiguous_position++;continue;}
   const group=candidates[0],date=String(lot.effective_date),quantity=number(lot.quantity),unitPrice=number(lot.unit_price),feeMinor=Number(lot.fees_minor??0),fees=feeMinor/100;
-  if(!/^\d{4}-\d{2}-\d{2}$/.test(date)||date>=group.latestDate||quantity<=0||unitPrice<=0||!Number.isSafeInteger(feeMinor)||feeMinor<0)continue;
+  if(String(lot.lot_currency)!==String(lot.currency)||!/^\d{4}-\d{2}-\d{2}$/.test(date)||date>=group.latestDate||quantity<=0||unitPrice<=0||!Number.isSafeInteger(feeMinor)||feeMinor<0){acquisitionLotDiagnostics.invalid_or_not_historical++;continue;}
   const key=JSON.stringify([group.owner,group.institution.trim().toUpperCase(),group.account,code(group.instrumentCode),date]);
   const aggregate=acquisitionPrices.get(key)??{group,quantity:0,total:0,date};aggregate.quantity+=quantity;aggregate.total+=quantity*unitPrice+fees;acquisitionPrices.set(key,aggregate);
   projectionKeys.add(`${group.owner}\0${code(group.instrumentCode)}`);
+  acquisitionLotDiagnostics.used_lots++;
  }
  for(const {group,quantity,total,date} of acquisitionPrices.values())if(quantity>0)group.observations.push({date,unitPrice:total/quantity,source:'acquisition_lot'});
  const costRows=await db.query(`SELECT original::jsonb AS cost FROM app.received_sources WHERE household_id=$1 AND source_table='cost_basis' ORDER BY source_ordinal`,[household]);
  const costMap=new Map<string,CostBasisPoint>();for(const row of costRows.rows){const c=row.cost as Record<string,unknown>;const owner=String(c.owner??''),instrument=code(c.instrument_code);if(!owner||!instrument)continue;const key=`${owner}\0${instrument}`;if(projectionKeys.has(key))continue;const point={owner,instrument_code:instrument,average_unit_cost:number(c.average_unit_cost),as_of:String(c.as_of??''),source:String(c.source??'')};const old=costMap.get(key);if(!old||point.as_of>=old.as_of)costMap.set(key,point);}
  const items=buildFixedIncomeProjectionItems(groups.values(),[...costMap.values()]),covered=items.filter(item=>item.projected_value_cents!==null),total=items.reduce((sum,item)=>sum+item.current_value_cents,0),coveredCurrent=covered.reduce((sum,item)=>sum+item.current_value_cents,0),coveredProjected=covered.reduce((sum,item)=>sum+(item.projected_value_cents??0),0);
- return {reference_date:items.map(item=>item.reference_date).sort().at(-1)??'',summary:{total_current_cents:total,covered_current_cents:coveredCurrent,covered_projected_cents:coveredProjected,projected_gain_cents:coveredProjected-coveredCurrent,coverage:total?coveredCurrent/total:0,projected_count:covered.length,total_count:items.length},items,methodology:'Rentabilidad efectiva anualizada entre la primera y la última observación de precio; extrapolación compuesta hasta el vencimiento.',mode:'shadow',authoritative:false};
+ return {reference_date:items.map(item=>item.reference_date).sort().at(-1)??'',summary:{total_current_cents:total,covered_current_cents:coveredCurrent,covered_projected_cents:coveredProjected,projected_gain_cents:coveredProjected-coveredCurrent,coverage:total?coveredCurrent/total:0,projected_count:covered.length,total_count:items.length},acquisition_lot_diagnostics:acquisitionLotDiagnostics,items,methodology:'Rentabilidad efectiva anualizada entre la primera y la última observación de precio; extrapolación compuesta hasta el vencimiento.',mode:'shadow',authoritative:false};
 }

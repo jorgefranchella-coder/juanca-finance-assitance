@@ -30,6 +30,7 @@ test('resolved acquisition lots add account-scoped cost observations and superse
  assert.equal(cdb.observationCount,3);assert.equal(cdb.firstDate,'2026-01-01');
  assert.deepEqual(cdb.observation_sources,['acquisition_lot','b3_position']);
  assert.ok(cdb.projected_value_cents!>cdb.current_value_cents);
+ assert.equal(result.acquisition_lot_diagnostics.used_lots,1);
 });
 
 test('acquisition lots are excluded when an accountless position could map to multiple custody accounts',async()=>{
@@ -38,4 +39,5 @@ test('acquisition lots are excluded when an accountless position could map to mu
  const responses=[archived,[],lots,[]];let call=0;const fake={query:async()=>({rows:responses[call++]??[],rowCount:0})} as never;
  const result=await fixedIncomeProjection(fake,'household-test');const cdb=result.items.find(item=>item.instrument_code==='CDBTEST')!;
  assert.equal(cdb.observation_sources.includes('acquisition_lot'),false);assert.equal(cdb.observationCount,1);
+ assert.equal(result.acquisition_lot_diagnostics.ambiguous_position,1);
 });
