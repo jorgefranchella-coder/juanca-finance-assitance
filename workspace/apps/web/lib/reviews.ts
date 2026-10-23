@@ -30,5 +30,7 @@ export function authenticatedUserId(request: Request): string | null {
   const userId = request.headers.get("oai-authenticated-user-id");
   if (userId) return userId;
   const hostname = new URL(request.url).hostname;
-  return hostname === "localhost" || hostname === "127.0.0.1" ? "local-development" : null;
+  if (hostname !== "localhost" && hostname !== "127.0.0.1") return null;
+  const configuredLocalUserId = (env as unknown as { JUANCA_LOCAL_USER_ID?: string }).JUANCA_LOCAL_USER_ID?.trim();
+  return configuredLocalUserId || "local-development";
 }
