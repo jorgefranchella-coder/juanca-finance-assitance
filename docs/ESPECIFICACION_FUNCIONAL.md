@@ -77,6 +77,7 @@ La pantalla presenta una matriz horizontal. Cada año ocupa una columna expandib
 - La fuente original, su interpretación y la decisión humana siguen consultables tras una corrección.
 - La identidad de cuenta insuficiente impide fusionar posiciones por ticker o aplicar una operación sobre un saldo supuesto.
 - Un snapshot tiene fecha económica y fecha de recepción; una carga antigua no debe sustituir silenciosamente una fotografía posterior.
+- La vigencia de un snapshot se determina dentro de su ámbito de titular y fuente/custodia, no contra la fecha global de otra fuente. Solo se publica el documento más reciente disponible de ese ámbito; su fecha de origen se conserva y la reconstrucción no reduce el corte global ni elimina posiciones ajenas. Un documento sustituido requiere un flujo de corrección histórica. La aprobación sigue siendo explícita por archivo.
 - El mismo hecho económico respaldado por chat, foto y B3 se registra una sola vez. La relación entre evidencias conserva incertidumbre hasta confirmarse.
 - Los movimientos de extractos B3 con períodos solapados conservan cada fila fuente, pero dos filas del mismo hecho no suman dos veces al saldo. Coincidencias sin identificador único quedan como candidatas hasta revisión; una carga repetida no crea otra operación.
 - Una cotización o PTAX faltante produce valor ausente o parcial, no cero inventado.

@@ -55,7 +55,7 @@ En **Revisões**, la conciliación compara la cantidad del snapshot B3 con compr
 
 ### Importación
 
-El formulario pide fuente, titular, tipo de archivo y fecha de referencia cuando corresponda. Debe confirmar recepción, progreso, procesamiento o fallo con una explicación accionable. Un documento repetido devuelve el resultado ya conocido; no crea otra posición. En B3 se ve el corte del snapshot y la cobertura temporal de movimientos. La bandeja de sombra presenta diferencias candidatas entre reportes; esa decisión no corrige automáticamente la cartera vigente. **Objetivo:** enlazar cada cambio publicado con las filas antiguas y nuevas que lo justifican.
+El formulario pide fuente, titular, tipo de archivo y fecha de referencia cuando corresponda. Debe confirmar recepción, progreso, procesamiento o fallo con una explicación accionable. Un documento repetido devuelve el resultado ya conocido; no crea otra posición. En B3 se ve el corte del snapshot y la cobertura temporal de movimientos. Para publicar snapshots en Revisões, cada tarjeta identifica titular, fuente y fecha real del extracto. Si esa fecha es anterior al corte global, la confirmación informa que la cartera se reconstruirá al corte actual y conservará la fecha fuente en las posiciones. Solo el documento más reciente del titular/fuente ofrece la acción de revisión; un documento sustituido explica que requiere corrección histórica. La acción sigue siendo individual y requiere confirmación explícita. La bandeja de sombra presenta diferencias candidatas entre reportes; esa decisión no corrige automáticamente la cartera vigente. **Objetivo:** enlazar cada cambio publicado con las filas antiguas y nuevas que lo justifican.
 
 ### Foto o mensaje de movimiento
 
