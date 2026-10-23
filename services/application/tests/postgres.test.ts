@@ -20,10 +20,25 @@ import {receiveMarketEvent} from '../src/market-bridge.ts';
 import {listB3DuplicateMovementCandidates,recordB3DuplicateMovementDecision} from '../src/b3-duplicate-candidates.ts';
 import {publishB3PositionSnapshot,listB3PositionSnapshots} from '../src/b3-snapshot-publications.ts';
 import {publishExternalPositionSnapshot,listExternalPositionSnapshots} from '../src/external-snapshot-publications.ts';
+import {fixedIncomeProjection} from '../src/fixed-income.ts';
 const database='juanca_test_'+randomUUID().replaceAll('-','');
 const admin=pool('jorge','postgres');const db=pool('juanca_app',database);const migrator=pool('jorge',database);
 before(async()=>{assert.match(database,/^juanca_test_[0-9a-f]+$/);await admin.query('CREATE DATABASE "'+database+'"');await migrator.query(await readFile(new URL('../../../infra/postgres/roles.sql',import.meta.url),'utf8'));await migrate(db);});
 after(async()=>{await db.end();await migrator.end();await admin.query('DROP DATABASE "'+database+'"');await admin.end();});
+test('PostgreSQL projection joins a resolved acquisition lot to its unambiguous fixed-income holding',async()=>{
+ const h='lot-projection-'+randomUUID(),actor='lot-projection-actor-'+randomUUID(),custody='lot-projection-account-'+randomUUID(),institution='lot-projection-bank-'+randomUUID(),position='lot-projection-position-'+randomUUID(),run='lot-projection-run-'+randomUUID();
+ await db.query('INSERT INTO app.households VALUES($1)',[h]);await db.query("INSERT INTO app.actors VALUES($1,'Lot projection test')",[actor]);await db.query("INSERT INTO app.memberships VALUES($1,$2,'owner')",[h,actor]);await db.query("INSERT INTO app.owners VALUES($1,'jorge','Jorge')",[h]);
+ await db.query('INSERT INTO app.custody_institutions(id,canonical_name,kind) VALUES($1,$2,\'custodian\')',[institution,'Fixture Custodian']);
+ await db.query("INSERT INTO app.custody_accounts(household_id,id,owner_id,institution_id,external_reference,identity_basis) VALUES($1,$2,'jorge',$3,'fixture-account','user_confirmed_unique')",[h,custody,institution]);
+ await db.query("INSERT INTO app.position_identities(household_id,id,owner_id,institution_id,custody_account_id,instrument_code,currency,identity_status) VALUES($1,$2,'jorge',$3,$4,'CDBFIXTURE','BRL','resolved')",[h,position,institution,custody]);
+ await db.query("INSERT INTO app.migration_runs(id,source_sha256,exported_at,source_counts,source_envelope) VALUES($1,$2,'2026-10-02','{}'::jsonb,'{}')",[run,hash(run)]);
+ const save=async(table:string,id:string,value:Record<string,unknown>,ordinal:number)=>{const serialized=JSON.stringify(value);await db.query('INSERT INTO app.received_sources(run_id,id,household_id,source_table,original,sha256,source_ordinal) VALUES($1,$2,$3,$4,$5,$6,$7)',[run,`${table}:${id}`,h,table,serialized,hash(serialized),ordinal]);};
+ await save('imports','fixed-current',{id:'fixed-current',user_id:h,owner:'Jorge',status:'processed',file_type:'positions',reference_date:'2026-10-01',created_at:'2026-10-02'},1);
+ await save('import_records','fixed-current-row',{id:1,import_id:'fixed-current',record_kind:'position',payload:JSON.stringify({owner:'Jorge',asset_class:'fixed_income',product_name:'Fixture CDB',institution:'Fixture Custodian',instrument_code:'CDBFIXTURE',quantity:'2',unit_price:'10500',market_value_cents:'2100000',maturity_date:'2027-10-01',reference_date:'2026-10-01'})},2);
+ await save('cost_basis','legacy-fixed-cost',{owner:'Jorge',instrument_code:'CDBFIXTURE',average_unit_cost:'5000',as_of:'2026-03-01',source:'legacy'},3);
+ await db.query("INSERT INTO app.acquisition_lots(household_id,id,position_id,revision,effective_date,quantity,unit_price,fees_minor,currency,evidence_kind,evidence_id,request_key,request_hash,actor_id) VALUES($1,'fixture-lot',$2,1,'2026-02-01',2,9000,100,'BRL','legacy_review','sheet:fixed-income-row-2','fixture-lot-request-001',$3,$4)",[h,position,hash('fixture-lot-request'),actor]);
+ const projection=await fixedIncomeProjection(db,h),item=projection.items.find(row=>row.instrument_code==='CDBFIXTURE');assert.ok(item);assert.equal(item.observationCount,2);assert.equal(item.firstDate,'2026-02-01');assert.equal(item.observation_sources.includes('acquisition_lot'),true);assert.equal(item.has_unverified_sheet_source,false);
+});
 test('written movement is retained once as review evidence without changing the portfolio',async()=>{
  const h='intake-'+randomUUID();await db.query('INSERT INTO app.households VALUES($1)',[h]);await db.query("INSERT INTO app.owners VALUES($1,'jorge','Jorge')",[h]);await db.query('INSERT INTO app.household_state(household_id) VALUES($1)',[h]);
  const input={request_id:'manual-test-001',owner:'Jorge',text:'Compré una participación',occurred_on:'2026-10-10'};

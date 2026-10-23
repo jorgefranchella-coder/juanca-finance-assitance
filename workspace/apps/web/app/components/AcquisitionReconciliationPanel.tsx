@@ -64,7 +64,7 @@ export default function AcquisitionReconciliationPanel() {
           evidence_kind: "legacy_review", evidence_id: lotEvidence.trim(), ...(editingLot ? { voided: voidLot } : {}) }),
       });
       const result = await response.json() as { code?: string };
-      if (!response.ok) throw new Error(result.code ?? "No fue posible registrar el lote.");
+      if (!response.ok) throw new Error(result.code === "ACCOUNT_IDENTITY_UNRESOLVED" ? "Primero identifica la cuenta de custodia de esta posición." : result.code ?? "No fue posible registrar el lote.");
       setLotDate(""); setLotQuantity(""); setLotPrice(""); setLotEvidence("");
       setEditingLot(null); setVoidLot(false);
       await loadLots(selected); await load();

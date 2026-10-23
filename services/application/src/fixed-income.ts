@@ -76,8 +76,8 @@ export async function fixedIncomeProjection(db:pg.Pool,household:string){
   if(lot.voided||!lot.custody_identity_resolved||String(lot.lot_currency)!==String(lot.currency))continue;
   const candidates=[...groups.values()].filter(group=>group.isCurrent&&group.owner===String(lot.owner)&&group.institution.trim().toUpperCase()===String(lot.institution).trim().toUpperCase()&&code(group.instrumentCode)===code(lot.instrument_code)&&group.currency===String(lot.currency)&&fixedClasses.has(group.assetClass)&&(group.account?(group.account===String(lot.account_reference??'').trim()||group.account===String(lot.external_reference??'').trim()):Number(lot.resolved_account_count)===1));
   if(candidates.length!==1)continue;
-  const group=candidates[0],date=String(lot.effective_date),quantity=number(lot.quantity),unitPrice=number(lot.unit_price),fees=Number(lot.fees_minor??0)/100;
-  if(!/^\d{4}-\d{2}-\d{2}$/.test(date)||date>=group.latestDate||quantity<=0||unitPrice<=0||!Number.isFinite(fees)||fees<0)continue;
+  const group=candidates[0],date=String(lot.effective_date),quantity=number(lot.quantity),unitPrice=number(lot.unit_price),feeMinor=Number(lot.fees_minor??0),fees=feeMinor/100;
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(date)||date>=group.latestDate||quantity<=0||unitPrice<=0||!Number.isSafeInteger(feeMinor)||feeMinor<0)continue;
   const key=JSON.stringify([group.owner,group.institution.trim().toUpperCase(),group.account,code(group.instrumentCode),date]);
   const aggregate=acquisitionPrices.get(key)??{group,quantity:0,total:0,date};aggregate.quantity+=quantity;aggregate.total+=quantity*unitPrice+fees;acquisitionPrices.set(key,aggregate);
   projectionKeys.add(`${group.owner}\0${code(group.instrumentCode)}`);
