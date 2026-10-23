@@ -37,7 +37,7 @@
                     "authoritative": {"type": "boolean", "const": false},
                     "blockers": {"type": "array", "items": {"type": "string"}},
                     "counts": {"type": "object"},
-                    "gates": {"type": "array", "items": {"type": "object", "required": ["id", "status", "detail"], "properties": {"id": {"type": "string"}, "status": {"type": "string", "const": "blocked"}, "detail": {"type": "string"}}}},
+                    "gates": {"type": "array", "items": {"type": "object", "required": ["id", "status", "detail", "next_action"], "properties": {"id": {"type": "string"}, "status": {"type": "string", "enum": ["blocked", "passed"]}, "detail": {"type": "string"}, "next_action": {"type": "string"}}}},
                     "note": {"type": "string"}
                   }
                 }

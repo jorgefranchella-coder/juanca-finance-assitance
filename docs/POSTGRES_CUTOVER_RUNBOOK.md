@@ -144,3 +144,8 @@ B3 y fuentes externas ya no comparan la fecha del documento contra la fecha glob
 
 
 Comprobación posterior al despliegue (23/10/2026): aplicación `juanca-shadow-application.service` y web autenticada reiniciaron activas; `/health/ready` respondió 200. A través del gateway con autenticación de máquina, las listas respondieron 200 con 11 documentos B3 y 5 externos, `portfolio_effective_as_of=2026-10-22`, y `latest=true` para dos ámbitos B3 (Jorge/Julia) y dos externos (Avenue/previsión de Jorge). Los cuatro siguen `published=false`. Readiness autenticada mantiene los cinco gates abiertos y `authoritative=false`.
+
+
+### Gates accionables en la pestaña PostgreSQL sombra (23/10/2026)
+
+El endpoint de readiness ahora incluye `next_action` por bloqueo, y el gateway autenticado expone `GET /api/shadow/authority/readiness`. La pestaña de comparación muestra cada gate con su estado, explicación y acción siguiente, además de un refresco manual; es una lectura informativa que no habilita el corte. El contrato OpenAPI permite estados `blocked`/`passed` y documenta la nueva acción. Se validó la ruta en integración gateway, la suite de aplicación 54/54 y web 38/38. La readiness sigue bloqueada mientras existan gates pendientes.

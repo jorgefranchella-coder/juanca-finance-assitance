@@ -11,6 +11,8 @@ test('authority stays shadow-only while command accounts or opening positions ar
  assert.equal(result.ready,false);assert.equal(result.authoritative,false);
  assert.deepEqual(result.blockers,['unresolved_command_accounts','opening_holdings_not_fully_verified',...operationalBlockers]);
  assert.equal(result.counts.portfolio_identity_unresolved,1,'the isolated private pension remains visible');
+ assert.deepEqual(result.gates.slice(0,2).map(g=>g.id),['unresolved_command_accounts','opening_holdings_not_fully_verified']);
+ assert.equal(result.gates.every(g=>typeof g.next_action==='string'),true);
 });
 
 test('proposal queue and historical applied events do not themselves block a verified shadow snapshot',()=>{
@@ -18,7 +20,7 @@ test('proposal queue and historical applied events do not themselves block a ver
   resolved_legacy_aliases:0,unused_unresolved_account_aliases:0,approver_membership_total:1,holding_total:2,holding_verified:2,
   portfolio_positions:1,portfolio_identity_unresolved:0,portfolio_commandable_identity_unresolved:0,b3_snapshot_publication_total:0,external_snapshot_publication_total:0,pending_proposals:3,applied_events:7});
  assert.deepEqual(result.blockers,operationalBlockers);assert.equal(result.ready,false);assert.equal(result.mode,'shadow');
- assert.equal(result.gates.length,5);assert.equal(result.gates.every(g=>g.status==='blocked'),true);
+ assert.equal(result.gates.length,5);assert.equal(result.gates.every(g=>g.status==='blocked'),true);assert.equal(result.gates.every(g=>typeof g.next_action==='string'&&g.next_action.length>0),true);
 });
 
 test('invested opening positions are ready independently of user-managed cash',()=>{

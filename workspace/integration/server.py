@@ -23,6 +23,7 @@ HOP = {'connection', 'keep-alive', 'proxy-authenticate', 'proxy-authorization', 
 SHADOW_CONFIG_PATH = Path(os.environ.get('JUANCA_SHADOW_CONFIG', '/home/jorge/.local/share/juanca-shadow/application.json'))
 SHADOW_ROUTES = {
     '/api/shadow/portfolio': {'GET'},
+    '/api/shadow/authority/readiness': {'GET'},
     '/api/shadow/positions': {'GET'},
     '/api/shadow/fixed-income-projection': {'GET'},
     '/api/shadow/evidence/text': {'GET', 'POST'},

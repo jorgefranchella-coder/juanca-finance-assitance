@@ -5,12 +5,15 @@ import { useCallback, useEffect, useState } from "react";
 type Position={owner:string;instrument_code:string;currency?:string;quantity:string|number;market_value_cents:string|number|null};
 type Portfolio={positions:Position[];total_value_cents:string|number;reference_date?:string;portfolio_version?:string;valuation_complete?:boolean};
 type Comparison={legacyTotal:string;shadowTotal:string;totalDiff:string;positionCountD1:number;positionCountPg:number;keyDiff:number;quantityDiff:number;valueDiff:number;unmatched:Array<{key:string;d1?:Position;pg?:Position}>};
+type Gate={id:string;status:string;detail:string;next_action?:string};
+type Readiness={ready:boolean;mode:string;authoritative:boolean;blockers:string[];gates:Gate[]};
+const gateTitles:Record<string,string>={legacy_financial_writers_still_active:"Escritores financieros en D1/R2",reviewed_b3_snapshot_publication_not_verified:"Snapshot B3 revisado",reviewed_external_snapshot_publication_not_verified:"Snapshots de Avenue y previsión",approver_role_not_assigned:"Rol de aprobación",final_cutover_delta_not_verified:"Delta final y backups",cutover_and_rollback_not_rehearsed:"Ensayo de corte y reversión",unresolved_command_accounts:"Cuentas de operaciones sin resolver",opening_holdings_not_fully_verified:"Saldos de apertura sin verificar",commandable_portfolio_position_identity_incomplete:"Identidad de posiciones accionables incompleta"};
 const money=new Intl.NumberFormat("pt-BR",{style:"currency",currency:"BRL"});
 function cents(value:string|number|null){if(value===null)return 0;const n=Number(value);return Number.isFinite(n)?Math.round(n):0;}
 function grouped(rows:Position[]){const result=new Map<string,Position>();for(const p of rows){const key=JSON.stringify([p.owner,p.instrument_code.trim().toUpperCase(),p.currency??"BRL"]),old=result.get(key);result.set(key,old?{...old,quantity:Number(old.quantity)+Number(p.quantity),market_value_cents:cents(old.market_value_cents)+cents(p.market_value_cents)}:p);}return result;}
 
 export default function ShadowPortfolioPanel(){
- const [comparison,setComparison]=useState<Comparison|null>(null);const [error,setError]=useState("");const [loading,setLoading]=useState(true);
+ const [comparison,setComparison]=useState<Comparison|null>(null);const [error,setError]=useState("");const [loading,setLoading]=useState(true);const [readiness,setReadiness]=useState<Readiness|null>(null);const [readinessError,setReadinessError]=useState("");const [readinessLoading,setReadinessLoading]=useState(true);
  const load=useCallback(async()=>{setLoading(true);setError("");try{
   const responses=await Promise.all([fetch("/api/portfolio/positions",{cache:"no-store"}),fetch("/api/shadow/portfolio",{cache:"no-store"}),fetch("/api/shadow/positions?limit=200",{cache:"no-store"})]);
   if(responses.some(r=>!r.ok))throw new Error("No se pudieron leer ambas carteras para comparar.");
@@ -23,10 +26,15 @@ export default function ShadowPortfolioPanel(){
   setComparison({legacyTotal,shadowTotal,totalDiff,positionCountD1:legacyInvested.length,positionCountPg:shadowInvested.length,keyDiff,quantityDiff,valueDiff,unmatched:unmatched.slice(0,8)});
  }catch(e){setError(e instanceof Error?e.message:"No se pudo comparar la cartera.");}finally{setLoading(false);}},[]);
  useEffect(()=>{const timer=window.setTimeout(()=>void load(),0);return()=>window.clearTimeout(timer);},[load]);
+ const loadReadiness=useCallback(async()=>{setReadinessLoading(true);setReadinessError("");try{const response=await fetch("/api/shadow/authority/readiness",{cache:"no-store"});if(!response.ok)throw new Error("No se pudo consultar la preparación del corte.");setReadiness(await response.json() as Readiness);}catch(e){setReadinessError(e instanceof Error?e.message:"No se pudo consultar la preparación del corte.");}finally{setReadinessLoading(false);}},[]);
+ useEffect(()=>{const timer=window.setTimeout(()=>void loadReadiness(),0);return()=>window.clearTimeout(timer);},[loadReadiness]);
  return <section className="panel"><div className="panel-title"><div><p>PostgreSQL · sombra</p><h2>Comparación de cartera invertida</h2><span>Compara posiciones agregadas por titular, instrumento y moneda; excluye caja y no fusiona cuentas en el registro patrimonial.</span></div><span className="review-badge">solo lectura</span></div>
   {loading?<p>Comparando D1 con PostgreSQL…</p>:error?<p className="chat-error" role="alert">{error}</p>:comparison&&<div className="table-wrap"><table><thead><tr><th>Control</th><th>D1/R2</th><th>PostgreSQL</th><th>Diferencias</th></tr></thead><tbody>
    <tr><td>Posiciones</td><td>{comparison.positionCountD1}</td><td>{comparison.positionCountPg}</td><td>{comparison.keyDiff} instrumentos · {comparison.quantityDiff} cantidades · {comparison.valueDiff} valores</td></tr>
    <tr><td>Valor invertido</td><td>{money.format(Number(comparison.legacyTotal)/100)}</td><td>{money.format(Number(comparison.shadowTotal)/100)}</td><td>{comparison.totalDiff==="0"?"Coincide":money.format(Number(comparison.totalDiff)/100)}</td></tr>
   </tbody></table>{comparison.unmatched.length>0&&<details><summary>Instrumentos presentes en una sola fuente ({comparison.keyDiff})</summary><ul>{comparison.unmatched.map((x,i)=><li key={i}>{x.key} · {x.d1?"D1":"PostgreSQL"}</li>)}</ul></details>}</div>}
+  <div className="shadow-readiness" aria-live="polite"><div className="panel-title"><div><p>LISTA OPERATIVA</p><h3>Preparación del corte</h3><span>Consulta de solo lectura · la autoridad financiera no cambia desde aquí.</span></div><button type="button" className="text-button" onClick={()=>void loadReadiness()} disabled={readinessLoading}>Actualizar</button></div>
+   {readinessLoading?<p>Consultando gates…</p>:readinessError?<p className="chat-error" role="alert">{readinessError}</p>:readiness&&<><p><strong>{readiness.ready?"Gates técnicos completos":"Corte bloqueado"}</strong> · modo {readiness.mode} · {readiness.authoritative?"autoridad activa":"sin autoridad PostgreSQL"}</p><ul className="shadow-gate-list">{readiness.gates.map(gate=><li key={gate.id}><div><strong>{gateTitles[gate.id]??gate.id.replaceAll("_"," ")}</strong> <span className="review-badge">{gate.status==="passed"?"verificado":"pendiente"}</span></div><p>{gate.detail}</p>{gate.status!=="passed"&&gate.next_action&&<p><strong>Siguiente acción:</strong> {gate.next_action}</p>}</li>)}</ul></>}
+  </div>
  </section>;
 }

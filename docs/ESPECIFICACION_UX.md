@@ -45,6 +45,10 @@ La nota metodológica bajo la matriz explica que se extrapola una tasa **histór
 
 ## 4. Consulta, carga y revisión
 
+### Estado de preparación PostgreSQL
+
+La pestaña PostgreSQL sombra incluye una lista operativa de gates con estado, explicación y siguiente acción. Separa controles ya verificados de bloqueos pendientes; explicita que PostgreSQL sigue sin autoridad y permite refrescar la lectura. No presenta el estado técnico como aprobación de movimientos ni ofrece desde allí una acción de corte.
+
 ### Cartera y calidad
 
 La vista general muestra fecha de referencia y cobertura junto a importes. En la cartera, un filtro por titular y una búsqueda por activo ayudan a localizar posiciones; cantidad, moneda, precio, costo y variación solo se muestran cuando existe dato suficiente. Si faltan PTAX, cuenta o evidencia, el motivo debe acompañar el subtotal o posición afectada. Un resumen de revisiones permite abrir el caso concreto.

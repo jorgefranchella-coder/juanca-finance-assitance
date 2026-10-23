@@ -61,6 +61,10 @@ class GatewayEvidenceTest(unittest.TestCase):
                 connection.request('GET', '/api/shadow/reconciliation/external/snapshots', headers={'Authorization': 'Bearer ' + server.CONFIG['token']})
                 response = connection.getresponse();self.assertEqual(response.status, 200);response.read();connection.close()
                 self.assertEqual(ShadowStub.calls[-1][1], '/v1/reconciliation/external/snapshots')
+                connection = http.client.HTTPConnection('127.0.0.1', gateway.server_port)
+                connection.request('GET', '/api/shadow/authority/readiness', headers={'Authorization': 'Bearer ' + server.CONFIG['token']})
+                response = connection.getresponse();self.assertEqual(response.status, 200);response.read();connection.close()
+                self.assertEqual(ShadowStub.calls[-1][1], '/v1/authority/readiness')
                 document_id = 'avenue-doc-123'
                 payload = json.dumps({'request_key': 'external-publish-001', 'content_sha256': 'a' * 64}).encode()
                 connection = http.client.HTTPConnection('127.0.0.1', gateway.server_port)
