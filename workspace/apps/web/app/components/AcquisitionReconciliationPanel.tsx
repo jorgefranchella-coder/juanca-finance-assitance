@@ -31,6 +31,8 @@ export default function AcquisitionReconciliationPanel() {
   const [lotQuantity, setLotQuantity] = useState("");
   const [lotPrice, setLotPrice] = useState("");
   const [lotEvidence, setLotEvidence] = useState("");
+  const [editingLot, setEditingLot] = useState<Lot | null>(null);
+  const [voidLot, setVoidLot] = useState(false);
   const load = useCallback(async () => {
     setLoading(true);
     try {
@@ -57,12 +59,14 @@ export default function AcquisitionReconciliationPanel() {
     try {
       const response = await fetch(`/api/shadow/position-identities/${selected.position_id}/acquisitions`, {
         method: "POST", headers: { "Content-Type": "application/json", "X-Juanca-Request": "1" },
-        body: JSON.stringify({ request_key: crypto.randomUUID(), effective_date: lotDate, quantity: lotQuantity,
-          unit_price: lotPrice, currency: selected.currency, evidence_kind: "legacy_review", evidence_id: lotEvidence.trim() }),
+        body: JSON.stringify({ request_key: crypto.randomUUID(), ...(editingLot ? { acquisition_id: editingLot.acquisition_id, supersedes_revision: editingLot.revision } : {}),
+          effective_date: lotDate, quantity: lotQuantity, unit_price: lotPrice, currency: selected.currency,
+          evidence_kind: "legacy_review", evidence_id: lotEvidence.trim(), ...(editingLot ? { voided: voidLot } : {}) }),
       });
       const result = await response.json() as { code?: string };
       if (!response.ok) throw new Error(result.code ?? "No fue posible registrar el lote.");
       setLotDate(""); setLotQuantity(""); setLotPrice(""); setLotEvidence("");
+      setEditingLot(null); setVoidLot(false);
       await loadLots(selected); await load();
     } catch (problem) { setLotError(problem instanceof Error ? problem.message : "No fue posible registrar el lote."); }
     finally { setSavingLot(false); }
@@ -98,8 +102,8 @@ export default function AcquisitionReconciliationPanel() {
       {selected && <div className="acquisition-lot-review"><div><strong>{selected.owner} · {selected.instrument_code}</strong><small>{selected.institution} · {selected.currency} · {selected.custody_account_id ?? "Cuenta pendiente"}</small></div>
         {lotError && <p className="acquisition-reconciliation-error">{lotError}</p>}
         {!lotReport && !lotError ? <p className="projection-loading">Cargando lotes…</p> : lotReport && <>
-          {lotReport.current_lots.length ? <div className="fixed-income-table-wrap"><table className="fixed-income-table acquisition-lot-table"><thead><tr><th>Fecha</th><th>Cantidad</th><th>Precio unitario</th><th>Referencia de evidencia</th><th>Estado</th></tr></thead><tbody>{lotReport.current_lots.map(lot => <tr key={`${lot.acquisition_id}-${lot.revision}`}><td>{lot.effective_date}</td><td>{lot.quantity}</td><td>{lot.unit_price} {lot.currency}</td><td>{lot.evidence_kind}: {lot.evidence_id}</td><td>{lot.voided ? "Anulado" : "Vigente"}</td></tr>)}</tbody></table></div> : <p className="acquisition-reconciliation-empty">No hay lotes vigentes.</p>}
-          {selected.custody_identity_resolved ? <form className="acquisition-lot-form" onSubmit={recordLot}><strong>Registrar lote histórico en PostgreSQL sombra</strong><div><label>Fecha de compra<input type="date" required value={lotDate} onChange={event => setLotDate(event.target.value)} /></label><label>Cantidad<input type="number" min="0.00000001" step="any" required value={lotQuantity} onChange={event => setLotQuantity(event.target.value)} /></label><label>Precio unitario<input type="number" min="0.00000001" step="any" required value={lotPrice} onChange={event => setLotPrice(event.target.value)} /></label><label>Referencia de evidencia<input required maxLength={500} value={lotEvidence} onChange={event => setLotEvidence(event.target.value)} placeholder="Hoja, archivo, fila o confirmación" /></label></div><button type="submit" disabled={savingLot}>{savingLot ? "Guardando…" : "Registrar lote de sombra"}</button><small>El lote queda versionado y auditado. No altera saldo, costo base oficial ni proyección vigente.</small></form> : <p className="acquisition-reconciliation-note">No se puede registrar el lote mientras la identidad de custodia esté pendiente.</p>}
+          {lotReport.current_lots.length ? <div className="fixed-income-table-wrap"><table className="fixed-income-table acquisition-lot-table"><thead><tr><th>Fecha</th><th>Cantidad</th><th>Precio unitario</th><th>Referencia de evidencia</th><th>Estado / acción</th></tr></thead><tbody>{lotReport.current_lots.map(lot => <tr key={`${lot.acquisition_id}-${lot.revision}`}><td>{lot.effective_date}<small>Revisión {lot.revision}</small></td><td>{lot.quantity}</td><td>{lot.unit_price} {lot.currency}</td><td>{lot.evidence_kind}: {lot.evidence_id}</td><td>{lot.voided ? "Anulado" : "Vigente"}{!lot.voided && selected.custody_identity_resolved && <button type="button" className="acquisition-lot-edit" onClick={() => { setEditingLot(lot); setLotDate(lot.effective_date); setLotQuantity(lot.quantity); setLotPrice(lot.unit_price); setLotEvidence(""); setVoidLot(false); }}>Crear revisión</button>}</td></tr>)}</tbody></table></div> : <p className="acquisition-reconciliation-empty">No hay lotes vigentes.</p>}
+          {selected.custody_identity_resolved ? <form className="acquisition-lot-form" onSubmit={recordLot}><strong>{editingLot ? `Nueva revisión del lote · revisión ${editingLot.revision}` : "Registrar lote histórico en PostgreSQL sombra"}</strong><div><label>Fecha de compra<input type="date" required value={lotDate} onChange={event => setLotDate(event.target.value)} /></label><label>Cantidad<input type="number" min="0.00000001" step="any" required value={lotQuantity} onChange={event => setLotQuantity(event.target.value)} /></label><label>Precio unitario<input type="number" min="0.00000001" step="any" required value={lotPrice} onChange={event => setLotPrice(event.target.value)} /></label><label>Referencia de evidencia<input required maxLength={500} value={lotEvidence} onChange={event => setLotEvidence(event.target.value)} placeholder="Hoja, archivo, fila o confirmación" /></label></div>{editingLot && <label className="acquisition-lot-void"><input type="checkbox" checked={voidLot} onChange={event => setVoidLot(event.target.checked)} /> Anular este lote en la nueva revisión</label>}<div className="acquisition-lot-actions"><button type="submit" disabled={savingLot}>{savingLot ? "Guardando…" : editingLot ? "Guardar nueva revisión" : "Registrar lote de sombra"}</button>{editingLot && <button type="button" disabled={savingLot} onClick={() => { setEditingLot(null); setVoidLot(false); setLotDate(""); setLotQuantity(""); setLotPrice(""); setLotEvidence(""); }}>Cancelar</button>}</div><small>Los cambios quedan versionados y auditados. No alteran saldo, costo base oficial ni proyección vigente.</small></form> : <p className="acquisition-reconciliation-note">No se puede registrar el lote mientras la identidad de custodia esté pendiente.</p>}
         </>}
       </div>}
       <small className="acquisition-reconciliation-footnote">* Diferencia = cantidad del snapshot menos compras brutas vigentes. Se omite si faltan datos de corte o hay compras posteriores al snapshot.</small>
