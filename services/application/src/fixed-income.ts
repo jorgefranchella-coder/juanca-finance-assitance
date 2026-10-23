@@ -4,6 +4,7 @@ import {buildFixedIncomeProjectionItems,type FixedIncomeGroup,type CostBasisPoin
 type ArchivedRow={run_id:string;import:Record<string,unknown>;record:Record<string,unknown>};
 const fixedClasses=new Set(['fixed_income','treasury','international_fixed_income','private_pension']);
 function code(value:unknown){return String(value??'').trim().toUpperCase().replace(/^(BVMF|NASDAQ|NYSE|NYSEARCA):/,'');}
+function institutionCode(value:unknown){return String(value??'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toUpperCase().replace(/[^A-Z0-9]+/g,' ').trim().replace(/\s+(?:SA|S A|LTDA|EIRELI)$/,'').replace(/\s+/g,' ');}
 function number(value:unknown){if(typeof value==='number')return Number.isFinite(value)?value:0;if(typeof value!=='string'||!value.trim()||value.trim()==='-')return 0;const s=value.replace(/R\$/g,'').replace(/\s/g,'');const n=Number(s.includes(',')?s.replace(/\./g,'').replace(',','.'):s);return Number.isFinite(n)?n:0;}
 function valuation(item:Record<string,unknown>){
  const raw=(item.raw&&typeof item.raw==='object'?item.raw:{}) as Record<string,unknown>;
@@ -77,7 +78,7 @@ export async function fixedIncomeProjection(db:pg.Pool,household:string){
   if(lot.voided){acquisitionLotDiagnostics.voided_lots++;continue;}
   acquisitionLotDiagnostics.active_lots++;
   if(!lot.custody_identity_resolved){acquisitionLotDiagnostics.account_unresolved++;continue;}
-  const matching=[...groups.values()].filter(group=>group.isCurrent&&group.owner===String(lot.owner)&&group.institution.trim().toUpperCase()===String(lot.institution).trim().toUpperCase()&&code(group.instrumentCode)===code(lot.instrument_code)&&group.currency===String(lot.currency)&&fixedClasses.has(group.assetClass));
+  const matching=[...groups.values()].filter(group=>group.isCurrent&&group.owner===String(lot.owner)&&institutionCode(group.institution)===institutionCode(lot.institution)&&code(group.instrumentCode)===code(lot.instrument_code)&&group.currency===String(lot.currency)&&fixedClasses.has(group.assetClass));
   if(matching.length===0){acquisitionLotDiagnostics.no_current_position++;continue;}
   if(Number(lot.resolved_account_count)>1&&matching.some(group=>!group.account)){acquisitionLotDiagnostics.ambiguous_position++;continue;}
   const candidates=matching.filter(group=>group.account?(group.account===String(lot.account_reference??'').trim()||group.account===String(lot.external_reference??'').trim()):Number(lot.resolved_account_count)===1);
