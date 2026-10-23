@@ -20,7 +20,8 @@ export async function listB3PositionSnapshots(db:pg.Pool,household:string){
    FROM app.source_documents d JOIN app.owners o ON o.household_id=d.household_id AND o.id=d.owner_id
    JOIN app.source_assertions a ON a.household_id=d.household_id AND a.document_id=d.id AND a.assertion_kind='position'
    LEFT JOIN app.b3_snapshot_publications p ON p.household_id=d.household_id AND p.document_id=d.id
-   LEFT JOIN LATERAL (SELECT d2.id FROM app.source_documents d2 WHERE d2.household_id=d.household_id AND d2.owner_id=d.owner_id AND d2.source_system='B3' AND d2.report_kind='position'
+   LEFT JOIN LATERAL (SELECT d2.id FROM app.source_documents d2 WHERE d2.household_id=d.household_id AND d2.owner_id=d.owner_id AND d2.source_system='B3' AND d2.report_kind='position' AND d2.status<>'superseded'
+     AND EXISTS(SELECT 1 FROM app.source_assertions a2 WHERE a2.household_id=d2.household_id AND a2.document_id=d2.id AND a2.assertion_kind='position')
      ORDER BY d2.effective_as_of DESC NULLS LAST,d2.registered_at DESC,d2.id DESC LIMIT 1) latest ON true
    WHERE d.household_id=$1 AND d.source_system='B3' AND d.report_kind='position'
    GROUP BY d.id,d.owner_id,d.original_name,d.content_sha256,d.effective_as_of,d.status,d.registered_at,o.display_name ORDER BY d.effective_as_of DESC,d.registered_at DESC LIMIT 50`,[household]);
@@ -56,7 +57,8 @@ export async function publishB3PositionSnapshot(db:pg.Pool,household:string,acto
     WHERE s.household_id=$1 FOR UPDATE OF s`,[household]);
   if(state.rowCount!==1||!state.rows[0].run_id)throw new Conflict('PUBLISHED_BASELINE_REQUIRED',409);
   const run=String(state.rows[0].run_id),owner=String(doc.rows[0].owner_id),ownerName=String(doc.rows[0].display_name);
-  const latestSource=await c.query(`SELECT id FROM app.source_documents WHERE household_id=$1 AND owner_id=$2 AND source_system='B3' AND report_kind='position'
+  const latestSource=await c.query(`SELECT id FROM app.source_documents WHERE household_id=$1 AND owner_id=$2 AND source_system='B3' AND report_kind='position' AND status<>'superseded'
+    AND EXISTS(SELECT 1 FROM app.source_assertions a2 WHERE a2.household_id=source_documents.household_id AND a2.document_id=source_documents.id AND a2.assertion_kind='position')
     ORDER BY effective_as_of DESC NULLS LAST,registered_at DESC,id DESC LIMIT 1`,[household,owner]);
   const priorPublished=await c.query(`SELECT max(d.effective_as_of)::text AS effective_as_of FROM app.b3_snapshot_publications p
     JOIN app.source_documents d ON d.household_id=p.household_id AND d.id=p.document_id WHERE p.household_id=$1 AND d.owner_id=$2`,[household,owner]);
