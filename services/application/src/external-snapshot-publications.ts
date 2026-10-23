@@ -15,15 +15,19 @@ export async function listExternalPositionSnapshots(db:pg.Pool,household:string)
    count(*) FILTER(WHERE a.owner_id<>d.owner_id OR a.instrument_code IS NULL OR a.quantity IS NULL OR a.quantity<=0 OR ca.identity_basis='pending' OR
     (d.source_system='Avenue' AND (ca.id IS NULL OR ca.external_reference IS DISTINCT FROM NULLIF(btrim(a.raw_row->>'account'),''))) OR
     (a.custody_account_id IS NULL AND NOT (d.source_system<>'Avenue' AND a.raw_row->>'institution'=d.source_system AND regexp_replace(COALESCE(a.raw_row->>'fund_cnpj',''),'[^0-9]','','g') ~ '^[0-9]{14}$' AND a.instrument_code='PREV-'||regexp_replace(COALESCE(a.raw_row->>'fund_cnpj',''),'[^0-9]','','g'))))::int AS invalid_rows,
-   bool_or(p.document_id IS NOT NULL) AS published
+   bool_or(p.document_id IS NOT NULL) AS published,bool_or(d.id=latest.id) AS latest
    FROM app.source_documents d JOIN app.owners o ON o.household_id=d.household_id AND o.id=d.owner_id
    JOIN app.source_assertions a ON a.household_id=d.household_id AND a.document_id=d.id AND a.assertion_kind='position'
    LEFT JOIN app.custody_accounts ca ON ca.household_id=a.household_id AND ca.id=a.custody_account_id
    LEFT JOIN app.external_position_snapshot_publications p ON p.household_id=d.household_id AND p.document_id=d.id
+   LEFT JOIN LATERAL (SELECT d2.id FROM app.source_documents d2 WHERE d2.household_id=d.household_id AND d2.owner_id=d.owner_id AND d2.source_system=d.source_system AND d2.report_kind='position'
+     ORDER BY d2.effective_as_of DESC NULLS LAST,d2.registered_at DESC,d2.id DESC LIMIT 1) latest ON true
    WHERE d.household_id=$1 AND d.source_system<>'B3' AND d.report_kind='position'
    GROUP BY d.id,d.owner_id,o.display_name,d.source_system,d.original_name,d.content_sha256,d.effective_as_of,d.status,d.registered_at
    ORDER BY d.effective_as_of DESC,d.registered_at DESC LIMIT 50`,[household]);
- return{snapshots:result.rows,mode:'shadow',authoritative:false};
+ const current=await db.query(`SELECT v.effective_as_of::text AS portfolio_effective_as_of FROM app.household_state s
+   JOIN app.portfolio_versions v ON v.household_id=s.household_id AND v.id=s.latest_version WHERE s.household_id=$1`,[household]);
+ return{snapshots:result.rows,portfolio_effective_as_of:current.rows[0]?.portfolio_effective_as_of??null,mode:'shadow',authoritative:false};
 }
 
 /** Publish a complete reviewed Avenue or pension position cut, never movements or cash. */
@@ -48,7 +52,13 @@ export async function publishExternalPositionSnapshot(db:pg.Pool,household:strin
   const sourceSystem=String(doc.rows[0].source_system),owner=String(doc.rows[0].owner_id),ownerName=String(doc.rows[0].display_name);
   const state=await c.query(`SELECT s.latest_version,s.facts_revision,v.run_id,v.effective_as_of::text AS effective_as_of FROM app.household_state s
     JOIN app.portfolio_versions v ON v.household_id=s.household_id AND v.id=s.latest_version WHERE s.household_id=$1 FOR UPDATE OF s`,[household]);
-  if(state.rowCount!==1||!state.rows[0].run_id)throw new Conflict('PUBLISHED_BASELINE_REQUIRED',409);if(cut<String(state.rows[0].effective_as_of))throw new Conflict('HISTORICAL_SNAPSHOT_REQUIRES_CORRECTION_FLOW',409);
+  if(state.rowCount!==1||!state.rows[0].run_id)throw new Conflict('PUBLISHED_BASELINE_REQUIRED',409);
+  const latestSource=await c.query(`SELECT id FROM app.source_documents WHERE household_id=$1 AND owner_id=$2 AND source_system=$3 AND report_kind='position'
+    ORDER BY effective_as_of DESC NULLS LAST,registered_at DESC,id DESC LIMIT 1`,[household,owner,sourceSystem]);
+  const priorPublished=await c.query(`SELECT max(d.effective_as_of)::text AS effective_as_of FROM app.external_position_snapshot_publications p
+    JOIN app.source_documents d ON d.household_id=p.household_id AND d.id=p.document_id WHERE p.household_id=$1 AND d.owner_id=$2 AND d.source_system=$3`,[household,owner,sourceSystem]);
+  if(String(latestSource.rows[0]?.id??'')!==documentId||cut<String(priorPublished.rows[0]?.effective_as_of??''))throw new Conflict('HISTORICAL_SNAPSHOT_REQUIRES_CORRECTION_FLOW',409);
+  const publicationAsOf=cut>String(state.rows[0].effective_as_of)?cut:String(state.rows[0].effective_as_of);
   const source=await c.query(`SELECT a.id,a.owner_id AS assertion_owner_id,a.source_sheet,a.source_row,a.custody_account_id,a.instrument_code,a.quantity::text,a.asserted_on::text,a.raw_row,
       ca.owner_id,ca.institution_id,ca.external_reference,ca.identity_basis,ci.kind AS institution_kind
     FROM app.source_assertions a LEFT JOIN app.custody_accounts ca ON ca.household_id=a.household_id AND ca.id=a.custody_account_id
@@ -103,9 +113,9 @@ export async function publishExternalPositionSnapshot(db:pg.Pool,household:strin
   for(const holding of prior.rows){const key=`${holding.account_id}\0${holding.instrument_code}\0${holding.currency}`;if(!seen.has(key))await c.query(`INSERT INTO app.holdings(household_id,account_id,instrument_code,currency,quantity,coverage_status,opening_as_of,opening_document_id,opening_assertion_id,opening_event_id) VALUES($1,$2,$3,$4,'0','verified',$5,$6,NULL,NULL) ON CONFLICT(household_id,account_id,instrument_code,currency) DO UPDATE SET quantity='0',coverage_status='verified',opening_as_of=EXCLUDED.opening_as_of,opening_document_id=EXCLUDED.opening_document_id,opening_assertion_id=NULL,opening_event_id=NULL`,[household,holding.account_id,holding.instrument_code,holding.currency,cut,documentId]);}
   for(const row of rows)await c.query(`INSERT INTO app.holdings(household_id,account_id,instrument_code,currency,quantity,coverage_status,opening_as_of,opening_document_id,opening_assertion_id,opening_event_id) VALUES($1,$2,$3,$4,$5,'verified',$6,NULL,$7,NULL) ON CONFLICT(household_id,account_id,instrument_code,currency) DO UPDATE SET quantity=EXCLUDED.quantity,coverage_status='verified',opening_as_of=EXCLUDED.opening_as_of,opening_document_id=NULL,opening_assertion_id=EXCLUDED.opening_assertion_id,opening_event_id=NULL`,[household,row.account,row.code,row.currency,row.quantity,cut,row.assertion]);
   await c.query('UPDATE app.household_state SET facts_revision=facts_revision+1 WHERE household_id=$1',[household]);
-  const result=await publishInTransaction(c,run,household,cut,now);
+  const result=await publishInTransaction(c,run,household,publicationAsOf,now);
   await c.query(`INSERT INTO app.external_position_snapshot_publications(household_id,document_id,actor_id,request_key,request_hash,run_id,portfolio_version,position_count) VALUES($1,$2,$3,$4,$5,$6,$7,$8)`,[household,documentId,actor,input.request_key,requestHash,run,result.portfolio_version,rows.length]);
-  await c.query(`INSERT INTO app.audit_log(household_id,actor_id,action,resource_id,details) VALUES($1,$2,'external_position_snapshot_published',$3,$4)`,[household,actor,documentId,{source_system:sourceSystem,content_sha256:input.content_sha256,reference_date:cut,position_count:rows.length,portfolio_version:result.portfolio_version,movements_applied:false,cash_tracked:false,represented_custody_accounts:custodies}]);
-  await c.query('COMMIT');return{document_id:documentId,source_system:sourceSystem,portfolio_version:result.portfolio_version,positions:rows.length,replayed:false,portfolio_published:true,mode:'shadow',authoritative:false};
+  await c.query(`INSERT INTO app.audit_log(household_id,actor_id,action,resource_id,details) VALUES($1,$2,'external_position_snapshot_published',$3,$4)`,[household,actor,documentId,{source_system:sourceSystem,content_sha256:input.content_sha256,reference_date:cut,portfolio_effective_as_of:publicationAsOf,position_count:rows.length,portfolio_version:result.portfolio_version,movements_applied:false,cash_tracked:false,represented_custody_accounts:custodies}]);
+  await c.query('COMMIT');return{document_id:documentId,source_system:sourceSystem,source_as_of:cut,effective_as_of:publicationAsOf,portfolio_version:result.portfolio_version,positions:rows.length,replayed:false,portfolio_published:true,mode:'shadow',authoritative:false};
  }catch(error){await c.query('ROLLBACK');throw error;}finally{c.release();}
 }

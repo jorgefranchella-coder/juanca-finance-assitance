@@ -16,13 +16,17 @@ export async function listB3PositionSnapshots(db:pg.Pool,household:string){
    count(a.id)::int AS rows,count(*) FILTER(WHERE a.instrument_code IS NULL OR a.quantity IS NULL OR a.quantity<=0 OR
     COALESCE(NULLIF(a.raw_row->>'Valor Atualizado MTM',''),NULLIF(a.raw_row->>'Valor Atualizado FECHAMENTO',''),NULLIF(a.raw_row->>'Valor Atualizado CURVA',''),NULLIF(a.raw_row->>'Valor Atualizado','')) IS NULL)::int AS invalid_rows,
    count(*) FILTER(WHERE a.custody_account_id IS NULL)::int AS account_pending,
-   bool_or(p.document_id IS NOT NULL) AS published
+   bool_or(p.document_id IS NOT NULL) AS published,bool_or(d.id=latest.id) AS latest
    FROM app.source_documents d JOIN app.owners o ON o.household_id=d.household_id AND o.id=d.owner_id
    JOIN app.source_assertions a ON a.household_id=d.household_id AND a.document_id=d.id AND a.assertion_kind='position'
    LEFT JOIN app.b3_snapshot_publications p ON p.household_id=d.household_id AND p.document_id=d.id
+   LEFT JOIN LATERAL (SELECT d2.id FROM app.source_documents d2 WHERE d2.household_id=d.household_id AND d2.owner_id=d.owner_id AND d2.source_system='B3' AND d2.report_kind='position'
+     ORDER BY d2.effective_as_of DESC NULLS LAST,d2.registered_at DESC,d2.id DESC LIMIT 1) latest ON true
    WHERE d.household_id=$1 AND d.source_system='B3' AND d.report_kind='position'
    GROUP BY d.id,d.owner_id,d.original_name,d.content_sha256,d.effective_as_of,d.status,d.registered_at,o.display_name ORDER BY d.effective_as_of DESC,d.registered_at DESC LIMIT 50`,[household]);
- return {snapshots:result.rows,mode:'shadow',authoritative:false};
+ const current=await db.query(`SELECT v.effective_as_of::text AS portfolio_effective_as_of FROM app.household_state s
+   JOIN app.portfolio_versions v ON v.household_id=s.household_id AND v.id=s.latest_version WHERE s.household_id=$1`,[household]);
+ return {snapshots:result.rows,portfolio_effective_as_of:current.rows[0]?.portfolio_effective_as_of??null,mode:'shadow',authoritative:false};
 }
 
 /** A call by an owner/approver is the explicit approval to publish this whole B3 position cut. */
@@ -51,8 +55,13 @@ export async function publishB3PositionSnapshot(db:pg.Pool,household:string,acto
     FROM app.household_state s JOIN app.portfolio_versions v ON v.household_id=s.household_id AND v.id=s.latest_version
     WHERE s.household_id=$1 FOR UPDATE OF s`,[household]);
   if(state.rowCount!==1||!state.rows[0].run_id)throw new Conflict('PUBLISHED_BASELINE_REQUIRED',409);
-  if(cut<String(state.rows[0].effective_as_of))throw new Conflict('HISTORICAL_SNAPSHOT_REQUIRES_CORRECTION_FLOW',409);
   const run=String(state.rows[0].run_id),owner=String(doc.rows[0].owner_id),ownerName=String(doc.rows[0].display_name);
+  const latestSource=await c.query(`SELECT id FROM app.source_documents WHERE household_id=$1 AND owner_id=$2 AND source_system='B3' AND report_kind='position'
+    ORDER BY effective_as_of DESC NULLS LAST,registered_at DESC,id DESC LIMIT 1`,[household,owner]);
+  const priorPublished=await c.query(`SELECT max(d.effective_as_of)::text AS effective_as_of FROM app.b3_snapshot_publications p
+    JOIN app.source_documents d ON d.household_id=p.household_id AND d.id=p.document_id WHERE p.household_id=$1 AND d.owner_id=$2`,[household,owner]);
+  if(String(latestSource.rows[0]?.id??'')!==documentId||cut<String(priorPublished.rows[0]?.effective_as_of??''))throw new Conflict('HISTORICAL_SNAPSHOT_REQUIRES_CORRECTION_FLOW',409);
+  const publicationAsOf=cut>String(state.rows[0].effective_as_of)?cut:String(state.rows[0].effective_as_of);
   const source=await c.query(`SELECT a.id,a.source_sheet,a.source_row,a.institution_id,a.custody_account_id,a.instrument_code,a.quantity::text,a.asserted_on::text AS asserted_on,a.raw_row,
       ci.canonical_name
     FROM app.source_assertions a LEFT JOIN app.custody_institutions ci ON ci.id=a.institution_id
@@ -126,11 +135,11 @@ export async function publishB3PositionSnapshot(db:pg.Pool,household:string,acto
      ON CONFLICT(household_id,account_id,instrument_code,currency) DO UPDATE SET quantity=EXCLUDED.quantity,coverage_status='verified',opening_as_of=EXCLUDED.opening_as_of,opening_assertion_id=EXCLUDED.opening_assertion_id,opening_document_id=EXCLUDED.opening_document_id,opening_event_id=NULL`,[household,holding.account,holding.code,holding.quantity,cut,evidence.assertion,evidence.document]);
   }
   await c.query('UPDATE app.household_state SET facts_revision=facts_revision+1 WHERE household_id=$1',[household]);
-  const knownAt=new Date().toISOString();const result=await publishInTransaction(c,run,household,cut,knownAt);
+  const knownAt=new Date().toISOString();const result=await publishInTransaction(c,run,household,publicationAsOf,knownAt);
   await c.query(`INSERT INTO app.b3_snapshot_publications(household_id,document_id,actor_id,request_key,request_hash,run_id,portfolio_version,position_count)
     VALUES($1,$2,$3,$4,$5,$6,$7,$8)`,[household,documentId,actor,input.request_key,requestHash,run,result.portfolio_version,resolved.length]);
-  await c.query(`INSERT INTO app.audit_log(household_id,actor_id,action,resource_id,details) VALUES($1,$2,'b3_position_snapshot_published',$3,$4)`,[household,actor,documentId,{content_sha256:input.content_sha256,reference_date:cut,position_count:resolved.length,portfolio_version:result.portfolio_version,movements_applied:false,cash_tracked:false}]);
+  await c.query(`INSERT INTO app.audit_log(household_id,actor_id,action,resource_id,details) VALUES($1,$2,'b3_position_snapshot_published',$3,$4)`,[household,actor,documentId,{content_sha256:input.content_sha256,reference_date:cut,portfolio_effective_as_of:publicationAsOf,position_count:resolved.length,portfolio_version:result.portfolio_version,movements_applied:false,cash_tracked:false}]);
   await c.query('COMMIT');
-  return{document_id:documentId,portfolio_version:result.portfolio_version,positions:resolved.length,replayed:false,portfolio_published:true,mode:'shadow',authoritative:false};
+  return{document_id:documentId,source_as_of:cut,effective_as_of:publicationAsOf,portfolio_version:result.portfolio_version,positions:resolved.length,replayed:false,portfolio_published:true,mode:'shadow',authoritative:false};
  }catch(error){await c.query('ROLLBACK');throw error;}finally{c.release();}
 }
