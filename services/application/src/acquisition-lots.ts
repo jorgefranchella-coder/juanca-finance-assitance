@@ -33,7 +33,7 @@ export async function listPositionIdentities(db:pg.Pool,household:string){
    sa.interpretation_status AS source_assertion_status,
    si.parser_version AS latest_parser_version,si.status AS parser_status,si.review_reasons AS parser_review_reasons,
    ir.decision AS identity_resolution_decision,ca.identity_basis AS custody_identity_basis,
-   (r.id IS NOT NULL OR p.identity_status='resolved') AS custody_identity_resolved
+   (COALESCE(r.custody_account_id,p.custody_account_id) IS NOT NULL) AS custody_identity_resolved
    FROM app.position_identities p JOIN app.owners o ON o.household_id=p.household_id AND o.id=p.owner_id
    JOIN app.custody_institutions ci ON ci.id=p.institution_id
    LEFT JOIN app.source_assertions sa ON sa.household_id=p.household_id AND sa.id=p.source_assertion_id
@@ -74,7 +74,7 @@ export async function listAcquisitionReconciliation(db:pg.Pool,household:string)
  ), identities AS (
    SELECT p.id AS position_id,o.display_name AS owner,ci.canonical_name AS institution,
      COALESCE(ir.custody_account_id,p.custody_account_id) AS custody_account_id,p.instrument_code,p.currency,
-     (ir.custody_account_id IS NOT NULL OR p.identity_status='resolved') AS custody_identity_resolved,
+     COALESCE(ir.custody_account_id,p.custody_account_id) IS NOT NULL AS custody_identity_resolved,
      sd.effective_as_of::text AS snapshot_as_of,sa.quantity::text AS snapshot_quantity,
      COALESCE(r.current_lot_count,0)::int AS current_lot_count,COALESCE(r.active_lot_count,0)::int AS active_lot_count,
      COALESCE(r.current_gross_acquisition_quantity,'0') AS current_gross_acquisition_quantity,r.latest_lot_date
@@ -188,6 +188,7 @@ export async function recordAcquisitionLot(db:pg.Pool,household:string,actor:str
       WHERE x.household_id=p.household_id AND x.position_id=p.id ORDER BY revision DESC LIMIT 1) r ON true
     WHERE p.household_id=$1 AND p.id=$2`,[household,positionId]);
   if(!position.rowCount)throw new Conflict('NOT_FOUND',404);
+  if(!position.rows[0].custody_account_id)throw new Conflict('ACCOUNT_IDENTITY_UNRESOLVED',409);
   if(position.rows[0].currency!==value.currency)throw new Conflict('CURRENCY_MISMATCH',422);
   if(value.evidence_kind==='source_assertion'){
    const source=await c.query(`SELECT a.assertion_kind,a.owner_id,a.institution_id,a.custody_account_id,a.asserted_on::text AS effective_date,

@@ -1,6 +1,7 @@
 export type PriceObservation = { date: string; unitPrice: number; source: string };
 export type FixedIncomeGroup = {
   owner: string; account: string | null; instrumentCode: string; productName: string; institution: string; issuer: string; assetClass: string;
+  currency: string;
   quantity: number; maturityDate: string; latestDate: string; currentUnitPrice: number;
   currentValueCents: number; priceSource: string; observations: PriceObservation[]; isCurrent: boolean;
 };
