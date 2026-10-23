@@ -149,3 +149,7 @@ Comprobación posterior al despliegue (23/10/2026): aplicación `juanca-shadow-a
 ### Gates accionables en la pestaña PostgreSQL sombra (23/10/2026)
 
 El endpoint de readiness ahora incluye `next_action` por bloqueo, y el gateway autenticado expone `GET /api/shadow/authority/readiness`. La pestaña de comparación muestra cada gate con su estado, explicación y acción siguiente, además de un refresco manual; es una lectura informativa que no habilita el corte. El contrato OpenAPI permite estados `blocked`/`passed` y documenta la nueva acción. Se validó la ruta en integración gateway, la suite de aplicación 54/54 y web 38/38. La readiness sigue bloqueada mientras existan gates pendientes.
+
+### Cotizaciones del servicio de mercado en sombra (23/10/2026)
+
+La pestaña PostgreSQL incorpora un panel manual de cotizaciones B3/EE. UU. y USD/BRL. El gateway publica únicamente refresh, estado de job y lecturas de cotizaciones/FX, usando el secreto independiente `market.json`; limita métodos, formato de ticker, tamaño e idempotency key. La web no solicita proveedores al abrirse. La actualización persiste observaciones en `market` y no sustituye el escritor/lector vigente D1/R2 ni alimenta el valor oficial de la cartera. Se ejecutó build y suite web activa (38/38) y suite del gateway (7/7); los endpoints autenticados de lectura devolvieron 200, incluyendo consulta de múltiples tickers codificados. No se disparó una actualización real de mercado. Commit `853d2df` publicado en `main`; readiness continúa `mode=shadow`, `authoritative=false`.
