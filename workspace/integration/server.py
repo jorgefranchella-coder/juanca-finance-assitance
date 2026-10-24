@@ -26,7 +26,7 @@ MARKET_JOB = re.compile(r'^/api/shadow/market/jobs/([0-9a-fA-F-]{36})$')
 SHADOW_ROUTES = {
     '/api/shadow/portfolio': {'GET'},
     '/api/shadow/authority/readiness': {'GET'},
-    '/api/shadow/confirmations': {'GET'},
+    '/api/shadow/confirmations': {'GET', 'POST'},
     '/api/shadow/positions': {'GET'},
     '/api/shadow/fixed-income-projection': {'GET'},
     '/api/shadow/conversations/family/messages': {'GET', 'POST'},
@@ -186,6 +186,7 @@ class Gateway(BaseHTTPRequestHandler):
                     SHADOW_B3_PUBLISH.fullmatch(path) or
                     SHADOW_EXTERNAL_PUBLISH.fullmatch(path) or
                     SHADOW_POSITION_ACQUISITIONS.fullmatch(path) or
+                    path == '/api/shadow/confirmations' and self.command == 'POST' or
                     SHADOW_CONFIRMATION_DECISION.fullmatch(path) or
                     path == '/api/shadow/proposals' and self.command == 'POST' or
                     SHADOW_PROPOSAL_COMMAND.fullmatch(path)) and self.command == 'POST':

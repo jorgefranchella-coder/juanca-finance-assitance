@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Juanca application shadow API",
-    "version": "0.23.0",
+    "version": "0.24.0",
     "description": "Shadow API: immutable portfolio, guided conversation, evidence and reconciliation, plus idempotent proposal review/application commands. It is not the financial authority."
   },
   "servers": [
@@ -21,7 +21,11 @@
   "paths": {
     "/v1/authority/readiness": {
       "get": {
-        "security": [{"bearerAuth": []}],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
         "summary": "Read portfolio data and operational gates for PostgreSQL cutover",
         "responses": {
           "200": {
@@ -30,21 +34,78 @@
               "application/json": {
                 "schema": {
                   "type": "object",
-                  "required": ["ready", "mode", "authoritative", "blockers", "counts", "gates", "note"],
+                  "required": [
+                    "ready",
+                    "mode",
+                    "authoritative",
+                    "blockers",
+                    "counts",
+                    "gates",
+                    "note"
+                  ],
                   "properties": {
-                    "ready": {"type": "boolean", "const": false},
-                    "mode": {"type": "string", "const": "shadow"},
-                    "authoritative": {"type": "boolean", "const": false},
-                    "blockers": {"type": "array", "items": {"type": "string"}},
-                    "counts": {"type": "object"},
-                    "gates": {"type": "array", "items": {"type": "object", "required": ["id", "status", "detail", "next_action"], "properties": {"id": {"type": "string"}, "status": {"type": "string", "enum": ["blocked", "passed"]}, "detail": {"type": "string"}, "next_action": {"type": "string"}}}},
-                    "note": {"type": "string"}
+                    "ready": {
+                      "type": "boolean",
+                      "const": false
+                    },
+                    "mode": {
+                      "type": "string",
+                      "const": "shadow"
+                    },
+                    "authoritative": {
+                      "type": "boolean",
+                      "const": false
+                    },
+                    "blockers": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "counts": {
+                      "type": "object"
+                    },
+                    "gates": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "required": [
+                          "id",
+                          "status",
+                          "detail",
+                          "next_action"
+                        ],
+                        "properties": {
+                          "id": {
+                            "type": "string"
+                          },
+                          "status": {
+                            "type": "string",
+                            "enum": [
+                              "blocked",
+                              "passed"
+                            ]
+                          },
+                          "detail": {
+                            "type": "string"
+                          },
+                          "next_action": {
+                            "type": "string"
+                          }
+                        }
+                      }
+                    },
+                    "note": {
+                      "type": "string"
+                    }
                   }
                 }
               }
             }
           },
-          "401": {"description": "Authentication required"}
+          "401": {
+            "description": "Authentication required"
+          }
         }
       }
     },
@@ -167,10 +228,21 @@
                   "source_evidence": {
                     "type": "object",
                     "additionalProperties": false,
-                    "required": ["kind", "id"],
+                    "required": [
+                      "kind",
+                      "id"
+                    ],
                     "properties": {
-                      "kind": { "enum": ["manual_text", "manual_photo"] },
-                      "id": { "type": "string", "format": "uuid" }
+                      "kind": {
+                        "enum": [
+                          "manual_text",
+                          "manual_photo"
+                        ]
+                      },
+                      "id": {
+                        "type": "string",
+                        "format": "uuid"
+                      }
                     }
                   }
                 }
@@ -363,7 +435,6 @@
         }
       }
     },
-
     "/v1/reconciliation/b3/candidates": {
       "get": {
         "security": [
@@ -390,168 +461,563 @@
               "application/json": {
                 "schema": {
                   "type": "object",
-                  "required": ["reports", "count", "limit", "mode", "authoritative", "apply_enabled"],
+                  "required": [
+                    "reports",
+                    "count",
+                    "limit",
+                    "mode",
+                    "authoritative",
+                    "apply_enabled"
+                  ],
                   "properties": {
-                    "reports": {"type": "array", "items": {"type": "object"}},
-                    "count": {"type": "integer"},
-                    "limit": {"type": "integer"},
-                    "mode": {"const": "shadow"},
-                    "authoritative": {"const": false},
-                    "apply_enabled": {"const": false}
+                    "reports": {
+                      "type": "array",
+                      "items": {
+                        "type": "object"
+                      }
+                    },
+                    "count": {
+                      "type": "integer"
+                    },
+                    "limit": {
+                      "type": "integer"
+                    },
+                    "mode": {
+                      "const": "shadow"
+                    },
+                    "authoritative": {
+                      "const": false
+                    },
+                    "apply_enabled": {
+                      "const": false
+                    }
                   }
                 }
               }
             }
           },
-          "401": {"description": "Authentication required"},
-          "422": {"description": "Invalid limit"},
-          "503": {"description": "Private report storage unavailable"}
+          "401": {
+            "description": "Authentication required"
+          },
+          "422": {
+            "description": "Invalid limit"
+          },
+          "503": {
+            "description": "Private report storage unavailable"
+          }
         }
       }
     },
     "/v1/reconciliation/b3/duplicate-movements": {
       "get": {
-        "security": [{"bearerAuth": []}],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
         "summary": "List exact movement rows repeated across B3 documents",
         "description": "Candidate evidence only. Preserves each source assertion and never merges or applies financial events. preview_event_count is a reconciliation preview based on complete pairwise decisions; unresolved or contradictory decisions return null.",
-        "parameters": [{
-          "name": "limit",
-          "in": "query",
-          "schema": {"type": "integer", "minimum": 1, "maximum": 500, "default": 100}
-        }],
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 500,
+              "default": 100
+            }
+          }
+        ],
         "responses": {
           "200": {
             "description": "Candidate-only duplicate evidence; no portfolio changes",
-            "content": {"application/json": {"schema": {
-              "type": "object",
-              "required": ["status", "candidates", "count", "limit", "mode", "authoritative", "portfolio_published"],
-              "properties": {
-                "status": {"const": "candidate_only"},
-                "candidates": {"type": "array", "items": {"type": "object", "properties": {
-                  "candidate_key": {"type": "string", "pattern": "^[0-9a-f]{32}$"},
-                  "review_status": {"enum": ["needs_review", "reviewed"]},
-                  "event_count_status": {"enum": ["needs_review", "conflict", "reconciled"]},
-                  "preview_event_count": {"type": ["integer", "null"], "minimum": 1},
-                  "link_decisions": {"type": "array", "items": {"type": "object", "required": ["left_assertion_id", "right_assertion_id", "review"], "properties": {
-                    "left_assertion_id": {"type": "string"}, "right_assertion_id": {"type": "string"},
-                    "review": {"oneOf": [{"type": "null"}, {"type": "object", "required": ["decision", "revision", "actor_id", "decided_at"], "properties": {"decision": {"enum": ["same_event", "distinct_events"]}, "revision": {"type": "integer"}, "actor_id": {"type": "string"}, "decided_at": {"type": "string"}}}]}
-                  }}}
-                }}},
-                "count": {"type": "integer"},
-                "limit": {"type": "integer"},
-                "mode": {"const": "shadow"},
-                "authoritative": {"const": false},
-                "portfolio_published": {"const": false}
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "status",
+                    "candidates",
+                    "count",
+                    "limit",
+                    "mode",
+                    "authoritative",
+                    "portfolio_published"
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": "candidate_only"
+                    },
+                    "candidates": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "candidate_key": {
+                            "type": "string",
+                            "pattern": "^[0-9a-f]{32}$"
+                          },
+                          "review_status": {
+                            "enum": [
+                              "needs_review",
+                              "reviewed"
+                            ]
+                          },
+                          "event_count_status": {
+                            "enum": [
+                              "needs_review",
+                              "conflict",
+                              "reconciled"
+                            ]
+                          },
+                          "preview_event_count": {
+                            "type": [
+                              "integer",
+                              "null"
+                            ],
+                            "minimum": 1
+                          },
+                          "link_decisions": {
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "required": [
+                                "left_assertion_id",
+                                "right_assertion_id",
+                                "review"
+                              ],
+                              "properties": {
+                                "left_assertion_id": {
+                                  "type": "string"
+                                },
+                                "right_assertion_id": {
+                                  "type": "string"
+                                },
+                                "review": {
+                                  "oneOf": [
+                                    {
+                                      "type": "null"
+                                    },
+                                    {
+                                      "type": "object",
+                                      "required": [
+                                        "decision",
+                                        "revision",
+                                        "actor_id",
+                                        "decided_at"
+                                      ],
+                                      "properties": {
+                                        "decision": {
+                                          "enum": [
+                                            "same_event",
+                                            "distinct_events"
+                                          ]
+                                        },
+                                        "revision": {
+                                          "type": "integer"
+                                        },
+                                        "actor_id": {
+                                          "type": "string"
+                                        },
+                                        "decided_at": {
+                                          "type": "string"
+                                        }
+                                      }
+                                    }
+                                  ]
+                                }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    },
+                    "count": {
+                      "type": "integer"
+                    },
+                    "limit": {
+                      "type": "integer"
+                    },
+                    "mode": {
+                      "const": "shadow"
+                    },
+                    "authoritative": {
+                      "const": false
+                    },
+                    "portfolio_published": {
+                      "const": false
+                    }
+                  }
+                }
               }
-            }}}
+            }
           },
-          "401": {"description": "Authentication required"},
-          "422": {"description": "Invalid limit"},
-          "503": {"description": "Evidence database unavailable"}
+          "401": {
+            "description": "Authentication required"
+          },
+          "422": {
+            "description": "Invalid limit"
+          },
+          "503": {
+            "description": "Evidence database unavailable"
+          }
         }
       }
     },
     "/v1/reconciliation/b3/duplicate-movement-decisions": {
       "post": {
-        "security": [{"bearerAuth": []}],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
         "summary": "Record an audited decision for a pair of repeated B3 movement rows",
         "description": "Append-only evidence review. Decisions are versioned and idempotent; they do not merge source assertions or change the portfolio.",
-        "parameters": [{"name": "x-juanca-actor", "in": "header", "required": true, "schema": {"type": "string", "minLength": 1}}],
-        "requestBody": {"required": true, "content": {"application/json": {"schema": {
-          "type": "object", "additionalProperties": false,
-          "required": ["request_key", "left_assertion_id", "right_assertion_id", "candidate_key", "decision"],
-          "properties": {
-            "request_key": {"type": "string", "minLength": 8, "maxLength": 128, "pattern": "^[A-Za-z0-9._:-]{8,128}$"},
-            "left_assertion_id": {"type": "string", "minLength": 1, "maxLength": 200},
-            "right_assertion_id": {"type": "string", "minLength": 1, "maxLength": 200},
-            "candidate_key": {"type": "string", "pattern": "^[0-9a-f]{32}$"},
-            "decision": {"enum": ["same_event", "distinct_events"]}
+        "parameters": [
+          {
+            "name": "x-juanca-actor",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            }
           }
-        }}}},
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "request_key",
+                  "left_assertion_id",
+                  "right_assertion_id",
+                  "candidate_key",
+                  "decision"
+                ],
+                "properties": {
+                  "request_key": {
+                    "type": "string",
+                    "minLength": 8,
+                    "maxLength": 128,
+                    "pattern": "^[A-Za-z0-9._:-]{8,128}$"
+                  },
+                  "left_assertion_id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200
+                  },
+                  "right_assertion_id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200
+                  },
+                  "candidate_key": {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{32}$"
+                  },
+                  "decision": {
+                    "enum": [
+                      "same_event",
+                      "distinct_events"
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        },
         "responses": {
-          "201": {"description": "Audited decision recorded; portfolio unchanged", "content": {"application/json": {"schema": {
-            "type": "object", "required": ["decision_id", "decision", "revision", "replayed", "mode", "portfolio_changed"],
-            "properties": {"decision_id": {"type": "string", "format": "uuid"}, "decision": {"enum": ["same_event", "distinct_events"]}, "revision": {"type": "integer", "minimum": 1}, "replayed": {"type": "boolean"}, "mode": {"const": "shadow"}, "portfolio_changed": {"const": false}}
-          }}}},
-          "401": {"description": "Authentication required"},
-          "403": {"description": "Reviewer membership required"},
-          "409": {"description": "Candidate stale or idempotency key conflict"},
-          "422": {"description": "Invalid request"},
-          "503": {"description": "Evidence database unavailable"}
+          "201": {
+            "description": "Audited decision recorded; portfolio unchanged",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "decision_id",
+                    "decision",
+                    "revision",
+                    "replayed",
+                    "mode",
+                    "portfolio_changed"
+                  ],
+                  "properties": {
+                    "decision_id": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "decision": {
+                      "enum": [
+                        "same_event",
+                        "distinct_events"
+                      ]
+                    },
+                    "revision": {
+                      "type": "integer",
+                      "minimum": 1
+                    },
+                    "replayed": {
+                      "type": "boolean"
+                    },
+                    "mode": {
+                      "const": "shadow"
+                    },
+                    "portfolio_changed": {
+                      "const": false
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Reviewer membership required"
+          },
+          "409": {
+            "description": "Candidate stale or idempotency key conflict"
+          },
+          "422": {
+            "description": "Invalid request"
+          },
+          "503": {
+            "description": "Evidence database unavailable"
+          }
         }
       }
     },
     "/v1/reconciliation/b3/decisions": {
       "post": {
-        "security": [{"bearerAuth": []}],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
         "summary": "Record an audited review of one B3 snapshot difference",
         "description": "Evidence review only; no positions, cash, events or portfolio revision change.",
-        "requestBody": {"required": true, "content": {"application/json": {"schema": {
-          "type": "object", "additionalProperties": false,
-          "required": ["request_key", "prior_document_id", "current_document_id", "candidate_key", "decision"],
-          "properties": {
-            "request_key": {"type": "string", "minLength": 8, "maxLength": 128, "pattern": "^[A-Za-z0-9._:-]{8,128}$"},
-            "prior_document_id": {"type": "string", "format": "uuid"},
-            "current_document_id": {"type": "string", "format": "uuid"},
-            "candidate_key": {"type": "string", "minLength": 1, "maxLength": 1000},
-            "decision": {"enum": ["confirmed", "dismissed"]}
-          }
-        }}}},
-        "responses": {
-          "201": {"description": "Audited evidence-only decision; portfolio_changed is false", "content": {"application/json": {"schema": {
-            "type": "object", "additionalProperties": false,
-            "required": ["decision_id", "decision", "revision", "replayed", "mode", "portfolio_changed"],
-            "properties": {
-              "decision_id": {"type": "string", "format": "uuid"},
-              "decision": {"enum": ["confirmed", "dismissed"]},
-              "revision": {"type": "integer", "minimum": 1},
-              "replayed": {"type": "boolean"},
-              "mode": {"const": "shadow"},
-              "portfolio_changed": {"const": false}
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "request_key",
+                  "prior_document_id",
+                  "current_document_id",
+                  "candidate_key",
+                  "decision"
+                ],
+                "properties": {
+                  "request_key": {
+                    "type": "string",
+                    "minLength": 8,
+                    "maxLength": 128,
+                    "pattern": "^[A-Za-z0-9._:-]{8,128}$"
+                  },
+                  "prior_document_id": {
+                    "type": "string",
+                    "format": "uuid"
+                  },
+                  "current_document_id": {
+                    "type": "string",
+                    "format": "uuid"
+                  },
+                  "candidate_key": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 1000
+                  },
+                  "decision": {
+                    "enum": [
+                      "confirmed",
+                      "dismissed"
+                    ]
+                  }
+                }
+              }
             }
-          }}}},
-          "401": {"description": "Authentication required"},
-          "403": {"description": "Actor lacks reviewer membership"},
-          "405": {"description": "Method not allowed"},
-          "409": {"description": "Idempotency mismatch or candidate no longer present"},
-          "413": {"description": "Request body exceeds the size limit"},
-          "422": {"description": "Invalid decision input"},
-          "415": {"description": "Content-Type must be application/json"},
-          "503": {"description": "Application database unavailable"}
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Audited evidence-only decision; portfolio_changed is false",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "decision_id",
+                    "decision",
+                    "revision",
+                    "replayed",
+                    "mode",
+                    "portfolio_changed"
+                  ],
+                  "properties": {
+                    "decision_id": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "decision": {
+                      "enum": [
+                        "confirmed",
+                        "dismissed"
+                      ]
+                    },
+                    "revision": {
+                      "type": "integer",
+                      "minimum": 1
+                    },
+                    "replayed": {
+                      "type": "boolean"
+                    },
+                    "mode": {
+                      "const": "shadow"
+                    },
+                    "portfolio_changed": {
+                      "const": false
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Actor lacks reviewer membership"
+          },
+          "405": {
+            "description": "Method not allowed"
+          },
+          "409": {
+            "description": "Idempotency mismatch or candidate no longer present"
+          },
+          "413": {
+            "description": "Request body exceeds the size limit"
+          },
+          "422": {
+            "description": "Invalid decision input"
+          },
+          "415": {
+            "description": "Content-Type must be application/json"
+          },
+          "503": {
+            "description": "Application database unavailable"
+          }
         }
       }
     },
     "/v1/reconciliation/manual-b3/candidates": {
       "get": {
-        "security": [{"bearerAuth": []}],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
         "summary": "Suggest exact written-evidence to B3 movement matches for human review",
         "responses": {
-          "200": {"description": "Derived candidates; household, instrument, exact quantity and date-window match; no link or portfolio change is applied"},
-          "401": {"description": "Authentication required"}
+          "200": {
+            "description": "Derived candidates; household, instrument, exact quantity and date-window match; no link or portfolio change is applied"
+          },
+          "401": {
+            "description": "Authentication required"
+          }
         }
       }
     },
     "/v1/reconciliation/manual-b3/decisions": {
       "post": {
-        "security": [{"bearerAuth": []}],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
         "summary": "Record an audited human decision about one written-to-B3 evidence link",
-        "requestBody": {"required":true,"content":{"application/json":{"schema":{"type":"object","additionalProperties":false,"required":["request_key","intake_id","assertion_id","decision"],"properties":{"request_key":{"type":"string","minLength":8,"maxLength":128},"intake_id":{"type":"string","format":"uuid"},"assertion_id":{"type":"string","minLength":8,"maxLength":128},"decision":{"enum":["related","not_related"]}}}}}},
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "request_key",
+                  "intake_id",
+                  "assertion_id",
+                  "decision"
+                ],
+                "properties": {
+                  "request_key": {
+                    "type": "string",
+                    "minLength": 8,
+                    "maxLength": 128
+                  },
+                  "intake_id": {
+                    "type": "string",
+                    "format": "uuid"
+                  },
+                  "assertion_id": {
+                    "type": "string",
+                    "minLength": 8,
+                    "maxLength": 128
+                  },
+                  "decision": {
+                    "enum": [
+                      "related",
+                      "not_related"
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        },
         "responses": {
-          "201": {"description":"Audited evidence-only decision; no positions, cash, events or portfolio revision are changed"},
-          "403": {"description":"Actor lacks reviewer membership"},
-          "409": {"description":"Idempotency mismatch or candidate is stale"},
-          "422": {"description":"Invalid decision input"}
+          "201": {
+            "description": "Audited evidence-only decision; no positions, cash, events or portfolio revision are changed"
+          },
+          "403": {
+            "description": "Actor lacks reviewer membership"
+          },
+          "409": {
+            "description": "Idempotency mismatch or candidate is stale"
+          },
+          "422": {
+            "description": "Invalid decision input"
+          }
         }
       }
     },
     "/v1/fixed-income-projection": {
       "get": {
-        "security": [{"bearerAuth": []}],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
         "summary": "Project shadow fixed-income holdings from archived price observations",
         "responses": {
-          "200": {"description": "Issuer- and owner-scoped projection, explicitly non-authoritative"},
-          "401": {"description": "Authentication required"},
-          "503": {"description": "Projection source unavailable"}
+          "200": {
+            "description": "Issuer- and owner-scoped projection, explicitly non-authoritative"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "503": {
+            "description": "Projection source unavailable"
+          }
         }
       }
     },
@@ -628,59 +1094,664 @@
     },
     "/v1/position-identities": {
       "get": {
-        "security": [{ "bearerAuth": [] }],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
         "summary": "List persisted position identities and their latest account resolution",
         "responses": {
           "200": {
             "description": "Shadow identity evidence; does not change published holdings",
-            "content": { "application/json": { "schema": { "type": "object", "required": ["positions", "mode", "authoritative", "portfolio_changed"], "properties": { "positions": { "type": "array", "items": { "type": "object", "properties": { "position_id": { "type": "string", "format": "uuid" }, "owner": { "type": "string" }, "institution": { "type": "string" }, "custody_account_id": { "type": ["string", "null"] }, "identity_status": { "enum": ["resolved", "provisional"] }, "identity_revision": { "type": ["integer", "null"] }, "source_assertion_id": { "type": ["string", "null"] }, "source_document_id": { "type": ["string", "null"] }, "source_sheet": { "type": ["string", "null"] }, "source_row": { "type": ["integer", "null"] }, "source_as_of": { "type": ["string", "null"], "format": "date" }, "source_assertion_status": { "enum": ["observed", "needs_review", null] }, "latest_parser_version": { "type": ["string", "null"] }, "parser_status": { "enum": ["parsed", "needs_review", null] }, "parser_review_reasons": { "type": ["array", "null"], "items": { "type": "string" } }, "identity_resolution_decision": { "type": ["string", "null"] }, "custody_identity_basis": { "type": ["string", "null"] }, "custody_identity_resolved": { "type": "boolean" } } } }, "mode": { "const": "shadow" }, "authoritative": { "const": false }, "portfolio_changed": { "const": false } } } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "positions",
+                    "mode",
+                    "authoritative",
+                    "portfolio_changed"
+                  ],
+                  "properties": {
+                    "positions": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "position_id": {
+                            "type": "string",
+                            "format": "uuid"
+                          },
+                          "owner": {
+                            "type": "string"
+                          },
+                          "institution": {
+                            "type": "string"
+                          },
+                          "custody_account_id": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "identity_status": {
+                            "enum": [
+                              "resolved",
+                              "provisional"
+                            ]
+                          },
+                          "identity_revision": {
+                            "type": [
+                              "integer",
+                              "null"
+                            ]
+                          },
+                          "source_assertion_id": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "source_document_id": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "source_sheet": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "source_row": {
+                            "type": [
+                              "integer",
+                              "null"
+                            ]
+                          },
+                          "source_as_of": {
+                            "type": [
+                              "string",
+                              "null"
+                            ],
+                            "format": "date"
+                          },
+                          "source_assertion_status": {
+                            "enum": [
+                              "observed",
+                              "needs_review",
+                              null
+                            ]
+                          },
+                          "latest_parser_version": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "parser_status": {
+                            "enum": [
+                              "parsed",
+                              "needs_review",
+                              null
+                            ]
+                          },
+                          "parser_review_reasons": {
+                            "type": [
+                              "array",
+                              "null"
+                            ],
+                            "items": {
+                              "type": "string"
+                            }
+                          },
+                          "identity_resolution_decision": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "custody_identity_basis": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "custody_identity_resolved": {
+                            "type": "boolean"
+                          }
+                        }
+                      }
+                    },
+                    "mode": {
+                      "const": "shadow"
+                    },
+                    "authoritative": {
+                      "const": false
+                    },
+                    "portfolio_changed": {
+                      "const": false
+                    }
+                  }
+                }
+              }
+            }
           }
         }
       }
     },
     "/v1/position-identities/acquisition-reconciliation": {
       "get": {
-        "security": [{ "bearerAuth": [] }],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
         "summary": "List gross acquisition quantity reconciliation for all persisted positions",
         "description": "Read-only shadow diagnostic. Reports current lot revisions against linked B3 snapshot quantities; sales, redemptions and transfers are not netted, and results are not portfolio balances.",
-        "responses": { "200": { "description": "Family-wide acquisition evidence reconciliation", "content": { "application/json": { "schema": { "type": "object", "required": ["positions", "position_count", "status_counts", "mode", "authoritative", "portfolio_changed"], "properties": {
-          "positions": { "type": "array", "items": { "type": "object", "required": ["position_id", "owner", "institution", "instrument_code", "currency", "snapshot_as_of", "snapshot_quantity", "current_lot_count", "active_lot_count", "current_gross_acquisition_quantity", "status", "snapshot_minus_gross_acquisitions"], "properties": {
-            "position_id": { "type": "string" }, "owner": { "type": "string" }, "institution": { "type": "string" }, "custody_account_id": { "type": ["string", "null"] }, "instrument_code": { "type": "string" }, "currency": { "type": "string" }, "snapshot_as_of": { "type": ["string", "null"], "format": "date" }, "snapshot_quantity": { "type": ["string", "null"] }, "current_lot_count": { "type": "integer" }, "active_lot_count": { "type": "integer" }, "current_gross_acquisition_quantity": { "type": "string" }, "latest_lot_date": { "type": ["string", "null"], "format": "date" }, "status": { "enum": ["no_snapshot_quantity", "no_acquisition_lots", "lots_after_snapshot", "matches_snapshot", "acquisitions_exceed_snapshot", "snapshot_exceeds_acquisitions"] }, "snapshot_minus_gross_acquisitions": { "type": ["string", "null"] }
-          }}},
-          "position_count": { "type": "integer" }, "status_counts": { "type": "object", "additionalProperties": { "type": "integer" } }, "mode": { "const": "shadow" }, "authoritative": { "const": false }, "portfolio_changed": { "const": false}
-        }}}}}, "401": { "description": "Authentication required" }, "503": { "description": "Position evidence unavailable" } }
+        "responses": {
+          "200": {
+            "description": "Family-wide acquisition evidence reconciliation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "positions",
+                    "position_count",
+                    "status_counts",
+                    "mode",
+                    "authoritative",
+                    "portfolio_changed"
+                  ],
+                  "properties": {
+                    "positions": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "required": [
+                          "position_id",
+                          "owner",
+                          "institution",
+                          "instrument_code",
+                          "currency",
+                          "snapshot_as_of",
+                          "snapshot_quantity",
+                          "current_lot_count",
+                          "active_lot_count",
+                          "current_gross_acquisition_quantity",
+                          "status",
+                          "snapshot_minus_gross_acquisitions"
+                        ],
+                        "properties": {
+                          "position_id": {
+                            "type": "string"
+                          },
+                          "owner": {
+                            "type": "string"
+                          },
+                          "institution": {
+                            "type": "string"
+                          },
+                          "custody_account_id": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "instrument_code": {
+                            "type": "string"
+                          },
+                          "currency": {
+                            "type": "string"
+                          },
+                          "snapshot_as_of": {
+                            "type": [
+                              "string",
+                              "null"
+                            ],
+                            "format": "date"
+                          },
+                          "snapshot_quantity": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "current_lot_count": {
+                            "type": "integer"
+                          },
+                          "active_lot_count": {
+                            "type": "integer"
+                          },
+                          "current_gross_acquisition_quantity": {
+                            "type": "string"
+                          },
+                          "latest_lot_date": {
+                            "type": [
+                              "string",
+                              "null"
+                            ],
+                            "format": "date"
+                          },
+                          "status": {
+                            "enum": [
+                              "no_snapshot_quantity",
+                              "no_acquisition_lots",
+                              "lots_after_snapshot",
+                              "matches_snapshot",
+                              "acquisitions_exceed_snapshot",
+                              "snapshot_exceeds_acquisitions"
+                            ]
+                          },
+                          "snapshot_minus_gross_acquisitions": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          }
+                        }
+                      }
+                    },
+                    "position_count": {
+                      "type": "integer"
+                    },
+                    "status_counts": {
+                      "type": "object",
+                      "additionalProperties": {
+                        "type": "integer"
+                      }
+                    },
+                    "mode": {
+                      "const": "shadow"
+                    },
+                    "authoritative": {
+                      "const": false
+                    },
+                    "portfolio_changed": {
+                      "const": false
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "503": {
+            "description": "Position evidence unavailable"
+          }
+        }
       }
     },
     "/v1/position-identities/{position_id}/acquisitions": {
-      "parameters": [{ "name": "position_id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }],
+      "parameters": [
+        {
+          "name": "position_id",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      ],
       "get": {
-        "security": [{ "bearerAuth": [] }],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
         "summary": "List append-only acquisition evidence and corrections for one position",
-        "responses": { "200": { "description": "Append-only history plus current lot revisions and a gross-acquisition quantity comparison against the linked B3 snapshot. Sales, redemptions and transfers are not netted; this is not a lot-balance certification and is excluded from portfolio calculations.", "content": { "application/json": { "schema": { "type": "object", "required": ["position_id", "lots", "current_lots", "quantity_comparison", "mode", "authoritative", "portfolio_changed"], "properties": { "position_id": { "type": "string", "format": "uuid" }, "lots": { "type": "array", "items": { "type": "object" } }, "current_lots": { "type": "array", "items": { "type": "object" } }, "quantity_comparison": { "type": "object", "required": ["snapshot_as_of", "snapshot_quantity", "current_gross_acquisition_quantity", "snapshot_minus_gross_acquisitions", "status", "interpretation"], "properties": { "snapshot_as_of": { "type": ["string", "null"], "format": "date" }, "snapshot_quantity": { "type": ["string", "null"] }, "current_gross_acquisition_quantity": { "type": "string" }, "snapshot_minus_gross_acquisitions": { "type": ["string", "null"] }, "status": { "enum": ["no_snapshot_quantity", "lots_after_snapshot", "matches_snapshot", "acquisitions_exceed_snapshot", "snapshot_exceeds_acquisitions"] }, "interpretation": { "type": "string" } } }, "mode": { "const": "shadow" }, "authoritative": { "const": false }, "portfolio_changed": { "const": false } } } } } }, "404": { "description": "Position not found" } }
+        "responses": {
+          "200": {
+            "description": "Append-only history plus current lot revisions and a gross-acquisition quantity comparison against the linked B3 snapshot. Sales, redemptions and transfers are not netted; this is not a lot-balance certification and is excluded from portfolio calculations.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "position_id",
+                    "lots",
+                    "current_lots",
+                    "quantity_comparison",
+                    "mode",
+                    "authoritative",
+                    "portfolio_changed"
+                  ],
+                  "properties": {
+                    "position_id": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "lots": {
+                      "type": "array",
+                      "items": {
+                        "type": "object"
+                      }
+                    },
+                    "current_lots": {
+                      "type": "array",
+                      "items": {
+                        "type": "object"
+                      }
+                    },
+                    "quantity_comparison": {
+                      "type": "object",
+                      "required": [
+                        "snapshot_as_of",
+                        "snapshot_quantity",
+                        "current_gross_acquisition_quantity",
+                        "snapshot_minus_gross_acquisitions",
+                        "status",
+                        "interpretation"
+                      ],
+                      "properties": {
+                        "snapshot_as_of": {
+                          "type": [
+                            "string",
+                            "null"
+                          ],
+                          "format": "date"
+                        },
+                        "snapshot_quantity": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "current_gross_acquisition_quantity": {
+                          "type": "string"
+                        },
+                        "snapshot_minus_gross_acquisitions": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "status": {
+                          "enum": [
+                            "no_snapshot_quantity",
+                            "lots_after_snapshot",
+                            "matches_snapshot",
+                            "acquisitions_exceed_snapshot",
+                            "snapshot_exceeds_acquisitions"
+                          ]
+                        },
+                        "interpretation": {
+                          "type": "string"
+                        }
+                      }
+                    },
+                    "mode": {
+                      "const": "shadow"
+                    },
+                    "authoritative": {
+                      "const": false
+                    },
+                    "portfolio_changed": {
+                      "const": false
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Position not found"
+          }
+        }
       },
       "post": {
-        "security": [{ "bearerAuth": [] }],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
         "summary": "Record or correct an acquisition lot as shadow evidence",
-        "parameters": [{ "name": "X-Juanca-Actor", "in": "header", "required": true, "schema": { "type": "string" } }],
-        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["request_key", "effective_date", "quantity", "unit_price", "currency", "evidence_kind", "evidence_id"], "properties": { "request_key": { "type": "string", "minLength": 8, "maxLength": 128 }, "acquisition_id": { "type": "string", "format": "uuid" }, "supersedes_revision": { "type": "integer", "minimum": 1 }, "effective_date": { "type": "string", "format": "date" }, "quantity": { "type": "string", "pattern": "^\\d{1,18}(?:\\.\\d{1,10})?$" }, "unit_price": { "type": "string", "pattern": "^\\d{1,18}(?:\\.\\d{1,10})?$" }, "fees_minor": { "type": ["integer", "null"], "minimum": 0 }, "currency": { "enum": ["BRL", "USD"] }, "evidence_kind": { "enum": ["source_assertion", "event", "manual", "legacy_review"] }, "evidence_id": { "type": "string", "minLength": 1, "maxLength": 500 }, "voided": { "type": "boolean" } } } } } },
-        "responses": { "201": { "description": "Recorded revision; published portfolio unchanged", "content": { "application/json": { "schema": { "type": "object", "required": ["acquisition_id", "revision", "replayed", "mode", "portfolio_changed"], "properties": { "acquisition_id": { "type": "string" }, "revision": { "type": "integer" }, "replayed": { "type": "boolean" }, "mode": { "const": "shadow" }, "portfolio_changed": { "const": false } } } } } }, "409": { "description": "Idempotency or revision conflict" }, "422": { "description": "Invalid acquisition evidence" } }
+        "parameters": [
+          {
+            "name": "X-Juanca-Actor",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "request_key",
+                  "effective_date",
+                  "quantity",
+                  "unit_price",
+                  "currency",
+                  "evidence_kind",
+                  "evidence_id"
+                ],
+                "properties": {
+                  "request_key": {
+                    "type": "string",
+                    "minLength": 8,
+                    "maxLength": 128
+                  },
+                  "acquisition_id": {
+                    "type": "string",
+                    "format": "uuid"
+                  },
+                  "supersedes_revision": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "effective_date": {
+                    "type": "string",
+                    "format": "date"
+                  },
+                  "quantity": {
+                    "type": "string",
+                    "pattern": "^\\d{1,18}(?:\\.\\d{1,10})?$"
+                  },
+                  "unit_price": {
+                    "type": "string",
+                    "pattern": "^\\d{1,18}(?:\\.\\d{1,10})?$"
+                  },
+                  "fees_minor": {
+                    "type": [
+                      "integer",
+                      "null"
+                    ],
+                    "minimum": 0
+                  },
+                  "currency": {
+                    "enum": [
+                      "BRL",
+                      "USD"
+                    ]
+                  },
+                  "evidence_kind": {
+                    "enum": [
+                      "source_assertion",
+                      "event",
+                      "manual",
+                      "legacy_review"
+                    ]
+                  },
+                  "evidence_id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 500
+                  },
+                  "voided": {
+                    "type": "boolean"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Recorded revision; published portfolio unchanged",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "acquisition_id",
+                    "revision",
+                    "replayed",
+                    "mode",
+                    "portfolio_changed"
+                  ],
+                  "properties": {
+                    "acquisition_id": {
+                      "type": "string"
+                    },
+                    "revision": {
+                      "type": "integer"
+                    },
+                    "replayed": {
+                      "type": "boolean"
+                    },
+                    "mode": {
+                      "const": "shadow"
+                    },
+                    "portfolio_changed": {
+                      "const": false
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Idempotency or revision conflict"
+          },
+          "422": {
+            "description": "Invalid acquisition evidence"
+          }
+        }
       }
     },
     "/v1/position-identities/{position_id}/account-candidates": {
       "get": {
-        "security": [{ "bearerAuth": [] }],
-        "parameters": [{ "name": "position_id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "position_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
         "summary": "List custody accounts matching a provisional position owner and institution",
-        "responses": { "200": { "description": "Candidate accounts; an empty list leaves identity unresolved", "content": { "application/json": { "schema": { "type": "object" } } } }, "404": { "description": "Position not found" } }
+        "responses": {
+          "200": {
+            "description": "Candidate accounts; an empty list leaves identity unresolved",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Position not found"
+          }
+        }
       }
     },
     "/v1/position-identities/{position_id}/resolutions": {
       "post": {
-        "security": [{ "bearerAuth": [] }],
-        "parameters": [{ "name": "position_id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }, { "name": "X-Juanca-Actor", "in": "header", "required": true, "schema": { "type": "string" } }],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "position_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "X-Juanca-Actor",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
         "summary": "Record an audited account assignment after review",
-        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["request_key", "custody_account_id", "decision"], "properties": { "request_key": { "type": "string", "minLength": 8, "maxLength": 128 }, "custody_account_id": { "type": "string" }, "assertion_id": { "type": "string" }, "decision": { "enum": ["user_confirmed", "institution_uniqueness_confirmed"] } } } } } },
-        "responses": { "201": { "description": "Resolution recorded; does not change published portfolio" }, "403": { "description": "Reviewer membership required" }, "409": { "description": "Conflict or non-unique account" }, "422": { "description": "Account does not match position owner or institution" } }
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "request_key",
+                  "custody_account_id",
+                  "decision"
+                ],
+                "properties": {
+                  "request_key": {
+                    "type": "string",
+                    "minLength": 8,
+                    "maxLength": 128
+                  },
+                  "custody_account_id": {
+                    "type": "string"
+                  },
+                  "assertion_id": {
+                    "type": "string"
+                  },
+                  "decision": {
+                    "enum": [
+                      "user_confirmed",
+                      "institution_uniqueness_confirmed"
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Resolution recorded; does not change published portfolio"
+          },
+          "403": {
+            "description": "Reviewer membership required"
+          },
+          "409": {
+            "description": "Conflict or non-unique account"
+          },
+          "422": {
+            "description": "Account does not match position owner or institution"
+          }
+        }
       }
     },
     "/v1/positions": {
@@ -794,19 +1865,45 @@
               "application/json": {
                 "schema": {
                   "type": "object",
-                  "required": ["accounts"],
+                  "required": [
+                    "accounts"
+                  ],
                   "properties": {
                     "accounts": {
                       "type": "array",
                       "items": {
                         "type": "object",
-                        "required": ["id", "owner_id", "owner", "identity_status", "account_scope"],
+                        "required": [
+                          "id",
+                          "owner_id",
+                          "owner",
+                          "identity_status",
+                          "account_scope"
+                        ],
                         "properties": {
-                          "id": {"type": "string", "minLength": 1},
-                          "owner_id": {"type": "string", "minLength": 1},
-                          "owner": {"type": "string", "minLength": 1},
-                          "identity_status": {"type": "string", "enum": ["known", "unresolved"]},
-                          "account_scope": {"type": "string", "minLength": 1}
+                          "id": {
+                            "type": "string",
+                            "minLength": 1
+                          },
+                          "owner_id": {
+                            "type": "string",
+                            "minLength": 1
+                          },
+                          "owner": {
+                            "type": "string",
+                            "minLength": 1
+                          },
+                          "identity_status": {
+                            "type": "string",
+                            "enum": [
+                              "known",
+                              "unresolved"
+                            ]
+                          },
+                          "account_scope": {
+                            "type": "string",
+                            "minLength": 1
+                          }
                         },
                         "additionalProperties": false
                       }
@@ -1010,10 +2107,33 @@
     },
     "/v1/evidence/text": {
       "get": {
-        "security": [{"bearerAuth": []}],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
         "summary": "List recent written evidence and local interpretations for review",
-        "parameters": [{"name":"limit","in":"query","required":false,"schema":{"type":"integer","minimum":1,"maximum":100,"default":50}}],
-        "responses": {"200":{"description":"Recent evidence; read-only and does not change portfolio facts"},"422":{"description":"Invalid limit"}}
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 50
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Recent evidence; read-only and does not change portfolio facts"
+          },
+          "422": {
+            "description": "Invalid limit"
+          }
+        }
       },
       "post": {
         "security": [
@@ -1096,10 +2216,36 @@
     },
     "/v1/evidence/photos": {
       "get": {
-        "security": [{"bearerAuth": []}],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
         "summary": "List recent manually uploaded photos and saved OCR/trade interpretations",
-        "parameters": [{"name":"limit","in":"query","required":false,"schema":{"type":"integer","minimum":1,"maximum":100,"default":50}}],
-        "responses": {"200":{"description":"Household-scoped photo metadata, versioned OCR and append-only deterministic manual-trade parser interpretations when OCR is available. Interpretations require human review and never apply portfolio facts."},"422":{"description":"Invalid limit"},"503":{"description":"Ingestion service unavailable"}}
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 50
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Household-scoped photo metadata, versioned OCR and append-only deterministic manual-trade parser interpretations when OCR is available. Interpretations require human review and never apply portfolio facts."
+          },
+          "422": {
+            "description": "Invalid limit"
+          },
+          "503": {
+            "description": "Ingestion service unavailable"
+          }
+        }
       },
       "post": {
         "security": [
@@ -1177,9 +2323,26 @@
     },
     "/v1/evidence/photos/{id}/content": {
       "get": {
-        "security": [{"bearerAuth": []}],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
         "summary": "Read a stored manual photo after household and content-hash verification",
-        "responses": {"200":{"description":"Verified image bytes from private ingestion storage"},"404":{"description":"Photo not found in this household"},"409":{"description":"Photo is not stored yet"},"502":{"description":"Image hash verification failed"}}
+        "responses": {
+          "200": {
+            "description": "Verified image bytes from private ingestion storage"
+          },
+          "404": {
+            "description": "Photo not found in this household"
+          },
+          "409": {
+            "description": "Photo is not stored yet"
+          },
+          "502": {
+            "description": "Image hash verification failed"
+          }
+        }
       },
       "put": {
         "security": [
@@ -1339,6 +2502,233 @@
           },
           "404": {
             "description": "Not found"
+          }
+        }
+      }
+    },
+    "/v1/confirmations": {
+      "get": {
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "List household confirmation items and append-only decisions",
+        "parameters": [
+          {
+            "name": "status",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "open",
+                "resolved"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Confirmation items scoped to the configured household"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "422": {
+            "description": "Invalid status"
+          }
+        }
+      },
+      "post": {
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "Create an idempotent, audited confirmation item",
+        "description": "Requires a household owner or approver and JUANCA_CONFIRMATIONS_WRITABLE=true. Duplicate source keys replay only when the submitted content matches. Does not change portfolio facts.",
+        "parameters": [
+          {
+            "name": "X-Juanca-Actor",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "owner",
+                  "category",
+                  "title",
+                  "source_key",
+                  "context",
+                  "evidence",
+                  "actions"
+                ],
+                "properties": {
+                  "owner": {
+                    "type": "string",
+                    "enum": [
+                      "Jorge",
+                      "Julia",
+                      "Sin identificar"
+                    ]
+                  },
+                  "category": {
+                    "type": "string",
+                    "maxLength": 60
+                  },
+                  "title": {
+                    "type": "string",
+                    "maxLength": 240
+                  },
+                  "source_key": {
+                    "type": "string",
+                    "maxLength": 240
+                  },
+                  "context": {
+                    "type": "object"
+                  },
+                  "evidence": {
+                    "type": "array",
+                    "maxItems": 50,
+                    "items": {
+                      "type": "string",
+                      "maxLength": 1000
+                    }
+                  },
+                  "actions": {
+                    "type": "array",
+                    "minItems": 2,
+                    "maxItems": 12,
+                    "items": {
+                      "type": "object",
+                      "required": [
+                        "key",
+                        "label"
+                      ],
+                      "properties": {
+                        "key": {
+                          "type": "string",
+                          "pattern": "^[a-z0-9_-]{1,80}$"
+                        },
+                        "label": {
+                          "type": "string",
+                          "maxLength": 180
+                        },
+                        "description": {
+                          "type": "string",
+                          "maxLength": 600
+                        },
+                        "keeps_open": {
+                          "type": "boolean"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Created or idempotent replay"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Actor is not a household member"
+          },
+          "405": {
+            "description": "Confirmation writes are disabled"
+          },
+          "409": {
+            "description": "Idempotency key reused with different content"
+          },
+          "422": {
+            "description": "Invalid confirmation item"
+          }
+        }
+      }
+    },
+    "/v1/confirmations/{id}/decisions": {
+      "post": {
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "Record an append-only confirmation decision",
+        "description": "Requires a household member and JUANCA_CONFIRMATIONS_WRITABLE=true. A decision does not apply or modify portfolio movements.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 240
+            }
+          },
+          {
+            "name": "X-Juanca-Actor",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "action_key"
+                ],
+                "properties": {
+                  "action_key": {
+                    "type": "string",
+                    "pattern": "^[a-z0-9_-]{1,80}$"
+                  },
+                  "note": {
+                    "type": "string",
+                    "maxLength": 1000
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Decision recorded"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Actor is not a household member"
+          },
+          "405": {
+            "description": "Confirmation writes are disabled"
+          },
+          "409": {
+            "description": "Item is resolved"
+          },
+          "422": {
+            "description": "Invalid action or request"
           }
         }
       }

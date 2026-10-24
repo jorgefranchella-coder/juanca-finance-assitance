@@ -91,9 +91,10 @@ export default function B3ReconciliationPanel() {
         actions: intakeActions,
       })));
     if (pending.length) {
-      await Promise.allSettled(pending.map((item) => fetch("/api/portfolio/confirmations", {
+      const confirmationResponses = await Promise.all(pending.map((item) => fetch("/api/shadow/confirmations", {
         method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(item),
       })));
+      if (confirmationResponses.some((response) => !response.ok)) throw new Error("No se pudieron guardar todas las diferencias en la base PostgreSQL de confirmaciones.");
       window.dispatchEvent(new Event("confirmations-updated"));
     }
     return data;

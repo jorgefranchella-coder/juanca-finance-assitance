@@ -93,9 +93,9 @@ export default function TabbedWorkspace() {
 
       <section className="tab-panel" role="tabpanel" aria-label={current.label}>
         {active === "overview" && <DashboardMetrics />}
-        {active === "reviews" && <><ConfirmationQueue /><ReviewPanel /><ManualIntakePanel /><ManualB3Candidates /><ManualPhotoPanel /><B3SnapshotPublicationPanel /><ExternalSnapshotPublicationPanel /><B3ReconciliationPanel /><AcquisitionReconciliationPanel /></>}
+        {active === "reviews" && <><ConfirmationQueue endpoint="/api/shadow/confirmations" /><ReviewPanel /><ManualIntakePanel /><ManualB3Candidates /><ManualPhotoPanel /><B3SnapshotPublicationPanel /><ExternalSnapshotPublicationPanel /><B3ReconciliationPanel /><AcquisitionReconciliationPanel /></>}
         {active === "assistant" && <TransactionChat key={`${prefill?.owner??"manual"}:${prefill?.message??""}`} prefill={prefill} />}
-        {active === "postgres-shadow" && <><ShadowPortfolioPanel /><ShadowMarketPanel /><ConfirmationQueue endpoint="/api/shadow/confirmations" shadow /><FixedIncomeProjection endpoint="/api/shadow/fixed-income-projection" shadow /><JuancaChat shadow /><ShadowProposalWorkspace /></>}
+        {active === "postgres-shadow" && <><ShadowPortfolioPanel /><ShadowMarketPanel /><FixedIncomeProjection endpoint="/api/shadow/fixed-income-projection" shadow /><JuancaChat shadow /><ShadowProposalWorkspace /></>}
         {active === "juanca" && <JuancaChat />}
         {active === "imports" && <DataImportPanel />}
         {active === "fixed-income" && <FixedIncomeProjection />}

@@ -1,6 +1,35 @@
 import type pg from 'pg';
 import { Conflict } from './commands.ts';
 
+type ConfirmationInput={owner:string;category:string;title:string;source_key:string;context:Record<string,unknown>;evidence:string[];actions:Array<{key:string;label:string;description?:string;keeps_open?:boolean}>};
+const stable=(value:any):any=>Array.isArray(value)?value.map(stable):value&&typeof value==='object'?Object.fromEntries(Object.keys(value).sort().map(key=>[key,stable(value[key])])):value;
+function validateConfirmation(input:unknown):ConfirmationInput{
+ if(!input||typeof input!=='object'||Array.isArray(input))throw new Conflict('VALIDATION',422);
+ const v=input as Record<string,unknown>,owner=typeof v.owner==='string'?v.owner:'',category=typeof v.category==='string'?v.category.trim():'',title=typeof v.title==='string'?v.title.trim():'',source_key=typeof v.source_key==='string'?v.source_key.trim():'';
+ const context=v.context,evidence=v.evidence,actions=v.actions;
+ if(!['Jorge','Julia','Sin identificar'].includes(owner)||!category||category.length>60||!title||title.length>240||!source_key||source_key.length>240||/[\u0000-\u001f\u007f]/.test(source_key)||!context||typeof context!=='object'||Array.isArray(context)||JSON.stringify(context).length>8000||!Array.isArray(evidence)||evidence.length>50||evidence.some(x=>typeof x!=='string'||x.length>1000)||!Array.isArray(actions)||actions.length<2||actions.length>12)throw new Conflict('VALIDATION',422);
+ const valid=actions.every(a=>a&&typeof a==='object'&&!Array.isArray(a)&&typeof a.key==='string'&&/^[a-z0-9_-]{1,80}$/.test(a.key)&&typeof a.label==='string'&&a.label.length>0&&a.label.length<=180&&(a.description===undefined||typeof a.description==='string'&&a.description.length<=600)&&(a.keeps_open===undefined||typeof a.keeps_open==='boolean'));
+ if(!valid||new Set(actions.map(a=>a.key)).size!==actions.length)throw new Conflict('VALIDATION',422);
+ return {owner,category,title,source_key,context:context as Record<string,unknown>,evidence:evidence as string[],actions:actions as ConfirmationInput['actions']};
+}
+
+export async function createConfirmation(db:pg.Pool,household:string,actor:string,input:unknown){
+ if(!actor)throw new Conflict('FORBIDDEN',403);const item=validateConfirmation(input),c=await db.connect();
+ try{
+  await c.query('BEGIN');
+  const member=await c.query('SELECT 1 FROM app.memberships WHERE household_id=$1 AND actor_id=$2',[household,actor]);if(!member.rowCount)throw new Conflict('FORBIDDEN',403);
+  const id=crypto.randomUUID();
+  const inserted=await c.query(`INSERT INTO app.confirmation_items(household_id,id,source_key,owner,category,title,context,evidence,actions,status,created_at,updated_at)
+   VALUES($1,$2,$3,$4,$5,$6,$7::jsonb,$8::jsonb,$9::jsonb,'open',now(),now()) ON CONFLICT(household_id,source_key) DO NOTHING RETURNING id,status`,[household,id,item.source_key,item.owner,item.category,item.title,JSON.stringify(item.context),JSON.stringify(item.evidence),JSON.stringify(item.actions)]);
+  if(inserted.rowCount){await c.query(`INSERT INTO app.audit_log(household_id,actor_id,action,resource_id,details) VALUES($1,$2,'confirmation_created',$3,$4)`,[household,actor,id,{source_key:item.source_key,category:item.category}]);await c.query('COMMIT');return {saved:true,duplicate:false,id,status:'open'};}
+  const existing=await c.query('SELECT id,status,owner,category,title,context,evidence,actions FROM app.confirmation_items WHERE household_id=$1 AND source_key=$2',[household,item.source_key]);
+  if(!existing.rowCount)throw new Conflict('CONFIRMATION_RETRY',409);const row=existing.rows[0];
+  const same=row.owner===item.owner&&row.category===item.category&&row.title===item.title&&JSON.stringify(stable(row.context))===JSON.stringify(stable(item.context))&&JSON.stringify(stable(row.evidence))===JSON.stringify(stable(item.evidence))&&JSON.stringify(stable(row.actions))===JSON.stringify(stable(item.actions));
+  if(!same)throw new Conflict('IDEMPOTENCY_MISMATCH',409);
+  await c.query('COMMIT');return {saved:true,duplicate:true,id:row.id,status:row.status};
+ }catch(error){await c.query('ROLLBACK');throw error;}finally{c.release();}
+}
+
 export async function listConfirmations(db:pg.Pool,household:string,status?:string){
  if(status&&!['open','resolved'].includes(status))throw new Conflict('VALIDATION',422);
  const r=await db.query(`SELECT i.id,i.owner,i.category,i.title,i.context,i.evidence,i.actions,i.source_key,i.status,i.created_at,i.updated_at,

@@ -21,7 +21,7 @@ import {listB3DuplicateMovementCandidates,recordB3DuplicateMovementDecision} fro
 import {publishB3PositionSnapshot,listB3PositionSnapshots} from '../src/b3-snapshot-publications.ts';
 import {publishExternalPositionSnapshot,listExternalPositionSnapshots} from '../src/external-snapshot-publications.ts';
 import {fixedIncomeProjection} from '../src/fixed-income.ts';
-import {listConfirmations,recordConfirmationDecision} from '../src/confirmations.ts';
+import {createConfirmation,listConfirmations,recordConfirmationDecision} from '../src/confirmations.ts';
 const database='juanca_test_'+randomUUID().replaceAll('-','');
 const admin=pool('jorge','postgres');const db=pool('juanca_app',database);const migrator=pool('jorge',database);
 before(async()=>{assert.match(database,/^juanca_test_[0-9a-f]+$/);await admin.query('CREATE DATABASE "'+database+'"');await migrator.query(await readFile(new URL('../../../infra/postgres/roles.sql',import.meta.url),'utf8'));await migrate(db);});
@@ -63,6 +63,17 @@ test('PostgreSQL confirmation decisions preserve audit history and enforce allow
  await recordConfirmationDecision(db,h,actor,id,{action_key:'accept',note:'Cierre'});
  const result=await listConfirmations(db,h,'resolved');assert.equal(result.items[0].decisions.length,2);assert.equal(result.items[0].decision.action_key,'accept');
  await assert.rejects(()=>recordConfirmationDecision(db,h,actor,id,{action_key:'accept'}),(e:unknown)=>e instanceof Conflict&&e.code==='ALREADY_RESOLVED');
+});
+test('PostgreSQL confirmation creation is idempotent, audited and independent from portfolio facts',async()=>{
+ const h='confirmation-create-'+randomUUID(),actor='confirmation-create-actor-'+randomUUID(),source=`test:${randomUUID()}`;
+ await db.query('INSERT INTO app.households VALUES($1)',[h]);await db.query('INSERT INTO app.actors VALUES($1,$2)',[actor,'Confirmation creator']);await db.query("INSERT INTO app.memberships VALUES($1,$2,'approver')",[h,actor]);await db.query('INSERT INTO app.household_state(household_id) VALUES($1)',[h]);
+ const input={owner:'Jorge',category:'Conciliación B3',title:'Revisar diferencia de unidades',source_key:source,context:{instrumento:'TEST11',cantidad:2},evidence:['Snapshot A → B'],actions:[{key:'confirm',label:'Confirmar'},{key:'dismiss',label:'Descartar'}]};
+ const first=await createConfirmation(db,h,actor,input),replay=await createConfirmation(db,h,actor,{...input,context:{cantidad:2,instrumento:'TEST11'}});
+ assert.equal(first.duplicate,false);assert.equal(replay.duplicate,true);assert.equal(replay.id,first.id);assert.equal((await listConfirmations(db,h)).open_count,1);
+ await assert.rejects(()=>createConfirmation(db,h,actor,{...input,title:'Otra diferencia'}),(e:unknown)=>e instanceof Conflict&&e.code==='IDEMPOTENCY_MISMATCH');
+ await assert.rejects(()=>createConfirmation(db,h,'not-a-member',input),(e:unknown)=>e instanceof Conflict&&e.code==='FORBIDDEN');
+ assert.equal((await db.query('SELECT count(*) FROM app.audit_log WHERE household_id=$1 AND action=\'confirmation_created\'',[h])).rows[0].count,'1');
+ assert.equal((await db.query('SELECT facts_revision FROM app.household_state WHERE household_id=$1',[h])).rows[0].facts_revision,'0');
 });
 test('overlapping B3 movement decisions are append-only, idempotent review evidence',async()=>{
  const h='b3-overlap-'+randomUUID(),actor='reviewer-'+randomUUID();
@@ -318,6 +329,7 @@ test('HTTP contract validates authenticated immutable views, cursor pages, error
   const forged=await fetch(base+chatPath,{method:'POST',headers:{...headers,'Content-Type':'application/json',Origin:'http://evil.local'},body:JSON.stringify(chatBody)});assert.equal(forged.status,403);
   const financial=(await db.query('SELECT count(*) FROM app.events WHERE household_id=$1',[h])).rows[0].count;assert.equal(financial,'0');
   const write=await fetch(base+'/v1/proposals/p1/approve',{method:'POST',headers});assert.equal(write.status,405);const error=await write.json() as {code:string};validate('Error',error);assert.equal(error.code,'SHADOW_READ_ONLY');
+  const confirmationWrite=await fetch(base+'/v1/confirmations',{method:'POST',headers:{...headers,'Content-Type':'application/json','X-Juanca-Actor':commandActor},body:JSON.stringify({owner:'Jorge',category:'Fixture',title:'Read-only gate',source_key:'fixture:read-only',context:{},evidence:[],actions:[{key:'yes',label:'Sí'},{key:'no',label:'No'}]})});assert.equal(confirmationWrite.status,405);const confirmationError=await confirmationWrite.json() as {code:string};assert.equal(confirmationError.code,'SHADOW_READ_ONLY');
  }finally{child.kill('SIGTERM');await once(child,'exit');await rm(dir,{recursive:true,force:true});}
 });
 
