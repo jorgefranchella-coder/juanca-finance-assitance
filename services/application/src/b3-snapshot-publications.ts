@@ -8,6 +8,7 @@ const KEY=/^[A-Za-z0-9._:-]{8,128}$/;
 type Raw=Record<string,unknown>;
 const sha=(value:string)=>createHash('sha256').update(value).digest('hex');
 const clean=(value:unknown)=>String(value??'').trim().replace(/\s+/g,' ');
+const isoDate=(value:unknown)=>{const text=clean(value),br=/^(\d{2})\/(\d{2})\/(\d{4})$/.exec(text),date=br?`${br[3]}-${br[2]}-${br[1]}`:text;if(!/^\d{4}-\d{2}-\d{2}$/.test(date))return null;const parsed=new Date(`${date}T00:00:00Z`);return Number.isFinite(parsed.getTime())&&parsed.toISOString().slice(0,10)===date?date:null;};
 const normalized=(value:unknown)=>clean(value).normalize('NFD').replace(/[\u0300-\u036f]/g,'').toUpperCase().replace(/[^A-Z0-9]+/g,' ').trim().replace(/\s+/g,' ');
 const assetClass:Record<string,string>={Acoes:'equity',BDR:'bdr',ETF:'etf','Fundo de Investimento':'fund','Renda Fixa':'fixed_income','Tesouro Direto':'treasury'};
 
@@ -121,7 +122,7 @@ export async function publishB3PositionSnapshot(db:pg.Pool,household:string,acto
    const market=localized(raw['Valor Atualizado MTM'])??localized(raw['Valor Atualizado FECHAMENTO'])??localized(raw['Valor Atualizado CURVA'])??localized(raw['Valor Atualizado']);
    const price=localized(raw['Preço Atualizado MTM'])??localized(raw['Preço Atualizado FECHAMENTO'])??localized(raw['Preço Atualizado CURVA'])??localized(raw['Preço de Fechamento']);
    if(!market)throw new Conflict('POSITION_MARKET_VALUE_MISSING',422);
-   const parsed={kind:'position',owner:ownerName,asset_class:assetClass[String(row.source_sheet)],product_name:clean(raw.Produto)||String(row.instrument_code),institution:String(row.canonical_name??raw.Instituição??''),account:clean(raw.Conta)||null,instrument_code:String(row.instrument_code),isin:clean(raw['Código ISIN / Distribuição'])||null,issuer:clean(raw.Emissor)||null,quantity:String(row.quantity),unit_price:price?.toFixed()??'0',market_value_cents:minor(market.mul(100)),maturity_date:raw.Vencimento??null,reference_date:cut,source_sheet:String(row.source_sheet),source_row:Number(row.source_row),raw};
+   const parsed={kind:'position',owner:ownerName,asset_class:assetClass[String(row.source_sheet)],product_name:clean(raw.Produto)||String(row.instrument_code),institution:String(row.canonical_name??raw.Instituição??''),account:clean(raw.Conta)||null,instrument_code:String(row.instrument_code),isin:clean(raw['Código ISIN / Distribuição'])||null,issuer:clean(raw.Emissor)||null,quantity:String(row.quantity),unit_price:price?.toFixed()??'0',market_value_cents:minor(market.mul(100)),maturity_date:isoDate(raw.Vencimento),reference_date:cut,source_sheet:String(row.source_sheet),source_row:Number(row.source_row),raw};
    const record={id:recordId,import_id:importId,user_id:household,record_kind:'position',payload:JSON.stringify(parsed)};
    await insertReceived('import_records',String(recordId),record,nextOrdinal+recordOrdinal);
    const snapshotId=`${importId}:${recordId}`;

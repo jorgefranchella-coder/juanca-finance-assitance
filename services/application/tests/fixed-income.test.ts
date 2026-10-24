@@ -17,6 +17,16 @@ test('shadow fixed-income projection rebuilds historical prices and current hold
  assert.equal(result.authoritative,false);
 });
 
+test('published B3 maturity dates in Brazilian day/month/year format are normalized for projection',async()=>{
+ const owner='Fixture',archived=[
+  {run_id:'run-old',import:{id:'old',owner,status:'processed',file_type:'positions',reference_date:'2026-01-01',created_at:'2026-01-02'},record:{id:1,record_kind:'position',payload:JSON.stringify({owner,asset_class:'fixed_income',instrument_code:'DATECDB',quantity:'2',unit_price:'10000',market_value_cents:'2000000',maturity_date:'01/10/2027',reference_date:'2026-01-01'})}},
+  {run_id:'run-new',import:{id:'new',owner,status:'processed',file_type:'positions',reference_date:'2026-10-01',created_at:'2026-10-02'},record:{id:2,record_kind:'position',payload:JSON.stringify({owner,asset_class:'fixed_income',instrument_code:'DATECDB',quantity:'2',unit_price:'10500',market_value_cents:'2100000',maturity_date:'01/10/2027',reference_date:'2026-10-01'})}},
+ ];
+ const responses=[archived,[],[],[]];let call=0;const fake={query:async()=>({rows:responses[call++]??[],rowCount:0})} as never;
+ const result=await fixedIncomeProjection(fake,'household-test'),cdb=result.items.find(item=>item.instrument_code==='DATECDB')!;
+ assert.equal(cdb.maturity_date,'2027-10-01');assert.notEqual(cdb.projected_value_cents,null);assert.notEqual(cdb.reason,'Data de vencimento não disponível.');
+});
+
 test('confirmed sheet acquisition cost requires one resolved account, matching quantity and historical date',async()=>{
  const owner='Fixture';
  const archived=[{run_id:'run',import:{id:'current',owner,status:'processed',file_type:'positions',reference_date:'2026-10-01',created_at:'2026-10-02'},record:{id:1,record_kind:'position',payload:JSON.stringify({owner,asset_class:'fixed_income',instrument_code:'SHEETCDB',institution:'Custodian',currency:'BRL',quantity:'2',unit_price:'10500',market_value_cents:'2100000',maturity_date:'2028-01-01',reference_date:'2026-10-01'})}}];

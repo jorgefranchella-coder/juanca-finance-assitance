@@ -6,6 +6,7 @@ const fixedClasses=new Set(['fixed_income','treasury','international_fixed_incom
 function code(value:unknown){return String(value??'').trim().toUpperCase().replace(/^(BVMF|NASDAQ|NYSE|NYSEARCA):/,'');}
 function institutionCode(value:unknown){return String(value??'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toUpperCase().replace(/[^A-Z0-9]+/g,' ').trim().replace(/\s+(?:SA|S A|LTDA|EIRELI)$/,'').replace(/\s+/g,' ');}
 function number(value:unknown){if(typeof value==='number')return Number.isFinite(value)?value:0;if(typeof value!=='string'||!value.trim()||value.trim()==='-')return 0;const s=value.replace(/R\$/g,'').replace(/\s/g,'');const n=Number(s.includes(',')?s.replace(/\./g,'').replace(',','.'):s);return Number.isFinite(n)?n:0;}
+function isoDate(value:unknown){const text=value instanceof Date&&!Number.isNaN(value.getTime())?value.toISOString().slice(0,10):String(value??'').trim();const br=/^(\d{2})\/(\d{2})\/(\d{4})$/.exec(text);const result=br?`${br[3]}-${br[2]}-${br[1]}`:text;if(!/^\d{4}-\d{2}-\d{2}$/.test(result))return null;const parsed=new Date(`${result}T00:00:00Z`);return Number.isFinite(parsed.getTime())&&parsed.toISOString().slice(0,10)===result?result:null;}
 function valuation(item:Record<string,unknown>){
  const raw=(item.raw&&typeof item.raw==='object'?item.raw:{}) as Record<string,unknown>;
  const candidates:[[unknown,unknown,string],[unknown,unknown,string],[unknown,unknown,string],[unknown,unknown,string]]=[
@@ -34,7 +35,7 @@ export async function fixedIncomeProjection(db:pg.Pool,household:string){
  for(const row of archived.rows as ArchivedRow[]){const i=row.import;if(i.status!=='processed'||!['positions','pension_statement'].includes(String(i.file_type))||row.record.record_kind!=='position')continue;
   const item=payload(row),asset=String(item.asset_class??'');if(!fixedClasses.has(asset))continue;
   const owner=String(item.owner??i.owner??''),instrument=code(item.instrument_code||item.product_name),raw=(item.raw&&typeof item.raw==='object'?item.raw:{}) as Record<string,unknown>,issuer=String(item.issuer??raw.Emissor??raw.Emisor??'').trim();
-  const date=String(item.reference_date??i.reference_date??''),quantity=number(item.quantity),maturityDate=String(item.maturity_date??''),value=valuation(item),derived=value.unit_price>0?value.unit_price:quantity>0?value.market_value_cents/100/quantity:0;
+  const date=String(item.reference_date??i.reference_date??''),quantity=number(item.quantity),maturityDate=isoDate(item.maturity_date)??'',value=valuation(item),derived=value.unit_price>0?value.unit_price:quantity>0?value.market_value_cents/100/quantity:0;
   if(!owner||!instrument||!/^\d{4}-\d{2}-\d{2}$/.test(date)||quantity<=0||derived<=0)continue;
   const currency=String(item.currency??'BRL'),institution=String(item.institution??'').trim(),account=item.account==null||!String(item.account).trim()?null:String(item.account).trim(),key=JSON.stringify([owner,institution,account,instrument,currency]),isCurrent=latest.get(`${i.owner}\0${i.file_type}`)?.id===String(i.id),observation={date,unitPrice:derived,source:value.price_source};
   const current=groups.get(key);
