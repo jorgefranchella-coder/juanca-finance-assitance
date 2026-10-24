@@ -5,7 +5,7 @@ export type FixedIncomeGroup = {
   quantity: number; maturityDate: string; latestDate: string; currentUnitPrice: number;
   currentValueCents: number; priceSource: string; observations: PriceObservation[]; isCurrent: boolean;
 };
-export type CostBasisPoint = { owner: string; instrument_code: string; average_unit_cost: number; as_of: string; source?: string };
+export type CostBasisPoint = { owner: string; instrument_code: string; average_unit_cost: number; as_of: string; source?: string; currency?: string; quantity?: number; source_verified?: boolean };
 
 export type ProjectionResult = {
   observationCount: number;
@@ -84,9 +84,15 @@ export function buildFixedIncomeProjectionItems(groups: Iterable<FixedIncomeGrou
     const costKey = `${group.owner}\0${codeKey(group.instrumentCode)}`;
     const cost = costCandidates.get(costKey) === 1 ? costMap.get(costKey) : undefined;
     const ambiguousCost = costCandidates.get(costKey)! > 1 && costMap.has(costKey);
-    const unverifiedSheetCost = cost?.source?.startsWith("google_sheet:") ? cost : undefined;
-    if (cost && !unverifiedSheetCost && Number(cost.average_unit_cost) > 0 && cost.as_of < group.latestDate) {
-      observations.push({ date: cost.as_of, unitPrice: Number(cost.average_unit_cost), source: cost.source || "cost_basis" });
+    const sheetCost = cost?.source?.startsWith("google_sheet:") ? cost : undefined;
+    const sheetQuantityMatches = sheetCost && Number.isFinite(Number(sheetCost.quantity))
+      && Math.abs(Number(sheetCost.quantity) - group.quantity) <= Math.max(0.000001, Math.abs(group.quantity) * 1e-8);
+    const verifiedSheetCost = sheetCost?.source_verified === true && sheetCost.currency === group.currency && sheetQuantityMatches
+      ? sheetCost : undefined;
+    const unverifiedSheetCost = sheetCost && !verifiedSheetCost ? sheetCost : undefined;
+    const applicableCost = sheetCost ? verifiedSheetCost : cost;
+    if (applicableCost && Number(applicableCost.average_unit_cost) > 0 && applicableCost.as_of < group.latestDate) {
+      observations.push({ date: applicableCost.as_of, unitPrice: Number(applicableCost.average_unit_cost), source: applicableCost.source || "cost_basis" });
     }
     const projection = fixedIncomeProjection(observations, group.maturityDate, group.latestDate);
     const projectedValueCents = projection.projectedUnitPrice === null
@@ -96,11 +102,11 @@ export function buildFixedIncomeProjectionItems(groups: Iterable<FixedIncomeGrou
       && group.observations.some((item) => item.source === "b3_curve");
     const excludedObservationSources = unverifiedSheetCost?.source ? [unverifiedSheetCost.source] : [];
     const hasUnverifiedSheetSource = excludedObservationSources.length > 0
-      || observationSources.some((source) => source.startsWith("google_sheet:"));
+      || group.observations.some((item) => item.source.startsWith("google_sheet:"));
     return [{
       owner: group.owner, account: group.account, instrument_code: group.instrumentCode, product_name: group.productName,
       institution: group.institution, issuer: group.issuer || "Emissor não identificado",
-      asset_class: group.assetClass, quantity: group.quantity,
+      asset_class: group.assetClass, currency: group.currency, quantity: group.quantity,
       maturity_date: group.maturityDate, reference_date: group.latestDate,
       current_unit_price: group.currentUnitPrice, current_value_cents: group.currentValueCents,
       price_source: group.priceSource, projected_value_cents: projectedValueCents,

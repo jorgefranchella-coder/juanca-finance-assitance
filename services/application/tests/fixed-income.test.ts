@@ -17,6 +17,23 @@ test('shadow fixed-income projection rebuilds historical prices and current hold
  assert.equal(result.authoritative,false);
 });
 
+test('confirmed sheet acquisition cost requires one resolved account, matching quantity and historical date',async()=>{
+ const owner='Fixture';
+ const archived=[{run_id:'run',import:{id:'current',owner,status:'processed',file_type:'positions',reference_date:'2026-10-01',created_at:'2026-10-02'},record:{id:1,record_kind:'position',payload:JSON.stringify({owner,asset_class:'fixed_income',instrument_code:'SHEETCDB',institution:'Custodian',currency:'BRL',quantity:'2',unit_price:'10500',market_value_cents:'2100000',maturity_date:'2028-01-01',reference_date:'2026-10-01'})}}];
+ const sheet=[{cost:{owner,instrument_code:'SHEETCDB',currency:'BRL',quantity:2,average_unit_cost:9000,as_of:'2025-10-01',source:'google_sheet:confirmed'},resolved_accounts:1}];
+ const responses=[archived,[],[],sheet];let call=0;const fake={query:async()=>({rows:responses[call++]??[],rowCount:0})} as never;
+ const result=await fixedIncomeProjection(fake,'household-test'),cdb=result.items.find(item=>item.instrument_code==='SHEETCDB')!;
+ assert.equal(result.cost_basis_diagnostics.verified,1);assert.equal(cdb.firstDate,'2025-10-01');assert.ok(cdb.observation_sources.includes('google_sheet:confirmed'));assert.equal(cdb.has_unverified_sheet_source,false);
+});
+
+test('sheet cost with a quantity mismatch is excluded from the projection',async()=>{
+ const owner='Fixture';const archived=[{run_id:'run',import:{id:'current',owner,status:'processed',file_type:'positions',reference_date:'2026-10-01',created_at:'2026-10-02'},record:{id:1,record_kind:'position',payload:JSON.stringify({owner,asset_class:'fixed_income',instrument_code:'SHEETCDB',institution:'Custodian',currency:'BRL',quantity:'2',unit_price:'10500',market_value_cents:'2100000',maturity_date:'2028-01-01',reference_date:'2026-10-01'})}}];
+ const sheet=[{cost:{owner,instrument_code:'SHEETCDB',currency:'BRL',quantity:3,average_unit_cost:9000,as_of:'2025-10-01',source:'google_sheet:confirmed'},resolved_accounts:1}];
+ const responses=[archived,[],[],sheet];let call=0;const fake={query:async()=>({rows:responses[call++]??[],rowCount:0})} as never;
+ const result=await fixedIncomeProjection(fake,'household-test'),cdb=result.items.find(item=>item.instrument_code==='SHEETCDB')!;
+ assert.equal(result.cost_basis_diagnostics.quantity_mismatch,1);assert.equal(cdb.observation_sources.includes('google_sheet:confirmed'),false);assert.equal(cdb.has_unverified_sheet_source,true);
+});
+
 test('resolved acquisition lots add account-scoped cost observations and supersede accountless legacy costs',async()=>{
  const owner='Fixture';
  const archived=[

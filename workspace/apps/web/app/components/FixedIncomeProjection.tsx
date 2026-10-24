@@ -20,6 +20,7 @@ type ProjectionResponse = {
     projected_gain_cents: number; coverage: number; projected_count: number; total_count: number };
   items: ProjectionItem[];
   acquisition_lot_diagnostics?: { active_lots: number; voided_lots: number; account_unresolved: number; no_current_position: number; ambiguous_position: number; invalid_or_not_historical: number; used_lots: number };
+  cost_basis_diagnostics?: { total: number; google_sheet: number; verified: number; unmatched: number; ambiguous: number; account_unresolved: number; quantity_mismatch: number; date_invalid: number; superseded_by_acquisition_lot: number; other_source: number };
   methodology: string;
 };
 type IssuerGroup = { key: string; owner: string; issuer: string; items: ProjectionItem[] };
@@ -142,7 +143,7 @@ export default function FixedIncomeProjection({ endpoint = "/api/portfolio/fixed
         {!!issuerGroups.length && !years.length && <p className="projection-empty">Sem datas válidas para construir o calendário de projeção.</p>}
         {!issuerGroups.length && <p className="projection-empty">Nenhum título de renda fixa para este investidor.</p>}
       </div>
-      <p className="projection-method"><strong>Leitura:</strong> o valor principal da célula é o saldo projetado no fim do período; “Venc.” mostra separadamente os títulos que vencem naquele período. O saldo anual é o saldo no corte; os vencimentos anuais somam os fluxos dos meses. Períodos sem cobertura são identificados e não equivalem a saldo zero. A taxa histórica de cada ativo é composta até o vencimento. {data.methodology} Não é a taxa contratada e não inclui impostos, cupons ou amortizações.</p>
+      <p className="projection-method"><strong>Leitura:</strong> o valor principal da célula é o saldo projetado no fim do período; “Venc.” mostra separadamente os títulos que vencem naquele período. O saldo anual é o saldo no corte; os vencimentos anuais somam os fluxos dos meses. Períodos sem cobertura são identificados e não equivalem a saldo zero. A taxa histórica de cada ativo é composta até o vencimento. {data.methodology} Não é a taxa contratada e não inclui impostos, cupons ou amortizações. {shadow && data.cost_basis_diagnostics && ` Preços da planilha verificados: ${data.cost_basis_diagnostics.verified} de ${data.cost_basis_diagnostics.google_sheet}; ${data.cost_basis_diagnostics.superseded_by_acquisition_lot} títulos usam lotes de aquisição revisados.`}</p>
     </>}
   </section>;
 }

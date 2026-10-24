@@ -92,8 +92,32 @@ export async function fixedIncomeProjection(db:pg.Pool,household:string){
   acquisitionLotDiagnostics.used_lots++;
  }
  for(const {group,quantity,total,date} of acquisitionPrices.values())if(quantity>0)group.observations.push({date,unitPrice:total/quantity,source:'acquisition_lot'});
- const costRows=await db.query(`SELECT original::jsonb AS cost FROM app.received_sources WHERE household_id=$1 AND source_table='cost_basis' ORDER BY source_ordinal`,[household]);
- const costMap=new Map<string,CostBasisPoint>();for(const row of costRows.rows){const c=row.cost as Record<string,unknown>;const owner=String(c.owner??''),instrument=code(c.instrument_code);if(!owner||!instrument)continue;const key=`${owner}\0${instrument}`;if(projectionKeys.has(key))continue;const point={owner,instrument_code:instrument,average_unit_cost:number(c.average_unit_cost),as_of:String(c.as_of??''),source:String(c.source??'')};const old=costMap.get(key);if(!old||point.as_of>=old.as_of)costMap.set(key,point);}
+ const costRows=await db.query(`SELECT c.original::jsonb AS cost,COALESCE((
+   SELECT count(DISTINCT COALESCE(ir.custody_account_id,p.custody_account_id))::int FROM app.position_identities p
+   JOIN app.owners o ON o.household_id=p.household_id AND o.id=p.owner_id
+   LEFT JOIN LATERAL (SELECT custody_account_id FROM app.position_identity_resolutions x WHERE x.household_id=p.household_id AND x.position_id=p.id ORDER BY revision DESC LIMIT 1) ir ON true
+   WHERE p.household_id=c.household_id AND o.display_name=c.original::jsonb->>'owner'
+     AND p.instrument_code=c.original::jsonb->>'instrument_code' AND p.currency=COALESCE(c.original::jsonb->>'currency','BRL')
+     AND COALESCE(ir.custody_account_id,p.custody_account_id) IS NOT NULL
+ ),0)::int AS resolved_accounts FROM app.received_sources c WHERE c.household_id=$1 AND c.source_table='cost_basis' ORDER BY c.source_ordinal`,[household]);
+ const costMap=new Map<string,CostBasisPoint>(),costBasisDiagnostics={total:costRows.rows.length,google_sheet:0,verified:0,unmatched:0,ambiguous:0,account_unresolved:0,quantity_mismatch:0,date_invalid:0,superseded_by_acquisition_lot:0,other_source:0};
+ for(const row of costRows.rows){const c=row.cost as Record<string,unknown>,owner=String(c.owner??''),instrument=code(c.instrument_code),source=String(c.source??'');if(source.startsWith('google_sheet:'))costBasisDiagnostics.google_sheet++;else costBasisDiagnostics.other_source++;
+  if(!owner||!instrument)continue;const key=`${owner}\0${instrument}`;if(projectionKeys.has(key)){if(source.startsWith('google_sheet:'))costBasisDiagnostics.superseded_by_acquisition_lot++;continue;}
+  const point:CostBasisPoint={owner,instrument_code:instrument,average_unit_cost:number(c.average_unit_cost),as_of:String(c.as_of??''),source,currency:String(c.currency??'BRL'),quantity:number(c.quantity)};
+  if(source.startsWith('google_sheet:')){const matching=[...groups.values()].filter(g=>g.isCurrent&&g.owner===owner&&code(g.instrumentCode)===instrument&&g.currency===point.currency);
+   if(!matching.length)costBasisDiagnostics.unmatched++;
+   else if(matching.length!==1)costBasisDiagnostics.ambiguous++;
+   else {const group=matching[0];
+    if(!group.account&&Number(row.resolved_accounts)!==1)costBasisDiagnostics.account_unresolved++;
+    else {const quantity=Number(point.quantity),tolerance=Math.max(.000001,Math.abs(group.quantity)*1e-8);
+     if(!Number.isFinite(quantity)||Math.abs(quantity-group.quantity)>tolerance)costBasisDiagnostics.quantity_mismatch++;
+     else if(!/^\d{4}-\d{2}-\d{2}$/.test(point.as_of)||point.as_of>=group.latestDate)costBasisDiagnostics.date_invalid++;
+     else {point.source_verified=true;costBasisDiagnostics.verified++;}
+    }
+   }
+  }
+  const old=costMap.get(key);if(!old||point.as_of>=old.as_of)costMap.set(key,point);
+ }
  const items=buildFixedIncomeProjectionItems(groups.values(),[...costMap.values()]),covered=items.filter(item=>item.projected_value_cents!==null),total=items.reduce((sum,item)=>sum+item.current_value_cents,0),coveredCurrent=covered.reduce((sum,item)=>sum+item.current_value_cents,0),coveredProjected=covered.reduce((sum,item)=>sum+(item.projected_value_cents??0),0);
- return {reference_date:items.map(item=>item.reference_date).sort().at(-1)??'',summary:{total_current_cents:total,covered_current_cents:coveredCurrent,covered_projected_cents:coveredProjected,projected_gain_cents:coveredProjected-coveredCurrent,coverage:total?coveredCurrent/total:0,projected_count:covered.length,total_count:items.length},acquisition_lot_diagnostics:acquisitionLotDiagnostics,items,methodology:'Rentabilidad efectiva anualizada entre la primera y la última observación de precio; extrapolación compuesta hasta el vencimiento.',mode:'shadow',authoritative:false};
+ return {reference_date:items.map(item=>item.reference_date).sort().at(-1)??'',summary:{total_current_cents:total,covered_current_cents:coveredCurrent,covered_projected_cents:coveredProjected,projected_gain_cents:coveredProjected-coveredCurrent,coverage:total?coveredCurrent/total:0,projected_count:covered.length,total_count:items.length},acquisition_lot_diagnostics:acquisitionLotDiagnostics,cost_basis_diagnostics:costBasisDiagnostics,items,methodology:'Rentabilidad efectiva anualizada entre la primera y la última observación de precio; extrapolación compuesta hasta el vencimiento.',mode:'shadow',authoritative:false};
 }
