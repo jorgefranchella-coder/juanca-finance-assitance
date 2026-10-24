@@ -1,6 +1,6 @@
 # Runbook de migración y corte a PostgreSQL
 
-Estado actualizado: 22/10/2026. D1/R2 sigue siendo la única autoridad de escritura y lectura de la web vigente. PostgreSQL y los servicios de ingesta/mercado siguen en sombra. Este runbook registra el preflight y define los gates para cambiar esa autoridad sin perder movimientos ni evidencia.
+Estado actualizado: 24/10/2026. D1/R2 sigue siendo la única autoridad de escritura y lectura de la web vigente. PostgreSQL y los servicios de ingesta/mercado siguen en sombra. Este runbook registra el preflight y define los gates para cambiar esa autoridad sin perder movimientos ni evidencia.
 
 ## Resultado del preflight
 
@@ -163,3 +163,11 @@ Los dos backups frescos se cifraron y subieron a `pcloud:Backups/Juanca`; `npm r
 En la reconciliación de la copia activa, el gateway de producción ya coincidía con `main`; se sincronizó solo su archivo de pruebas después de guardar la versión local y la suite pasó 11/11. `npm run test:backup` pasó 24/24 (manifiestos, captura/restauración local, salud y exportación cifrada). El ajuste al stub fija el contrato HTTP 202 del refresh de mercado; no cambia el servicio ni datos de producción.
 
 Durante la misma revisión se encontró que el checkout activo aún modelaba el efectivo de Avenue como posición USD, aunque `main` ya lo excluía. Se respaldaron y sincronizaron únicamente `avenue.ts`, `avenue-portfolio.ts`, `portfolio-view.ts` y sus pruebas Avenue/vista desde `main`. Build y pruebas web activas pasaron 39/39. Tras reiniciar el Worker, las lecturas autenticadas de posiciones, dashboard y resumen respondieron 200; las posiciones devuelven 198 holdings y cero filas `USD_CASH`, con el total invertido en 1.034.813.755 centavos. No se modificaron registros; el ajuste hace efectivo en el runtime el alcance sin caja confirmado por el usuario.
+
+### Revalidación técnica previa al corte (24/10/2026)
+
+En el checkout canónico se volvió a ejecutar `npm run typecheck`, `npm test` (54/54) y `npm run test:foundation`: la interfaz compiló y las nueve pruebas HTTP pasaron, incluida la protección de autenticación, la idempotencia de importaciones y la verificación de que el chat no contacta a Hermes. `npm run backup:health` confirmó `backups_healthy=true` para los respaldos D1/R2 y PostgreSQL del 24/10. El árbol quedó limpio y sincronizado con `origin/main` en `3f702c9`.
+
+Los servicios web, Worker, aplicación sombra, API de mercado y Worker de mercado aparecen activos en systemd del sistema. Una lectura HTTP sin credenciales al gateway devuelve 401, como requiere la protección; la aplicación, mercado y FX sombra responden en sus puertos locales. Esta comprobación no sustituye la lectura autenticada de readiness ni valida los flujos financieros completos en producción.
+
+El corte continúa bloqueado por los cinco gates ya expuestos por readiness: retirar los escritores D1/R2 de todos los flujos activos; verificar publicación aprobada de al menos un snapshot B3 y uno externo; capturar y conciliar el delta final durante congelamiento coordinado; y ensayar corte y reversión con un solo escritor. Los cuatro snapshots vigentes (B3 de Jorge y Julia, Avenue de Jorge y previsión Zurich de Jorge) siguen como evidencia sin publicar. Cada uno requiere revisión y aprobación explícita en Revisiones. Ninguna prueba de esta revalidación escribió datos financieros ni modificó el modo sombra.
