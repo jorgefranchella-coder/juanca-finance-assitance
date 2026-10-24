@@ -96,10 +96,10 @@ export default function TabbedWorkspace() {
         {active === "overview" && <DashboardMetrics />}
         {active === "reviews" && <><ConfirmationQueue endpoint="/api/shadow/confirmations" /><ManualIntakePanel /><ManualB3Candidates /><ManualPhotoPanel /><B3SnapshotPublicationPanel /><ExternalSnapshotPublicationPanel /><B3ReconciliationPanel /><AcquisitionReconciliationPanel /></>}
         {active === "assistant" && <><TransactionChat key={`${prefill?.owner??"manual"}:${prefill?.message??""}`} prefill={prefill} /><ShadowProposalWorkspace /></>}
-        {active === "postgres-shadow" && <><ShadowPortfolioPanel /><ShadowMarketPanel /><FixedIncomeProjection endpoint="/api/shadow/fixed-income-projection" shadow /><ShadowProposalWorkspace /></>}
+        {active === "postgres-shadow" && <><ShadowPortfolioPanel /><ShadowMarketPanel /><ShadowProposalWorkspace /></>}
         {active === "juanca" && <JuancaChat />}
         {active === "imports" && <DataImportPanel />}
-        {active === "fixed-income" && <FixedIncomeProjection />}
+        {active === "fixed-income" && <FixedIncomeProjection endpoint="/api/shadow/fixed-income-projection" shadow />}
         {active === "projections" && <ProjectionPanel />}
         {active === "recommendations" && <RecommendationsPanel />}
       </section>
