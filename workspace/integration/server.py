@@ -28,6 +28,7 @@ SHADOW_ROUTES = {
     '/api/shadow/authority/readiness': {'GET'},
     '/api/shadow/positions': {'GET'},
     '/api/shadow/fixed-income-projection': {'GET'},
+    '/api/shadow/conversations/family/messages': {'GET', 'POST'},
     '/api/shadow/evidence/text': {'GET', 'POST'},
     '/api/shadow/evidence/photos': {'GET', 'POST'},
     '/api/shadow/evidence/documents': {'POST'},

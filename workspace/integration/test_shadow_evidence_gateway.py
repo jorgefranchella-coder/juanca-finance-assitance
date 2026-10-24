@@ -45,6 +45,40 @@ class ShadowStub(BaseHTTPRequestHandler):
 
 
 class GatewayEvidenceTest(unittest.TestCase):
+    def test_shadow_guided_conversation_uses_authenticated_postgres_service_route(self):
+        with tempfile.TemporaryDirectory() as root:
+            stub = ThreadingHTTPServer(('127.0.0.1', 0), ShadowStub)
+            gateway = ThreadingHTTPServer(('127.0.0.1', 0), server.Gateway)
+            old = server.SHADOW_CONFIG_PATH
+            server.SHADOW_CONFIG_PATH = Path(root) / 'shadow.json'
+            server.SHADOW_CONFIG_PATH.write_text(json.dumps({'token': 'x' * 64, 'port': stub.server_port}))
+            ShadowStub.calls = []
+            threads = [threading.Thread(target=s.serve_forever, daemon=True) for s in (stub, gateway)]
+            for thread in threads: thread.start()
+            try:
+                path = '/api/shadow/conversations/family/messages'
+                connection = http.client.HTTPConnection('127.0.0.1', gateway.server_port)
+                connection.request('GET', path, headers={'Authorization': 'Bearer ' + server.CONFIG['token']})
+                response = connection.getresponse();self.assertEqual(response.status, 200);response.read();connection.close()
+                self.assertEqual(ShadowStub.calls[-1][1], '/v1/conversations/family/messages')
+
+                payload = json.dumps({'request_id': 'gatewaychat01', 'message': 'Qual o patrimônio?', 'owner': 'family'}).encode()
+                connection = http.client.HTTPConnection('127.0.0.1', gateway.server_port)
+                connection.request('POST', path, body=payload, headers={
+                    'Authorization': 'Bearer ' + server.CONFIG['token'],
+                    'Content-Type': 'application/json',
+                    'X-Juanca-Actor': 'untrusted',
+                })
+                response = connection.getresponse();self.assertEqual(response.status, 201);response.read();connection.close()
+                method, forwarded, body, headers = ShadowStub.calls[-1]
+                self.assertEqual((method, forwarded, body), ('POST', '/v1/conversations/family/messages', payload))
+                self.assertEqual(headers['Authorization'], 'Bearer ' + 'x' * 64)
+                self.assertNotIn('X-Juanca-Actor', headers)
+            finally:
+                server.SHADOW_CONFIG_PATH = old
+                gateway.shutdown();stub.shutdown();gateway.server_close();stub.server_close()
+                for thread in threads: thread.join(timeout=2)
+
     def test_market_shadow_routes_use_separate_market_credentials_and_validate_refresh(self):
         with tempfile.TemporaryDirectory() as root:
             stub = ThreadingHTTPServer(('127.0.0.1', 0), ShadowStub)
