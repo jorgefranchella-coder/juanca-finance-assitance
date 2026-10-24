@@ -2,19 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 
-type Review = {
-  id: number;
-  owner: string;
-  occurred_on: string;
-  movement_name: string;
-  product_name: string;
-  institution: string;
-  event_type: string;
-  file_name: string;
-  source_row: number;
-};
-
-type Summary = { import_count: number; review_count: number; reviews: Review[] };
+type Summary = { import_count: number; review_count: number };
 
 type Position = {
   owner: string;
@@ -57,16 +45,6 @@ type DashboardResponse = {
 };
 
 const money = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" });
-
-const decisionOptions = [
-  ["corporate_action", "Evento corporativo"],
-  ["custody_transfer", "Transferência de custódia"],
-  ["position_adjustment", "Ajuste de posição"],
-  ["buy", "Compra"],
-  ["sell", "Venda"],
-  ["early_redemption", "Resgate"],
-  ["ignored", "Ignorar este movimento"],
-];
 
 function shortDate(value: string) {
   if (!value) return "—";
@@ -180,86 +158,6 @@ export function DashboardMetrics() {
         </article>
       </section>
     </>
-  );
-}
-
-export function ReviewPanel() {
-  const { summary, error, load } = usePortfolioSummary();
-  const [open, setOpen] = useState(false);
-  const count = summary?.review_count ?? 0;
-
-  return (
-    <section className={`attention review-panel${open ? " open" : ""}`} id="revisoes" aria-label="Pendências de conciliação">
-      <div className="attention-summary">
-        <div className="attention-icon">{count ? "!" : "✓"}</div>
-        <div>
-          <p>{error ? "Não foi possível consultar as revisões" : count ? `${count} movimentos precisam de confirmação` : "Nenhuma revisão pendente"}</p>
-          <span>{count ? "Eventos ambíguos ficam fora das recomendações até serem confirmados." : "Todos os movimentos importados foram classificados pelas regras atuais."}</span>
-        </div>
-        <button className="secondary-button" onClick={() => error ? void load() : setOpen((value) => !value)}>
-          {error ? "Tentar novamente" : open ? "Fechar revisões" : count ? `Revisar ${count} pendências` : "Ver status"}
-        </button>
-      </div>
-      {open && !error && (
-        <div className="review-list">
-          {summary?.reviews.length ? summary.reviews.map((review) => (
-            <ReviewItem review={review} reload={load} key={review.id} />
-          )) : <p className="empty-review">Não há movimentos aguardando revisão.</p>}
-        </div>
-      )}
-    </section>
-  );
-}
-
-function ReviewItem({ review, reload }: { review: Review; reload: () => Promise<void> }) {
-  const [decision, setDecision] = useState("corporate_action");
-  const [note, setNote] = useState("");
-  const [saving, setSaving] = useState(false);
-  const [message, setMessage] = useState("");
-
-  async function saveDecision() {
-    setSaving(true);
-    setMessage("");
-    try {
-      const response = await fetch(`/api/portfolio/reviews/${review.id}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ decision, note }),
-      });
-      if (!response.ok) {
-        const result = await response.json().catch(() => ({})) as { detail?: string };
-        throw new Error(result.detail ?? "Não foi possível salvar.");
-      }
-      await reload();
-      window.dispatchEvent(new Event("portfolio-data-updated"));
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Não foi possível salvar.");
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  return (
-    <article className="review-item">
-      <div><span>{review.owner}</span><time>{review.occurred_on.split("-").reverse().join("/")}</time></div>
-      <strong>{review.movement_name}</strong>
-      <p>{review.product_name}</p>
-      <small>{review.institution} · {review.file_name}, linha {review.source_row}</small>
-      <label>
-        Classificação
-        <select value={decision} onChange={(event) => setDecision(event.target.value)}>
-          {decisionOptions.map(([value, label]) => <option value={value} key={value}>{label}</option>)}
-        </select>
-      </label>
-      <label>
-        Observação <span>(opcional)</span>
-        <input value={note} maxLength={500} onChange={(event) => setNote(event.target.value)} placeholder="Ex.: conversão de ticker" />
-      </label>
-      <button className="review-save" disabled={saving} onClick={() => void saveDecision()}>
-        {saving ? "Salvando…" : "Confirmar decisão"}
-      </button>
-      {message && <p className="review-error" role="alert">{message}</p>}
-    </article>
   );
 }
 
