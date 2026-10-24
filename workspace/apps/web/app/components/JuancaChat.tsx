@@ -13,7 +13,7 @@ export default function JuancaChat({ shadow = false }: { shadow?: boolean }) {
   const [error,setError]=useState('');
   const pending=useRef<{id:string;message:string;owner:string}|null>(null);
   const thread=useRef<HTMLDivElement>(null);
-  const endpoint=shadow?'/api/shadow/conversations/family/messages':'/api/juanca/chat';
+  const endpoint='/api/shadow/conversations/family/messages';
   async function history(signal?: AbortSignal) {
     const r=await fetch(endpoint,{cache:'no-store',signal});
     const result=await r.json() as ChatResponse;
@@ -43,7 +43,7 @@ export default function JuancaChat({ shadow = false }: { shadow?: boolean }) {
     }finally{setBusy(false);}
   }
   return <section className={`panel transaction-chat${shadow?' shadow-guided-chat':''}`}>
-    <div className="panel-title chat-title"><div><p>{shadow?'PostgreSQL · sombra':'Seu patrimônio'}</p><h2>{shadow?'Conversa guiada con Juanca':'Converse com Juanca'}</h2><span>{shadow?'Responde con la fotografía PostgreSQL disponible, guarda el historial en PostgreSQL y no usa Hermes. Los datos pueden estar incompletos o desactualizados; no modifica la cartera.':'Consulte a carteira, custos, revisões e projeções. Prepare operações para conferir em Transações.'}</span></div><img className="juanca-chat-icon" src="/juanca-icon.png" alt="Juanca" width={64} height={64}/></div>
+    <div className="panel-title chat-title"><div><p>PostgreSQL · sombra</p><h2>{shadow?'Conversa guiada con Juanca':'Converse com Juanca'}</h2><span>Consulta a fotografia PostgreSQL e guarda o histórico lá; não usa Hermes nem altera a carteira. Os dados podem estar incompletos ou desatualizados.</span></div><img className="juanca-chat-icon" src="/juanca-icon.png" alt="Juanca" width={64} height={64}/></div>
     <div className="chat-thread" ref={thread} aria-live="polite" aria-busy={busy||loading}>
       {loading&&<p className="chat-empty">Carregando conversa…</p>}
       {!loading&&!messages.length&&<div className="chat-empty"><strong>{shadow?'Pergunte sobre a fotografia disponível em PostgreSQL.':'Como posso ajudar com o patrimônio de vocês?'}</strong><p>“Qual o patrimônio da Julia?” ou “Quais revisões estão pendentes?”</p></div>}
@@ -54,7 +54,7 @@ export default function JuancaChat({ shadow = false }: { shadow?: boolean }) {
       <label>Titular<select value={owner} onChange={e=>setOwner(e.target.value)} disabled={busy}><option value="family">Família</option><option>Jorge</option><option>Julia</option></select></label>
       <label htmlFor={shadow?'juanca-shadow-message':'juanca-message'}>Mensagem para Juanca</label>
       <textarea id={shadow?'juanca-shadow-message':'juanca-message'} value={message} onChange={e=>setMessage(e.target.value)} maxLength={8000} rows={3} disabled={busy||loading} placeholder="Pergunte sobre o patrimônio, carteira, custos, revisiones ou renda fixa"/>
-      <div className="composer-footer"><span>{shadow?'La consulta no decide revisiones ni aprueba operaciones.':'Conversa compartilhada da família. Confira e aprove ajustes em Transações.'}</span><button className="primary-button" disabled={busy||loading||!message.trim()}>{busy?'Consultando…':'Enviar'}</button></div>
+      <div className="composer-footer"><span>Conversa familiar sem Hermes. A consulta não decide revisões nem aprova operações.</span><button className="primary-button" disabled={busy||loading||!message.trim()}>{busy?'Consultando…':'Enviar'}</button></div>
       {error&&<p className="chat-error" role="alert">{error}</p>}
     </form>
   </section>;
