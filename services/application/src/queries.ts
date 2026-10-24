@@ -2,8 +2,13 @@ import type pg from 'pg';
 import {createHmac,timingSafeEqual} from 'node:crypto';
 import {Conflict} from './commands.ts';
 import type {Position} from './portfolio.ts';
-export async function portfolio(db:pg.Pool,h:string,version?:string){
- const r=await db.query(`SELECT v.* FROM app.portfolio_versions v WHERE v.household_id=$1 AND v.id=COALESCE($2,(SELECT latest_version FROM app.household_state WHERE household_id=$1))`,[h,version??null]);
+export async function portfolio(db:pg.Pool,h:string,version?:string,effectiveAsOf?:string){
+ if(version&&effectiveAsOf||effectiveAsOf&&(!/^\d{4}-\d{2}-\d{2}$/.test(effectiveAsOf)||Number.isNaN(Date.parse(`${effectiveAsOf}T00:00:00Z`))||new Date(`${effectiveAsOf}T00:00:00Z`).toISOString().slice(0,10)!==effectiveAsOf))throw new Conflict('VALIDATION',422);
+ const r=version
+  ?await db.query('SELECT v.* FROM app.portfolio_versions v WHERE v.household_id=$1 AND v.id=$2',[h,version])
+  :effectiveAsOf
+   ?await db.query('SELECT v.* FROM app.portfolio_versions v WHERE v.household_id=$1 AND v.effective_as_of<=$2::date ORDER BY v.effective_as_of DESC,v.published_at DESC,v.id DESC LIMIT 1',[h,effectiveAsOf])
+   :await db.query('SELECT v.* FROM app.portfolio_versions v WHERE v.household_id=$1 AND v.id=(SELECT latest_version FROM app.household_state WHERE household_id=$1)',[h]);
  if(!r.rowCount)throw new Conflict('NOT_FOUND',404);const row=r.rows[0];
  return {...row.view,portfolio_version:row.id,facts_revision:row.facts_revision,market_revision:row.market_revision,calculation_version:row.calculation_version,effective_as_of:row.effective_as_of,known_at:row.known_at.toISOString(),published_at:row.published_at.toISOString(),mode:'shadow',authoritative:false};
 }

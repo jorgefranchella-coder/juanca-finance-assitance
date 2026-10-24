@@ -600,6 +600,15 @@
               "type": "string",
               "pattern": "^[0-9a-f]{64}$"
             }
+      },
+      {
+        "name": "effective_as_of",
+        "in": "query",
+        "description": "Select the latest immutable portfolio version published with effective_as_of on or before this date. Cannot be combined with portfolio_version.",
+        "schema": {
+          "type": "string",
+          "format": "date"
+        }
           }
         ],
         "responses": {

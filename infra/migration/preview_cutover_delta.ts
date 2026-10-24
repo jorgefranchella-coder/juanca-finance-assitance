@@ -6,15 +6,18 @@ import {comparePortfolioPositions,type PortfolioPosition} from './cutover_delta.
 const credentialsPath=process.env.JUANCA_GATEWAY_CREDENTIALS??'/home/jorge/.hermes/profiles/juanca/workspace/patrimonio-familiar-source/integration/credentials.json';
 const baseUrl=process.env.JUANCA_GATEWAY_URL??'http://127.0.0.1:3040';
 const freezeConfirmed=process.argv.includes('--freeze-confirmed');
+const effectiveAsOf=process.argv.find(value=>value.startsWith('--effective-as-of='))?.slice(18);
+if(effectiveAsOf&&(!/^\d{4}-\d{2}-\d{2}$/.test(effectiveAsOf)||Number.isNaN(Date.parse(`${effectiveAsOf}T00:00:00Z`))||new Date(`${effectiveAsOf}T00:00:00Z`).toISOString().slice(0,10)!==effectiveAsOf))throw new Error('INVALID_EFFECTIVE_AS_OF');
 const privateRoot='/home/jorge/.local/share/juanca-shadow/reports/';
 const requested=process.argv.find(value=>value.startsWith('--report='))?.slice(9)??`${privateRoot}cutover-delta-${new Date().toISOString().replaceAll(':','-')}.json`;
 const reportPath=resolve(requested);if(!reportPath.startsWith(privateRoot))throw new Error('PRIVATE_REPORT_PATH_REQUIRED');
 const auth=JSON.parse(await readFile(credentialsPath,'utf8')) as {token:string};if(typeof auth.token!=='string'||auth.token.length<24)throw new Error('GATEWAY_CREDENTIAL_REQUIRED');
 async function read(path:string){const response=await fetch(new URL(path,baseUrl),{headers:{authorization:`Bearer ${auth.token}`,accept:'application/json'},cache:'no-store'});if(!response.ok)throw new Error(`READ_${response.status}:${path}`);return await response.json() as Record<string,unknown>;}
-const [d1,postgres]=await Promise.all([read('/api/portfolio/positions'),read('/api/shadow/portfolio')]);
+const shadowPath=effectiveAsOf?`/api/shadow/portfolio?effective_as_of=${effectiveAsOf}`:'/api/shadow/portfolio';
+const [d1,postgres]=await Promise.all([read('/api/portfolio/positions'),read(shadowPath)]);
 if(!Array.isArray(d1.positions)||!Array.isArray(postgres.positions))throw new Error('POSITION_ARRAY_REQUIRED');
 const comparison=comparePortfolioPositions(d1.positions as PortfolioPosition[],postgres.positions as PortfolioPosition[]);
-const [d1After,postgresAfter]=await Promise.all([read('/api/portfolio/positions'),read('/api/shadow/portfolio')]);
+const [d1After,postgresAfter]=await Promise.all([read('/api/portfolio/positions'),read(shadowPath)]);
 const stable=String(d1.facts_revision)===String(d1After.facts_revision)&&String(d1.portfolio_version)===String(d1After.portfolio_version)
  &&String(postgres.facts_revision)===String(postgresAfter.facts_revision)&&String(postgres.portfolio_version)===String(postgresAfter.portfolio_version);
 const datesMatch=String(d1.reference_date)===String(postgres.effective_as_of);
