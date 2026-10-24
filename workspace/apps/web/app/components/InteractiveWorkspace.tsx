@@ -2,8 +2,6 @@
 
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 
-type ImportResult = { records?: number; market_value?: string; review_required?: number; detail?: string };
-
 function money(value: number) {
   return new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL", maximumFractionDigits: 0 }).format(value);
 }
@@ -46,18 +44,8 @@ export function DataImportPanel() {
     if(!response.ok)throw new Error(`Não foi possível registrar ${file.name} como evidência. Tente novamente.`);
   }
 
-  async function sendFile(kind: "positions" | "movements", file: File, extra?: Record<string, string>) {
+  async function sendFile(kind: "positions" | "movements", file: File) {
     await mirrorDocument(file,"b3",kind,kind==="positions"?positionDate:(file.name.match(/\d{4}-\d{2}-\d{2}/)?.[0]??null));
-    const body = new FormData();
-    body.append("file", file); body.append("owner", owner); body.append("kind", kind);
-    Object.entries(extra ?? {}).forEach(([key, value]) => body.append(key, value));
-    const response = await fetch("/api/import/b3", { method: "POST", body });
-    const result = (await response.json()) as ImportResult;
-    if (!response.ok) {
-      const detail = typeof result.detail === "string" && result.detail.length <= 300 ? result.detail : "Não foi possível processar o arquivo com segurança.";
-      throw new Error(detail);
-    }
-    return result;
   }
 
   async function importFiles(event: FormEvent) {
@@ -67,16 +55,15 @@ export function DataImportPanel() {
     try {
       const messages: string[] = [];
       if (positionFile) {
-        const result = await sendFile("positions", positionFile, { reference_date: positionDate });
-        messages.push(`${result.records} posições • ${money(Number(result.market_value))}`);
+        await sendFile("positions", positionFile);
+        messages.push("posição enviada para revisão/publicação");
       }
       if (movementFile) {
-        const result = await sendFile("movements", movementFile);
-        messages.push(`${result.records} movimentos • ${result.review_required} para revisão`);
+        await sendFile("movements", movementFile);
+        messages.push("movimentação arquivada como evidência, sem aplicação");
       }
-      setStatus(`Importação privada concluída: ${messages.join(" | ")}.`);
+      setStatus(`Original B3 enviado a PostgreSQL: ${messages.join(" | ")}. Confira em Revisões.`);
       setCompletedB3Key(b3Key);
-      window.dispatchEvent(new Event("portfolio-data-updated"));
     } catch (error) { setStatus(error instanceof Error ? error.message : "Falha inesperada na importação."); }
     finally { setBusy(false); }
   }
@@ -84,25 +71,17 @@ export function DataImportPanel() {
   async function importAvenue(event: FormEvent) {
     event.preventDefault();
     if ((!avenueStatement && !avenueConfirmations.length) || avenueCompleted) return;
-    setBusy(true); setStatus("Lendo os PDFs da Avenue e conciliando as operações com a posição inicial…");
+    setBusy(true); setStatus("Arquivando os PDFs originais da Avenue em PostgreSQL para revisão…");
     try {
       const files = [
         ...(avenueStatement ? [{ file: avenueStatement, kind: "statement" }] : []),
         ...avenueConfirmations.map((file) => ({ file, kind: "confirmation" })),
       ];
-      let records = 0;
       for (const item of files) {
         await mirrorDocument(item.file,"avenue",item.kind==="statement"?"avenue_statement":"avenue_confirmation",null);
-        const body = new FormData();
-        body.append("file", item.file); body.append("owner", owner); body.append("kind", item.kind);
-        const response = await fetch("/api/import/avenue", { method: "POST", body });
-        const result = await response.json() as ImportResult;
-        if (!response.ok) throw new Error(result.detail ?? `Falha ao importar ${item.file.name}.`);
-        records += result.records ?? 0;
       }
-      setStatus(`Avenue importada: ${files.length} PDF(s), ${records} registros.`);
+      setStatus(`Avenue: ${files.length} PDF(s) arquivados em PostgreSQL para revisão. Nada foi publicado nem aplicado.`);
       setCompletedAvenueKey(avenueKey);
-      window.dispatchEvent(new Event("portfolio-data-updated"));
     } catch (error) { setStatus(error instanceof Error ? error.message : "Falha inesperada na importação Avenue."); }
     finally { setBusy(false); }
   }
@@ -110,16 +89,11 @@ export function DataImportPanel() {
   async function importPension(event: FormEvent) {
     event.preventDefault();
     if (!pensionStatement || pensionCompleted) return;
-    setBusy(true); setStatus("Lendo o extrato e isolando exclusivamente a Conta Básica Participante…");
+    setBusy(true); setStatus("Arquivando o extrato Santander em PostgreSQL para revisão…");
     try {
       await mirrorDocument(pensionStatement,"pension","pension_statement",null);
-      const body = new FormData(); body.append("file", pensionStatement); body.append("owner", owner);
-      const response = await fetch("/api/import/pension", { method: "POST", body });
-      const result = await response.json() as ImportResult;
-      if (!response.ok) throw new Error(result.detail ?? "Falha ao importar o extrato de previdência.");
-      setStatus(`Previdência importada: saldo pessoal de ${money(Number(result.market_value))}. O saldo da empresa foi excluído.`);
+      setStatus("Extrato de previdência arquivado em PostgreSQL para revisión. No se publicó ni modificó la posición.");
       setCompletedPensionKey(pensionKey);
-      window.dispatchEvent(new Event("portfolio-data-updated"));
     } catch (error) { setStatus(error instanceof Error ? error.message : "Falha inesperada na importação de previdência."); }
     finally { setBusy(false); }
   }
