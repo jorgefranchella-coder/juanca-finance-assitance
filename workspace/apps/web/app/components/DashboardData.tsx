@@ -41,7 +41,7 @@ type DashboardResponse = {
   activity: { key: string; label: string; count: number; value_cents: number }[];
   activity_period: { from: string; to: string };
   coverage: "b3_only" | "b3_avenue" | "b3_pension" | "b3_avenue_pension";
-  sources?: { avenue_positions: number; pension_positions?: number; ptax: { rate: number; date: string } | null; quote_status: string; us_quote_count?: number; latest_us_quote?: string | null };
+  sources?: { avenue_positions: number; pension_positions?: number; ptax: { rate: number | string; date: string } | null; quote_status: string; us_quote_count?: number; latest_us_quote?: string | null };
 };
 
 const money = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" });
@@ -49,6 +49,11 @@ const money = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL
 function shortDate(value: string) {
   if (!value) return "—";
   return value.split("-").reverse().join("/");
+}
+
+function formatPtaxRate(value: number | string) {
+  const rate = typeof value === "number" ? value : Number(value);
+  return Number.isFinite(rate) ? rate.toFixed(4).replace(".", ",") : "—";
 }
 
 function usePortfolioSummary() {
@@ -118,7 +123,7 @@ export function DashboardMetrics() {
         <article className="net-worth-card">
           <div className="metric-heading"><p>{data?.coverage === "b3_avenue_pension" ? "Patrimônio B3 + Avenue + previdência" : data?.coverage === "b3_pension" ? "Patrimônio B3 + previdência" : data?.coverage === "b3_avenue" ? "Patrimônio B3 + Avenue" : "Subtotal coberto pela B3"}</p><span className="coverage-badge">{data?.valuation_complete===false?"Valoração incompleta":"Cobertura parcial"}</span></div>
           <strong>{error ? "Indisponível" : data ? money.format(data.total_value_cents / 100) : "Carregando…"}</strong>
-          <div className="trend">{data ? `Posição-base de ${shortDate(data.reference_date)}${data.sources?.ptax ? ` · USD/BRL PTAX ${data.sources.ptax.rate.toFixed(4).replace(".", ",")} (${shortDate(data.sources.ptax.date)})` : ""}` : "Calculando a posição mais recente…"}</div>
+          <div className="trend">{data ? `Posição-base de ${shortDate(data.reference_date)}${data.sources?.ptax ? ` · USD/BRL PTAX ${formatPtaxRate(data.sources.ptax.rate)} (${shortDate(data.sources.ptax.date)})` : ""}` : "Calculando a posição mais recente…"}</div>
           <p>{data?.valuation_complete===false?"Subtotal dos ativos valorados. Há posições sem conversão ou com pendências de conciliação.":""}</p>
           <div className="owners">
             {(data?.owners.length ? data.owners : [{ owner: "Jorge", value_cents: 0 }, { owner: "Julia", value_cents: 0 }]).map((item) => (
