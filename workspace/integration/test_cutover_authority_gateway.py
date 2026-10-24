@@ -20,7 +20,7 @@ class PortfolioStub(BaseHTTPRequestHandler):
         pass
 
     def do_GET(self):
-        self.__class__.calls.append(self.path)
+        self.__class__.calls.append((self.command, self.path, self.headers.get('X-Juanca-Actor')))
         payloads = {
             '/v1/portfolio': {
                 'portfolio_version': 'fixture-version', 'facts_revision': '4', 'reference_date': '2026-10-21',
@@ -46,6 +46,13 @@ class PortfolioStub(BaseHTTPRequestHandler):
         }
         body = json.dumps(payloads[self.path]).encode()
         self.send_response(200); self.send_header('Content-Type', 'application/json')
+        self.send_header('Content-Length', str(len(body))); self.end_headers(); self.wfile.write(body)
+
+    def do_POST(self):
+        self.rfile.read(int(self.headers.get('Content-Length', '0')))
+        self.__class__.calls.append((self.command, self.path, self.headers.get('X-Juanca-Actor')))
+        body = b'{"saved":true}'
+        self.send_response(201); self.send_header('Content-Type', 'application/json')
         self.send_header('Content-Length', str(len(body))); self.end_headers(); self.wfile.write(body)
 
 
@@ -119,7 +126,14 @@ class CutoverAuthorityGatewayTests(unittest.TestCase):
         self.assertEqual(status, 409); self.assertEqual(result['code'], 'LEGACY_WRITER_DISABLED')
         status, summary = self.request('GET', '/api/portfolio/summary')
         self.assertEqual(status, 200); self.assertEqual(summary['import_count'], 2); self.assertEqual(summary['review_count'], 2)
-        self.assertIn('/v1/confirmations?status=open', PortfolioStub.calls)
+        self.assertIn(('GET', '/v1/confirmations?status=open', None), PortfolioStub.calls)
+        status, created = self.request('POST', '/api/shadow/confirmations', {
+            'owner': 'Jorge', 'category': 'fixture', 'title': 'Fixture confirmation',
+            'source_key': 'fixture:single-writer', 'context': {}, 'evidence': [],
+            'actions': [{'key': 'accept', 'label': 'Accept'}, {'key': 'keep_open', 'label': 'Keep open', 'keeps_open': True}],
+        })
+        self.assertEqual(status, 201); self.assertTrue(created['saved'])
+        self.assertIn(('POST', '/v1/confirmations', 'fixture-user'), PortfolioStub.calls)
 
     def test_malformed_authority_config_fails_closed(self):
         self.authority.write_text('{"mode":"unknown"}')
