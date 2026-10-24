@@ -21,7 +21,7 @@ class ShadowStub(BaseHTTPRequestHandler):
         body = self.rfile.read(int(self.headers['Content-Length']))
         self.calls.append((self.command, self.path, body, dict(self.headers)))
         response = json.dumps({'upload_id': '12345678-1234-1234-1234-123456789abc'}).encode()
-        self.send_response(202 if self.path.endswith(('/photos', '/documents')) else 201)
+        self.send_response(202 if self.path.endswith(('/photos', '/documents')) or self.path == '/v1/refresh' else 201)
         self.send_header('Content-Length', str(len(response)))
         self.end_headers()
         self.wfile.write(response)
