@@ -6,6 +6,7 @@ export type PositionAccountResolution={custody_account_id:string;institution_id:
 export type Position={owner:string;account_id:string;identity_status:string;instrument_code:string;currency:string;quantity:string;current_unit_price:string;market_value_minor:string;market_value_cents:string|null;asset_class:string;product_name:string;institution:string;base_reference_date:string;reference_date:string;price_as_of:string;source:string};
 export type Issue={code:string;record_id?:string;owner?:string;instrument_code?:string};
 export function codeOf(value:unknown){return String(value??'').trim().toUpperCase().replace(/^(BVMF|NASDAQ|NYSE|NYSEARCA):/,'');}
+function instant(value:unknown){const raw=String(value);const normalized=/Z$|[+-]\d{2}(?::?\d{2})?$/.test(raw)?raw:raw+'Z';const time=Date.parse(normalized);if(!Number.isFinite(time))throw new Error('INVALID_TIMESTAMP');return new Date(time).toISOString();}
 function documentValue(item:Row){
  const raw=(item.raw??{}) as Row;
  for(const [field,price,source] of [['Valor Atualizado MTM','Preço Atualizado MTM','b3_mtm'],['Valor Atualizado FECHAMENTO','Preço Atualizado FECHAMENTO','b3_close'],['Valor Atualizado CURVA','Preço Atualizado CURVA','b3_curve'],['Valor Atualizado','Preço de Fechamento','b3_position']]){
@@ -54,7 +55,7 @@ export function buildPortfolio(input:Inputs,resolutions:Map<string,string>=new M
  for(const p of visible)if(p.market_value_cents===null&&!issues.some(i=>i.code==='negative_position'&&i.owner===p.owner&&i.instrument_code===p.instrument_code))issues.push({code:'missing_fx',owner:p.owner,instrument_code:p.instrument_code});
  return {positions:visible,total_value_cents:minor(visible.reduce((sum,p)=>sum.add(p.market_value_cents??'0'),new D(0))),valuation_complete:issues.length===0,identity_complete:visible.every(p=>p.identity_status==='known'),issues,unvalued_count:visible.filter(p=>p.market_value_cents===null).length,count:visible.length,reference_date:visible.map(p=>p.reference_date).sort().at(-1)??'',ptax:input.fx?{rate:fx!.toFixed(),date:String(input.fx.quoted_at),provider:String(input.fx.provider)}:null};
 }
-export function selectInputs(tables:Record<string,Row[]>,household:string,effectiveAsOf:string,knownAt:string):Inputs{
+export function selectInputs(tables:Record<string,Row[]>,household:string,effectiveAsOf:string,knownAt:string,valuationAsOf=effectiveAsOf):Inputs{
  const imports=tables.imports.filter(i=>i.user_id===household&&i.status==='processed'&&String(i.reference_date??'')<=effectiveAsOf&&new Date(String(i.created_at)+'Z').toISOString()<=knownAt);
  const latest=new Map<string,Row>();
  for(const i of imports){const key=String(i.owner)+'\0'+String(i.file_type);const old=latest.get(key);if(!old||String(i.reference_date??'')>String(old.reference_date??'')||i.reference_date===old.reference_date&&String(i.created_at)>=String(old.created_at))latest.set(key,i);}
@@ -65,7 +66,12 @@ export function selectInputs(tables:Record<string,Row[]>,household:string,effect
  }
  snapshots.sort((a,b)=>a.owner.localeCompare(b.owner)||a.file_type.localeCompare(b.file_type)||Number(a.id)-Number(b.id));
  trades.sort((a,b)=>String((JSON.parse(a.payload) as Row).trade_date).localeCompare(String((JSON.parse(b.payload) as Row).trade_date))||a.created_at.localeCompare(b.created_at)||Number(a.id)-Number(b.id));
- const quotes=tables.market_quotes.filter(q=>q.user_id===household&&String(q.quoted_at).slice(0,10)<=effectiveAsOf&&new Date(String(q.updated_at)+'Z').toISOString()<=knownAt);
- const fx=tables.fx_observations.filter(q=>q.user_id===household&&String(q.quoted_at).slice(0,10)<=effectiveAsOf&&new Date(String(q.recorded_at)+'Z').toISOString()<=knownAt).sort((a,b)=>String(b.quoted_at).localeCompare(String(a.quoted_at))||Number(b.id)-Number(a.id))[0]??null;
+ const latestQuotes=new Map<string,Row>();
+ for(const q of tables.market_quotes){if(q.user_id!==household||String(q.quoted_at).slice(0,10)>valuationAsOf||instant(q.updated_at)>knownAt)continue;
+  const key=String(q.market)+'\0'+codeOf(q.symbol),old=latestQuotes.get(key);if(!old||instant(q.quoted_at)>instant(old.quoted_at)||instant(q.quoted_at)===instant(old.quoted_at)&&instant(q.updated_at)>instant(old.updated_at))latestQuotes.set(key,q);
+ }
+ const latestFx=tables.fx_observations.filter(q=>q.user_id===household&&String(q.quoted_at).slice(0,10)<=valuationAsOf&&instant(q.recorded_at)<=knownAt).sort((a,b)=>instant(b.quoted_at).localeCompare(instant(a.quoted_at))||instant(b.recorded_at).localeCompare(instant(a.recorded_at)));
+ const fx=latestFx[0]??null;
+ const quotes=[...latestQuotes.values()];
  return {snapshots,trades,quotes,fx,facts_revision:String(tables.portfolio_revisions.find(r=>r.user_id===household)?.revision??'0')};
 }

@@ -20,12 +20,16 @@ const comparison=comparePortfolioPositions(d1.positions as PortfolioPosition[],p
 const [d1After,postgresAfter]=await Promise.all([read('/api/portfolio/positions'),read(shadowPath)]);
 const stable=String(d1.facts_revision)===String(d1After.facts_revision)&&String(d1.portfolio_version)===String(d1After.portfolio_version)
  &&String(postgres.facts_revision)===String(postgresAfter.facts_revision)&&String(postgres.portfolio_version)===String(postgresAfter.portfolio_version);
-const datesMatch=String(d1.reference_date)===String(postgres.effective_as_of);
+// effective_as_of includes later economic events; reference_date is the source
+// holdings snapshot date exposed by both systems. Market freshness is reported
+// separately so a quote date never masquerades as a new holdings snapshot.
+const datesMatch=String(d1.reference_date)===String(postgres.reference_date);
+const latestPriceDate=(positions:unknown[])=>positions.map(value=>String((value as Record<string,unknown>)?.price_as_of??'').slice(0,10)).filter(value=>/^\d{4}-\d{2}-\d{2}$/.test(value)).sort().at(-1)??null;
 const equal=comparison.differences.length===0&&comparison.d1_total_cents===comparison.postgres_total_cents;
 const report={format:'juanca-cutover-delta-v1',captured_at:new Date().toISOString(),mode:freezeConfirmed?'freeze_asserted_read_only':'preflight_read_only',freeze_confirmed_by_operator:freezeConfirmed,
- d1:{reference_date:d1.reference_date,facts_revision:d1.facts_revision,portfolio_version:d1.portfolio_version,response_sha256:createHash('sha256').update(JSON.stringify(d1)).digest('hex')},
- postgres:{effective_as_of:postgres.effective_as_of,facts_revision:postgres.facts_revision,portfolio_version:postgres.portfolio_version,response_sha256:createHash('sha256').update(JSON.stringify(postgres)).digest('hex')},
+ d1:{reference_date:d1.reference_date,valuation_as_of:latestPriceDate(d1.positions as unknown[]),facts_revision:d1.facts_revision,portfolio_version:d1.portfolio_version,response_sha256:createHash('sha256').update(JSON.stringify(d1)).digest('hex')},
+ postgres:{reference_date:postgres.reference_date,effective_as_of:postgres.effective_as_of,valuation_as_of:postgres.valuation_as_of??latestPriceDate(postgres.positions as unknown[]),facts_revision:postgres.facts_revision,portfolio_version:postgres.portfolio_version,response_sha256:createHash('sha256').update(JSON.stringify(postgres)).digest('hex')},
  capture_stable:stable,dates_match:datesMatch,positions_and_values_match:equal,delta_final_verified:freezeConfirmed&&stable&&datesMatch&&equal,comparison};
 await mkdir(dirname(reportPath),{recursive:true,mode:0o700});const temporary=`${reportPath}.${randomUUID()}.tmp`;
 await writeFile(temporary,JSON.stringify(report,null,2),{mode:0o600,flag:'wx'});await rename(temporary,reportPath);
-console.log(JSON.stringify({report:reportPath,mode:report.mode,capture_stable:stable,dates_match:datesMatch,positions_and_values_match:equal,delta_final_verified:report.delta_final_verified,d1_reference_date:d1.reference_date,postgres_effective_as_of:postgres.effective_as_of,d1_position_count:comparison.d1_position_count,postgres_position_count:comparison.postgres_position_count,matched_position_count:comparison.matched_position_count,counts:comparison.counts,net_value_difference_cents:comparison.net_value_difference_cents,content_sha256:comparison.content_sha256}));
+console.log(JSON.stringify({report:reportPath,mode:report.mode,capture_stable:stable,dates_match:datesMatch,positions_and_values_match:equal,delta_final_verified:report.delta_final_verified,d1_reference_date:d1.reference_date,postgres_reference_date:postgres.reference_date,d1_valuation_as_of:latestPriceDate(d1.positions as unknown[]),postgres_valuation_as_of:postgres.valuation_as_of??latestPriceDate(postgres.positions as unknown[]),postgres_effective_as_of:postgres.effective_as_of,d1_position_count:comparison.d1_position_count,postgres_position_count:comparison.postgres_position_count,matched_position_count:comparison.matched_position_count,counts:comparison.counts,net_value_difference_cents:comparison.net_value_difference_cents,content_sha256:comparison.content_sha256}));

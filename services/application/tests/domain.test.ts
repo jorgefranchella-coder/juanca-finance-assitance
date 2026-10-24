@@ -40,3 +40,13 @@ test('confirmed B3 account evidence scopes a position and its linked trade witho
 test('reference-date selection and knowledge cutoff exclude late and future data',()=>{
  const tables:Record<string,Row[]>={imports:[{id:'new',user_id:'fixture',owner:'Fixture',status:'processed',file_type:'positions',reference_date:'2026-08-01',created_at:'2026-08-02 00:00:00'},{id:'late',user_id:'fixture',owner:'Fixture',status:'processed',file_type:'positions',reference_date:'2026-07-01',created_at:'2026-08-10 00:00:00'}],import_records:[{id:1,import_id:'new',record_kind:'position',payload:'{}'},{id:2,import_id:'late',record_kind:'position',payload:'{}'}],market_quotes:[{user_id:'fixture',quoted_at:'2026-09-01',updated_at:'2026-08-01 00:00:00'},{user_id:'fixture',quoted_at:'2026-08-01',updated_at:'2026-08-20 00:00:00'}],fx_observations:[],portfolio_revisions:[]};const result=selectInputs(tables,'fixture','2026-08-15','2026-08-15T00:00:00.000Z');assert.equal(result.snapshots[0].import_id,'new');assert.equal(result.quotes.length,0);
 });
+test('valuation can use later known market data while the holdings snapshot date stays fixed',()=>{
+ const tables:Record<string,Row[]>={imports:[],import_records:[],market_quotes:[
+  {user_id:'fixture',market:'US',symbol:'FIX',price:'10',provider:'legacy',quoted_at:'2026-08-14T20:00:00.000Z',updated_at:'2026-08-14 21:00:00'},
+  {user_id:'fixture',market:'US',symbol:'FIX',price:'12',provider:'market',quoted_at:'2026-08-16T20:00:00.000Z',updated_at:'2026-08-17T10:00:00.000Z'},
+  {user_id:'fixture',market:'US',symbol:'FIX',price:'14',provider:'future',quoted_at:'2026-08-21T20:00:00.000Z',updated_at:'2026-08-21T21:00:00.000Z'},
+  {user_id:'fixture',market:'US',symbol:'LATE',price:'20',provider:'late',quoted_at:'2026-08-18T20:00:00.000Z',updated_at:'2026-08-20T00:00:00.000Z'}
+ ],fx_observations:[],portfolio_revisions:[]};
+ const result=selectInputs(tables,'fixture','2026-08-15','2026-08-19T00:00:00.000Z','2026-08-20');
+ assert.deepEqual(result.quotes.map(q=>[q.symbol,q.price]),[['FIX','12']]);
+});

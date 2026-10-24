@@ -65,7 +65,20 @@ export async function publishInTransaction(c:pg.PoolClient,run:string,h:string,e
  const revision=await c.query('SELECT facts_revision FROM app.household_state WHERE household_id=$1 FOR UPDATE',[h]);if(!revision.rowCount)throw new Error('NOT_FOUND');
  const factsRevision=String(revision.rows[0].facts_revision);
  const tables=await loadEnvelopeTables(c,run,h);if(!tables.imports?.length)throw new Error('NOT_FOUND');
- const inputs=selectInputs(tables,h,effective,known);
+ // Holdings/events use their economic effective date. Market data may arrive
+ // later, so valuation has its own cutoff bounded by what was known at publish.
+ const valuationCutoffAsOf=known.slice(0,10);if(!/^\d{4}-\d{2}-\d{2}$/.test(valuationCutoffAsOf))throw new Error('INVALID_KNOWN_AT');
+ const [marketQuotes,marketFx]=await Promise.all([
+  c.query(`SELECT DISTINCT ON(market_code,symbol) market_code AS market,symbol,price::text AS price,provider,
+    observed_at::text AS quoted_at,received_at::text AS updated_at FROM app.market_quote_observations
+    WHERE observed_at::date<=$1::date AND received_at<=$2::timestamptz ORDER BY market_code,symbol,observed_at DESC,received_at DESC`,[valuationCutoffAsOf,known]),
+  c.query(`SELECT DISTINCT ON(pair) pair,rate::text AS rate,provider,observed_on::text AS quoted_at,
+    received_at::text AS recorded_at FROM app.market_fx_observations
+    WHERE observed_on<=$1::date AND received_at<=$2::timestamptz ORDER BY pair,observed_on DESC,received_at DESC`,[valuationCutoffAsOf,known]),
+ ]);
+ tables.market_quotes.push(...marketQuotes.rows.map(row=>({...row,user_id:h})));
+ tables.fx_observations.push(...marketFx.rows.map((row,index)=>({...row,user_id:h,id:`market-${index}`})));
+ const inputs=selectInputs(tables,h,effective,known,valuationCutoffAsOf);
  const positionResolutions=await c.query(`SELECT DISTINCT ON(par.source_record_id) par.source_record_id,par.snapshot_id,par.assertion_id,par.custody_account_id,ci.id AS institution_id,o.display_name AS owner
    FROM app.position_account_resolutions par JOIN app.custody_accounts ca ON ca.household_id=par.household_id AND ca.id=par.custody_account_id
    JOIN app.custody_institutions ci ON ci.id=ca.institution_id JOIN app.owners o ON o.household_id=ca.household_id AND o.id=ca.owner_id
@@ -90,7 +103,9 @@ export async function publishInTransaction(c:pg.PoolClient,run:string,h:string,e
  for(const event of applied.rows){const id='app-event:'+String(event.id);inputs.trades.push({id,import_id:'app-events',file_type:'chat_transaction',owner:String(event.owner),reference_date:String(event.effective_date),created_at:new Date(String(event.known_at)).toISOString(),payload:JSON.stringify({owner:String(event.owner),instrument_code:String(event.instrument_code),currency:String(event.currency),side:String(event.side),quantity:String(event.quantity),unit_price:String(event.unit_price),trade_date:String(event.effective_date),source:'application_event'})});eventAttributions.set(id,{owner:String(event.owner),source_scope:String(event.source_scope)});}
  const accountResolutionMap=new Map<string,string>(resolutions.rows.map(r=>[String(r.source_record_id),resolvedScopes.get(String(r.snapshot_id))??String(r.source_scope)]));
  const tradeMap=new Map(attributions.rows.map(r=>[r.source_record_id,{owner:r.owner,source_scope:r.source_scope}]));for(const [id,value] of eventAttributions)tradeMap.set(id,value);
- const view=buildPortfolio(inputs,accountResolutionMap,new Map(aliases.rows.map(r=>[r.owner+'\0'+r.source_account_ref,r.source_scope])),tradeMap,positionMap);
+ const view={...buildPortfolio(inputs,accountResolutionMap,new Map(aliases.rows.map(r=>[r.owner+'\0'+r.source_account_ref,r.source_scope])),tradeMap,positionMap),
+  valuation_as_of:[...inputs.quotes.map(q=>String(q.quoted_at).slice(0,10)),...(inputs.fx?[String(inputs.fx.quoted_at).slice(0,10)]:[])].filter(date=>/^\d{4}-\d{2}-\d{2}$/.test(date)).sort().at(-1)??effective,
+  valuation_cutoff_as_of:valuationCutoffAsOf};
  view.positions=view.positions.map(p=>({...p,owner_id:ownerId(p.owner),account_id:accountId(p.account_id)}));
  const marketRevision=hash(JSON.stringify([inputs.quotes,inputs.fx]));const calculation='decimal-half-up-v1:'+hash((await readFile(new URL('./portfolio.ts',import.meta.url),'utf8'))+(await readFile(new URL('./money.ts',import.meta.url),'utf8')));
  const version=hash(JSON.stringify([run,h,effective,known,factsRevision,marketRevision,calculation,resolutions.rows,aliases.rows,attributions.rows,positionResolutions.rows]));

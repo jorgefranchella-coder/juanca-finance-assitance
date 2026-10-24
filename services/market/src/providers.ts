@@ -59,6 +59,15 @@ export async function nasdaqQuote(symbol:string):Promise<Quote>{
  }
  throw new Error('NASDAQ_QUOTE_UNAVAILABLE');
 }
+export async function yahooQuote(symbol:string,fetcher:typeof fetch=fetch):Promise<Quote>{
+ const safe=encodeURIComponent(symbol.replaceAll('.','-'));
+ const response=await fetcher(`https://query2.finance.yahoo.com/v8/finance/chart/${safe}?range=5d&interval=1d`,{signal:AbortSignal.timeout(8000),headers:{Accept:'application/json','User-Agent':'Mozilla/5.0 (compatible; JuancaMarket/1.0)'}});
+ if(!response.ok)throw new Error(`YAHOO_HTTP_${response.status}`);
+ const body=await response.json() as {chart?:{result?:Array<{meta?:{regularMarketPrice?:number|null;regularMarketTime?:number|null}}>|null}};
+ const meta=body.chart?.result?.[0]?.meta,price=decimal(meta?.regularMarketPrice);if(!price||Number(price)<=0)throw new Error('YAHOO_QUOTE_INVALID');
+ const timestamp=Number(meta?.regularMarketTime);return{market_code:'US',symbol,currency:'USD',price,provider:'yahoo_public',observed_at:Number.isFinite(timestamp)&&timestamp>0?new Date(timestamp*1000).toISOString():new Date().toISOString()};
+}
+export async function publicUsQuote(symbol:string):Promise<Quote>{try{return await yahooQuote(symbol);}catch{return await nasdaqQuote(symbol);}}
 export async function usQuotes(symbols:string[],concurrency=8):Promise<{quotes:Quote[];failed:string[]}>{
- const quotes:Quote[]=[],failed:string[]=[];for(let i=0;i<symbols.length;i+=concurrency){const batch=await Promise.all(symbols.slice(i,i+concurrency).map(async symbol=>{try{return await nasdaqQuote(symbol);}catch{return null;}}));batch.forEach((quote,index)=>quote?quotes.push(quote):failed.push(symbols[i+index]));}return{quotes,failed};
+ const quotes:Quote[]=[],failed:string[]=[];for(let i=0;i<symbols.length;i+=concurrency){const batch=await Promise.all(symbols.slice(i,i+concurrency).map(async symbol=>{try{return await publicUsQuote(symbol);}catch{return null;}}));batch.forEach((quote,index)=>quote?quotes.push(quote):failed.push(symbols[i+index]));}return{quotes,failed};
 }
