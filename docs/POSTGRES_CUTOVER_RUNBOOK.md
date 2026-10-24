@@ -1,6 +1,6 @@
 # Runbook de migración y corte a PostgreSQL
 
-Estado actualizado: 24/10/2026. D1/R2 sigue siendo la única autoridad de escritura y lectura de la web vigente. PostgreSQL y los servicios de ingesta/mercado siguen en sombra. Este runbook registra el preflight y define los gates para cambiar esa autoridad sin perder movimientos ni evidencia.
+Estado actualizado: 24/10/2026. El corte operativo a PostgreSQL está activo: las lecturas de cartera y las escrituras financieras nuevas usan PostgreSQL; el gateway bloquea las rutas financieras antiguas de D1/R2. D1/R2 se conserva como copia de recuperación. Los informes privados y respaldos del corte permanecen fuera del repositorio.
 
 ## Resultado del preflight
 
@@ -325,3 +325,12 @@ Preflight adicional del 24/10: `npm run backup:health` informó `backups_healthy
 ### Recuperación de carga de UI para Revisiones (24/10/2026)
 
 La página respondía, pero el Worker seguía ejecutando el bundle previo mientras `dist/client` ya se había reconstruido: HTML apuntaba a hashes nuevos de JS/CSS que el Worker viejo devolvía como 404. Se reinició `patrimonio-juanca-worker.service` sobre el build actual; gateway y Worker quedaron activos. Validación por HTTPS en el host publicado: página 200, los 5 bundles JavaScript, CSS y 2 fuentes locales 200; los endpoints de la cola y sus paneles 200; quedan 6 confirmaciones abiertas, sin cambios en sus estados. Para publicar futuros builds se deben reiniciar tanto Worker (sirve SSR/assets) como gateway web y comprobar los assets referenciados y la API de revisiones antes de darlo por desplegado.
+### Corte operativo a PostgreSQL (24/10/2026)
+
+Se activó el modo `postgres` del gateway como autoridad de cartera. El dashboard, las posiciones y el resumen contestan desde PostgreSQL; las rutas de escritura financieras antiguas de D1/R2 quedan rechazadas con HTTP 409. El modo es un archivo local protegido y se puede inspeccionar con `GET /api/authority`; la interfaz ya muestra la cartera PostgreSQL activa en lugar de comparar dos rutas que, después del corte, apuntan a la misma fuente.
+
+Durante la captura se pausaron los workers de ingesta y mercado, se congelaron las escrituras desde el gateway y se generaron respaldos verificables de ambos lados. D1/R2 se restauró en un directorio aislado y PostgreSQL pasó su verificación de restauración; `npm run backup:health` terminó con `backups_healthy=true`. Luego se comprobó una captura estable con las mismas fechas de snapshot y valoración. La huella del delta fue `225aa91062807a684e68b2989014c531f3a6357753ab33f13310b96d4142f0a3`: 29 diferencias, cubiertas por decisiones ya registradas (25 de valor, 2 de cantidad y valor y 2 ausencias confirmadas). No se cambió ninguna posición durante esa conciliación. El validador repetible `npm run migration:verify-cutover-approvals -- --report=<informe privado>` exige cobertura por hash, acción y cantidades; fallará ante cualquier diferencia no aprobada. El informe congelado, la constancia de cobertura y los respaldos permanecen en las carpetas privadas de `~/.local/share/juanca/`.
+
+Smoke tests autenticados verificaron HTTP 200 y marca PostgreSQL en las tres lecturas; el endpoint de posiciones devolvió 196 posiciones. Las escrituras de importación B3, chat de transacciones y refresco de mercado a través de rutas D1 respondieron 409. Se reanudaron los workers y todos los servicios Juanca quedaron activos. Pasaron `npm run typecheck`, `npm test` (64/64), build web, pruebas HTTP (9/9) y pruebas del switch de autoridad (4/4). Commit de código anterior del interruptor y ensayo aislado de reversión: `c188498`; el corte activo queda en el commit de este registro.
+
+`mode=legacy` sigue disponible para recuperación, pero no debe utilizarse a ciegas después de que PostgreSQL acepte nuevos cambios: primero se debe congelar y reconciliar cualquier escritura posterior al corte. D1/R2 queda conservado como copia de recuperación y no recibe nuevas escrituras financieras desde el gateway.

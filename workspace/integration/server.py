@@ -280,6 +280,14 @@ class Gateway(BaseHTTPRequestHandler):
                 response = connection.getresponse()
                 payload = response.read()
                 mime = response.getheader('Content-Type', 'application/json').split(';')[0]
+                if path == '/api/shadow/authority/readiness' and response.status == 200:
+                    readiness = json.loads(payload)
+                    readiness['active_authority'] = {
+                        'mode': portfolio_authority_mode(),
+                        'authoritative': portfolio_authority_mode() == 'postgres',
+                        'frozen': portfolio_authority_mode() == 'freeze',
+                    }
+                    payload = json.dumps(readiness, separators=(',', ':')).encode('utf-8')
                 self.reply(response.status, payload, mime)
             finally:
                 connection.close()
