@@ -1,12 +1,12 @@
 # Juanca — especificación funcional
 
-**Estado de referencia:** 21 de octubre de 2026. **Alcance:** comportamiento vigente y destino de la transformación. La [especificación técnica](ESPECIFICACION_TECNICA.md) identifica el sistema que escribe los datos; la [especificación UX](ESPECIFICACION_UX.md) define su presentación. Los apartados marcados **objetivo** aún no son una función productiva.
+**Estado de referencia:** 24 de octubre de 2026. PostgreSQL es la autoridad financiera productiva; D1/R2 queda como copia de recuperación y el gateway bloquea sus escrituras financieras. Los apartados **objetivo** son mejoras no implementadas. La [especificación técnica](ESPECIFICACION_TECNICA.md) describe el runtime y la [especificación UX](ESPECIFICACION_UX.md), la presentación.
 
 ## 1. Propósito y límites
 
 Juanca permite a Jorge y Julia consultar y mantener una visión trazable del patrimonio familiar. Reúne posiciones, movimientos, costos, documentos, precios y vencimientos procedentes de B3, custodios y entradas manuales. Produce valoraciones y escenarios indicativos. No envía órdenes a corredores ni sustituye una liquidación, un extracto de custodia o un cálculo tributario.
 
-La web vigente y su base D1 local son la autoridad de los datos familiares. La aplicación PostgreSQL y los servicios de ingesta y mercado funcionan en **sombra**: reciben evidencia, prueban reconciliaciones y exponen consultas identificadas como no autoritativas. Publicar o decidir en la sombra no altera por sí solo la cartera vigente.
+La cartera versionada en PostgreSQL es la autoridad de los datos familiares. Ingesta y mercado persisten evidencia y observaciones en sus esquemas PostgreSQL; publicar un snapshot aprobado reconstruye la cartera y requiere decisión explícita. D1/R2 se conserva para recuperación, pero el gateway bloquea las escrituras financieras heredadas. Las diferencias aceptadas del corte permanecen documentadas como decisiones; no se corrigieron ni se reinterpretaron automáticamente.
 
 ## 2. Actores y conceptos
 
@@ -21,7 +21,7 @@ La web vigente y su base D1 local son la autoridad de los datos familiares. La a
 | Evidencia | Archivo, fila, foto o mensaje original con fecha de recepción, referencia y lectura versionada. |
 | Hecho | Movimiento económico o posición aceptada para calcular la cartera. Una coincidencia de evidencia no crea automáticamente otro hecho. |
 
-Jorge confirmó una cuenta de custodia por institución para los reportes B3 recibidos. Esa confirmación no autoriza a asignar arbitrariamente cuentas a Julia ni a mezclar dos instituciones de Itaú. Los activos fuera de B3, como previsión y Avenue, entran mediante sus propias fuentes.
+Jorge confirmó una cuenta de custodia por institución para los reportes B3 recibidos; Julia confirmó una cuenta por cada institución de sus reportes. Estas confirmaciones no autorizan a mezclar cuentas o titulares. Los activos fuera de B3, como previsión y Avenue, entran mediante sus propias fuentes y publicaciones revisadas en PostgreSQL.
 
 ## 3. Recorridos y disponibilidad
 
@@ -33,7 +33,7 @@ La web dispone de simulación nominal/real con parámetros editables. Sus tarjet
 
 ### Importación y conciliación
 
-El siguiente flujo es el objetivo completo. La importación vigente y la conciliación en sombra son capacidades distintas, según la matriz de estado de la sección 7.
+El flujo productivo registra los originales y resultados de ingesta en PostgreSQL. Una carga no publica posiciones: las diferencias, identidades incompletas y snapshots esperan revisión humana. La publicación aprobada es la que actualiza la cartera autoritativa.
 
 1. El usuario elige titular y fuente, envía el documento y ve su estado.
 2. Se conserva el original y se registran hash, fecha, tipo, hoja/fila o página y resultado del parser.
@@ -45,9 +45,9 @@ Los archivos B3 de **posición** son fotografías patrimoniales con fecha de cor
 
 **Estado de conciliación (21/10/2026):** el snapshot B3 de Jorge del 19/10 se comparó con el del 09/10. Aparecen seis diferencias: cuatro posiciones añadidas, una retirada y una cantidad modificada. El archivo de movimientos disponible cubre hasta el 08/10, por lo que no explica ninguna de las diferencias posteriores al corte anterior. Se conservan como candidatos de revisión; no se reconstruyen movimientos ni se publican cambios por inferencia. Para cerrar el intervalo hace falta un extracto de movimientos que cubra el período posterior al 09/10 o evidencia directa equivalente. Para Julia se comparó el snapshot B3 del 19/10 con el snapshot legado del 29/08: 18 instrumentos coinciden por cuenta e instrumento y quedan seis diferencias candidatas, tres entradas y tres salidas. El extracto de movimientos recibido el 21/10 contiene 66 filas entre el 23/04 y el 20/10; 65 quedaron ligadas a cuenta y una retirada de custodia de XP sigue sin cuenta/contraparte. En la ventana del snapshot, tres diferencias de cantidad concuerdan exactamente con aplicaciones y rescates (CDB326C3F18, CDB9266Y62Z y CDB92685F8M). La compra a término de 45 BTGL52 coincide en cantidad, pero permanece como evidencia candidata por su semántica de operación. Para CDB826DDEHV se explican 950.024 de 1.000.000 unidades retiradas; quedan 49.976 sin movimiento coincidente. CDB323TLJXC (70 unidades retiradas) no tiene movimiento coincidente. Dos filas adicionales tienen evento genérico sin interpretar. La cobertura se infiere del rango de fechas de las filas y no certifica por sí sola que el extracto sea exhaustivo; el snapshot legado no tiene assertions B3 archivadas. Todo sigue `candidate_only`: no se aplicaron movimientos ni se publicaron cambios patrimoniales.
 
-Julia confirmó una cuenta por institución. Esa regla ya está aplicada a sus 21 filas históricas del snapshot legado del 29/08 mediante una resolución auditada contra los identificadores canónicos de custodia. El archivo original B3 de ese corte no está registrado como assertion, por lo que la resolución acredita la cuenta según la confirmación del usuario, no una coincidencia de fila B3. La versión sombra marca esas posiciones con identidad conocida y conserva sus cantidades y valores; las 21 filas del snapshot fuente del 19/10 siguen con interpretación `needs_review`.
+Julia confirmó una cuenta por institución. Esa regla ya está aplicada a sus 21 filas históricas del snapshot legado del 29/08 mediante una resolución auditada contra los identificadores canónicos de custodia. El archivo original B3 de ese corte no está registrado como assertion, por lo que la resolución acredita la cuenta según la confirmación del usuario, no una coincidencia de fila B3. La cartera PostgreSQL marca esas posiciones con identidad conocida y conserva sus cantidades y valores; las 21 filas del snapshot fuente del 19/10 siguen con interpretación `needs_review`.
 
-Avenue aporta extractos de posición y confirmaciones; la previsión aporta saldo del participante según el documento del proveedor. Una foto o un movimiento escrito se guarda desde su recepción aun si OCR, cuenta, fecha o interpretación quedan pendientes. La sombra dispone de carga documental, OCR local para formatos compatibles y bandejas de candidatos; su aplicación al patrimonio autoritativo sigue bajo revisión.
+Avenue aporta extractos de posición y confirmaciones; la previsión aporta el saldo del participante según el documento del proveedor. Una foto o movimiento escrito se archiva desde su recepción aunque OCR, cuenta, fecha o interpretación queden pendientes. Ingesta mantiene el original y su lectura versionada; solo la publicación aprobada actualiza la cartera autoritativa.
 
 **Alcance de caja:** el sistema registra y valora patrimonio invertido (posiciones y cantidades por titular, institución/cuenta e instrumento). Los saldos bancarios y efectivo en custodia quedan fuera del alcance y bajo control del usuario: no se solicitan extractos para reconstruirlos, no se incluyen en el patrimonio invertido y no se usan como condición para aprobar una compra o venta. La aplicación conserva precio, principal y comisiones de la operación como datos del hecho histórico, pero no deriva ni mantiene un saldo de caja. En compras/ventas se valida la identidad de la cuenta y la cantidad disponible del activo cuando corresponde.
 
@@ -59,7 +59,7 @@ El chat guiado propio responde consultas habituales sin Hermes. El chat libre me
 
 ### Revisiones y costos
 
-Las revisiones muestran evidencia, motivo, titular, cuenta y efecto posible. La web vigente permite decidir registros ambiguos y la sombra conserva decisiones auditadas sobre vínculos y conciliaciones. Vincular una foto o una fila B3 a un mensaje expresa correspondencia de evidencia; no autoriza a contabilizar una operación.
+Las revisiones muestran evidencia, motivo, titular, cuenta y efecto posible. Las decisiones y publicaciones se registran en PostgreSQL con auditoría. Vincular una foto o fila B3 a un mensaje expresa correspondencia entre evidencias; no contabiliza por sí solo una operación.
 
 El costo de adquisición puede proceder de una compra documentada, un dato manual o una fuente histórica. Se conservan referencias heredadas a precios y fechas de una hoja de inversión, pero el mapeo de esas columnas no está verificado contra los encabezados vigentes; por eso esas observaciones quedan excluidas de la proyección hasta confirmar su fuente y significado. Las compras identificadas en movimientos B3 son evidencia separada y solo se usan cuando cumplen las reglas de identidad, cobertura y cantidad de la sección de proyección. Todo costo conserva titular y procedencia, sin confundir precio de compra con precio de mercado.
 
@@ -73,7 +73,7 @@ La pantalla presenta una matriz horizontal. Cada año ocupa una columna expandib
 
 ## 5. Reglas de integridad y aceptación
 
-- Un único escritor autoritativo publica cambios patrimoniales durante la migración. La sombra es lectura/comparación hasta un corte explícito.
+- PostgreSQL es el único escritor autoritativo después del corte. D1/R2 queda como recuperación, con escrituras financieras heredadas bloqueadas en el gateway.
 - La fuente original, su interpretación y la decisión humana siguen consultables tras una corrección.
 - La identidad de cuenta insuficiente impide fusionar posiciones por ticker o aplicar una operación sobre un saldo supuesto.
 - Un snapshot tiene fecha económica y fecha de recepción; una carga antigua no debe sustituir silenciosamente una fotografía posterior.
@@ -87,7 +87,7 @@ La pantalla presenta una matriz horizontal. Cada año ocupa una columna expandib
 
 ## 6. Pendientes de producto
 
-Antes de conmutar la autoridad a PostgreSQL faltan reconciliación final de ambos titulares, cobertura de cuentas pendientes, migración verificable de originales, escritura patrimonial mediante las nuevas APIs, respaldo restaurable del conjunto y ensayo de reversión. Identidades individuales, escenarios guardados, alertas calculadas y proyección contractual son mejoras posteriores; su ausencia no debe describirse como una función ya entregada.
+El corte a PostgreSQL se completó el 24/10/2026. Las 29 diferencias del delta congelado fueron cubiertas por decisiones explícitas y permanecen como diferencias aceptadas entre la copia D1/R2 y la autoridad nueva. Mejoras posteriores: resolver confirmaciones B3 históricas que sigan abiertas, completar identidades/costos de adquisición cuando haya evidencia, y desarrollar escenarios guardados, alertas calculadas y proyección contractual. Ninguna implica revertir la autoridad.
 
 ## 7. Estado verificable de capacidades (P0-02)
 
@@ -95,13 +95,13 @@ Esta matriz describe disponibilidad, no certifica aceptación integral. Una capa
 
 | Capacidad | Disponibilidad actual | Evidencia local / brecha |
 |---|---|---|
-| Consulta, importación y costos D1 | Vigente | `workspace/apps/web/app/api`; identidad de costos aún no incluye cuenta |
+| Consulta, importación y costos PostgreSQL | Vigente | Cartera y APIs PG; D1/R2 queda como recuperación y sus escrituras financieras están bloqueadas |
 | Matriz anual/mensual y expansión por emisor | Vigente, parcial | `FixedIncomeProjection.tsx`; posiciones separadas por custodio/cuenta declarada; costos legados ambiguos quedan excluidos; falta identidad completa persistida |
-| Propuestas D1 | Vigente | Rutas `transactions`; pruebas de aprobación en `workspace/apps/web/tests` |
-| Evidencia manual, OCR y candidatos B3 | Sombra | `services/application` y `services/ingestion`; no publican hechos financieros en D1 |
-| Cartera versionada y mercado independiente | Sombra | `services/application` y `services/market`; no reemplazan la autoridad vigente |
-| Aprobación PostgreSQL | Módulo probado con datos sintéticos | No habilitado como escritor familiar por HTTP |
-| Corrección integral con historial y publicación | Objetivo | Requiere completar conciliación y corte de autoridad |
+| Propuestas PostgreSQL | Vigente | APIs de propuesta, aprobación auditada y publicación de eventos en `services/application` |
+| Evidencia manual, OCR y candidatos B3 | Vigente en PostgreSQL | `services/application` y `services/ingestion`; la evidencia no cambia la cartera hasta su revisión/publicación |
+| Cartera versionada y mercado | Vigente en PostgreSQL | `services/application` y `services/market`; la valoración indica fecha, fuente y cobertura |
+| Aprobación PostgreSQL | Vigente | Requiere rol owner/approver, decisión explícita, idempotencia y auditoría |
+| Corrección integral con historial y publicación | Parcialmente vigente | Snapshots aprobados actualizan la cartera; conciliaciones históricas pendientes continúan en Revisiones |
 | Proyección contractual, alertas calculadas y escenarios guardados | Objetivo | No confundir con estimación histórica y tarjetas actuales |
 
 ## 8. Reglas P0 aprobadas para implementación
@@ -114,7 +114,7 @@ La identidad mínima es familia, titular, custodio, cuenta, instrumento y moneda
 
 **Aceptación:** dos cuentas del mismo titular con el mismo título y costos diferentes mantienen cantidades, costos e historial independientes; el total por emisor coincide con su suma. Un costo antiguo sin cuenta queda pendiente de asignación cuando hay más de una cuenta posible.
 
-**Avance:** la proyección de renta fija separa titular, institución, cuenta declarada e instrumento. Si el reporte no declara cuenta, se conserva esa falta visible y la institución solo sirve como ámbito provisional. Un costo legado sin cuenta se usa únicamente cuando hay un solo candidato; ante posiciones homónimas se excluye y se explica en el detalle. Las migraciones 017/018 están aplicadas en la base de sombra y la API ofrece identidades con referencia de origen, candidatos de cuenta, resoluciones auditadas y registro/corrección versionada de lotes con actor, idempotencia y procedencia. Se cargaron las 170 filas de los reportes B3 más recientes: 149 posiciones de Jorge y 21 de Julia ya están ligadas a cuenta. Por confirmación del titular, se registró una cuenta de Julia para cada una de las tres instituciones presentes y se resolvieron las 21 identidades. Las 21 filas conservan `needs_review` como estado de interpretación; resolver custodia no valida sus datos financieros. No se generaron lotes, no se reasignó costo legado y nada de esto modifica la cartera publicada. Falta revisar esas filas y los costos históricos, además de integrar lotes aprobados a la proyección. El detalle de proyección muestra intervalo y fuentes de la serie, y advierte si alterna MTM con curva. Las referencias antiguas a la hoja se advierten cuando sus columnas no coinciden con los encabezados actuales; los registros existentes se conservan para revisión.
+**Registro previo al corte:** la proyección de renta fija separa titular, institución, cuenta declarada e instrumento. Si el reporte no declara cuenta, se conserva esa falta visible y la institución solo sirve como ámbito provisional. Un costo legado sin cuenta se usa únicamente cuando hay un solo candidato; ante posiciones homónimas se excluye y se explica en el detalle. Las migraciones 017/018 están aplicadas en la base de sombra y la API ofrece identidades con referencia de origen, candidatos de cuenta, resoluciones auditadas y registro/corrección versionada de lotes con actor, idempotencia y procedencia. Se cargaron las 170 filas de los reportes B3 más recientes: 149 posiciones de Jorge y 21 de Julia ya están ligadas a cuenta. Por confirmación del titular, se registró una cuenta de Julia para cada una de las tres instituciones presentes y se resolvieron las 21 identidades. Las 21 filas conservan `needs_review` como estado de interpretación; resolver custodia no valida sus datos financieros. En ese registro aún no se habían generado lotes ni reasignado costo legado. Las decisiones posteriores de corte no alteraron el alcance de esas revisiones de identidad. El detalle de proyección muestra intervalo y fuentes de la serie, y advierte si alterna MTM con curva. Las referencias antiguas a la hoja se advierten cuando sus columnas no coinciden con los encabezados actuales; los registros existentes se conservan para revisión.
 
 ### P0-03 — Adquisición, valoración y conflictos
 
@@ -124,7 +124,7 @@ Un comprobante de operación inequívocamente vinculado a la adquisición preval
 
 **Aceptación:** la ficha explica de dónde proviene cada precio/fecha; cambiar un costo conserva valor previo, actor, razón y evidencia. Compras múltiples no se convierten en una compra ficticia con fecha única. Una serie que cambia entre curva y MTM se señala antes de extrapolarla.
 
-**Avance:** se registraron 9 observaciones de adquisición B3 para 5 posiciones de Jorge; las comisiones se guardan como desconocidas porque el reporte no las declara. Al comparar la suma de lotes con el snapshot B3 del 19/10, 4 de las 5 posiciones concuerdan y una conserva una diferencia sin explicar con la evidencia disponible. La pestaña Revisiones ofrece una conciliación de solo lectura por titular y posición; compara compras brutas con el snapshot, identifica posiciones sin lotes y excluye diferencias no comparables cuando hay adquisiciones posteriores al corte. Son evidencias históricas en sombra; no se asignan al costo vigente ni alimentan la proyección hasta completar la conciliación de cantidades y la valoración histórica.
+**Registro previo al corte:** se registraron 9 observaciones de adquisición B3 para 5 posiciones de Jorge; las comisiones se guardan como desconocidas porque el reporte no las declara. Al comparar la suma de lotes con el snapshot B3 del 19/10, 4 de las 5 posiciones concuerdan y una conserva una diferencia sin explicar con la evidencia disponible. La pestaña Revisiones ofrece una conciliación de solo lectura por titular y posición; compara compras brutas con el snapshot, identifica posiciones sin lotes y excluye diferencias no comparables cuando hay adquisiciones posteriores al corte. Ese estado describe la revisión capturada antes del corte; las diferencias de adquisición siguen siendo diagnósticos y requieren evidencia para resolver saldo inicial, cantidad y costo.
 
 ### P0-04 — Saldos y flujos por período
 

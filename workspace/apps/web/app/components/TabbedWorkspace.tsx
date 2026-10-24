@@ -26,7 +26,7 @@ const tabs = [
   { id: "reviews", label: "Revisões", eyebrow: "Qualidade dos dados", title: "Pendências de conciliação", subtitle: "Confirme eventos ambíguos antes que influenciem recomendações." },
   { id: "juanca", label: "Juanca", eyebrow: "Seu patrimônio", title: "Converse com Juanca", subtitle: "Seu assistente de patrimônio, conectado aos dados da família." },
   { id: "assistant", label: "Assistente", eyebrow: "Entrada conversacional", title: "Transações", subtitle: "Interprete ordens e comprovantes antes de ajustar a carteira." },
-  { id: "postgres-shadow", label: "PostgreSQL", eyebrow: "Livro em sombra", title: "Movimentos PostgreSQL", subtitle: "Registre movimentos com investidor e conta explícitos para revisão." },
+  { id: "postgres-shadow", label: "PostgreSQL", eyebrow: "Autoridade ativa", title: "Carteira e movimentos", subtitle: "Consulte posições e revise movimentos registrados na base produtiva." },
   { id: "imports", label: "Importar", eyebrow: "Fontes patrimoniais", title: "Entrada de dados", subtitle: "Atualize B3, Avenue e previdência em um só lugar." },
   { id: "fixed-income", label: "Renda fixa", eyebrow: "Projeções por ativo", title: "Até o vencimento", subtitle: "Acompanhe o histórico de preços e a cobertura das estimativas." },
   { id: "projections", label: "Projeções", eyebrow: "Planejamento", title: "Cenários patrimoniais", subtitle: "Compare valores nominais e reais para diferentes horizontes." },

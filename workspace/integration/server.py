@@ -27,6 +27,7 @@ AUTHORITY_CONFIG_PATH = Path(os.environ.get('JUANCA_AUTHORITY_CONFIG', '/home/jo
 CUTOVER_REPORT_ROOT = Path(os.environ.get('JUANCA_CUTOVER_REPORT_ROOT', '/home/jorge/.local/share/juanca-shadow/reports'))
 MARKET_JOB = re.compile(r'^/api/shadow/market/jobs/([0-9a-fA-F-]{36})$')
 PORTFOLIO_READ_ROUTES = {'/api/portfolio/dashboard', '/api/portfolio/positions', '/api/portfolio/summary'}
+POSTGRES_AUTHORITY_READS = {'/api/shadow/portfolio', '/api/shadow/positions', '/api/shadow/fixed-income-projection'}
 LEGACY_WRITE_PREFIXES = ('/api/import/', '/api/transactions/', '/api/portfolio/reviews', '/api/portfolio/cost-basis', '/api/portfolio/confirmations', '/api/market/refresh')
 ALLOCATION_LABELS = {
     'fixed_income': 'Renda fixa bancária', 'treasury': 'Tesouro Direto', 'equity': 'Ações',
@@ -321,6 +322,12 @@ class Gateway(BaseHTTPRequestHandler):
                         readiness['blockers'] = [item for item in readiness.get('blockers', []) if item not in outcomes]
                         readiness['ready'] = not readiness['blockers']
                     payload = json.dumps(readiness, separators=(',', ':')).encode('utf-8')
+                elif path in POSTGRES_AUTHORITY_READS and response.status == 200:
+                    result = json.loads(payload)
+                    if isinstance(result, dict):
+                        result['mode'] = 'postgres'
+                        result['authoritative'] = True
+                        payload = json.dumps(result, separators=(',', ':')).encode('utf-8')
                 self.reply(response.status, payload, mime)
             finally:
                 connection.close()

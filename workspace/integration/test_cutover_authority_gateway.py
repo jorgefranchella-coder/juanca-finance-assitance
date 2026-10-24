@@ -35,6 +35,7 @@ class PortfolioStub(BaseHTTPRequestHandler):
                      'market_value_cents': '999999', 'quantity': '1', 'price_as_of': '2026-10-23'},
                 ],
             },
+            '/v1/fixed-income-projection': {'positions': [], 'mode': 'shadow', 'authoritative': False},
             '/v1/position-identities/acquisition-reconciliation': {'positions': [
                 {'owner': 'Jorge', 'institution': 'BTG', 'custody_account_id': 'acct-petr', 'instrument_code': 'PETR4',
                  'currency': 'BRL', 'custody_identity_resolved': True, 'status': 'matches_snapshot',
@@ -129,6 +130,12 @@ class CutoverAuthorityGatewayTests(unittest.TestCase):
         petr = next(row for row in positions['positions'] if row['instrument_code'] == 'PETR4')
         self.assertEqual(petr['cost_status'], 'available'); self.assertEqual(petr['cost_basis_cents'], 8000)
         self.assertEqual(petr['unrealized_pnl_cents'], 2000)
+
+    def test_postgres_portfolio_and_projection_reads_report_active_authority(self):
+        status, portfolio = self.request('GET', '/api/shadow/portfolio')
+        self.assertEqual(status, 200); self.assertEqual(portfolio['mode'], 'postgres'); self.assertTrue(portfolio['authoritative'])
+        status, projection = self.request('GET', '/api/shadow/fixed-income-projection')
+        self.assertEqual(status, 200); self.assertEqual(projection['mode'], 'postgres'); self.assertTrue(projection['authoritative'])
 
     def test_legacy_writes_are_blocked_and_quality_summary_uses_postgres(self):
         status, result = self.request('POST', '/api/import/b3', {'file': 'not forwarded'})

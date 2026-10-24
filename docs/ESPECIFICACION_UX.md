@@ -1,6 +1,6 @@
 # Juanca — especificación de experiencia de usuario
 
-**Estado de referencia:** 21 de octubre de 2026. Describe la navegación vigente y las reglas de interacción que deben mantenerse al pasar a los servicios autónomos. Las funciones aún no implementadas se indican como **objetivo**. Ver [reglas funcionales](ESPECIFICACION_FUNCIONAL.md) y [arquitectura técnica](ESPECIFICACION_TECNICA.md).
+**Estado de referencia:** 24 de octubre de 2026. PostgreSQL es la autoridad activa. Esta especificación describe la interfaz productiva y marca como **objetivo** las funciones aún no implementadas. Ver [reglas funcionales](ESPECIFICACION_FUNCIONAL.md) y [arquitectura técnica](ESPECIFICACION_TECNICA.md).
 
 ## 1. Principios de interfaz
 
@@ -47,7 +47,7 @@ La nota metodológica bajo la matriz explica que se extrapola una tasa **histór
 
 ### Estado de preparación PostgreSQL
 
-La pestaña PostgreSQL sombra incluye una lista operativa de gates con estado, explicación y siguiente acción. Separa controles ya verificados de bloqueos pendientes; explicita que PostgreSQL sigue sin autoridad y permite refrescar la lectura. No presenta el estado técnico como aprobación de movimientos ni ofrece desde allí una acción de corte.
+La pestaña **Cartera y movimientos** muestra la cartera activa y el estado de autoridad. La comparación previa al corte se conserva como evidencia privada y no se presenta como comparación en vivo. El estado técnico no sustituye una aprobación de movimiento; las decisiones siguen ocurriendo en Revisões/Assistente con auditoría.
 
 ### Cartera y calidad
 
@@ -55,11 +55,11 @@ La vista general muestra fecha de referencia y cobertura junto a importes. En la
 
 ### Conciliación de adquisiciones
 
-En **Revisões**, la conciliación compara la cantidad del snapshot B3 con compras brutas registradas por posición, junto con titular, institución, cuenta y fecha de corte. El filtro de titular limita las filas; por defecto se muestran posiciones que ya tienen lotes registrados y un control permite incluir las demás. Los indicadores resumen el universo completo, aunque algunas filas estén ocultas por el filtro. El estado y la diferencia se leen como diagnóstico: las compras brutas no descuentan ventas, rescates ni transferencias, y una diferencia no determina el saldo de apertura ni el costo vigente. Si hay adquisiciones posteriores al snapshot, no se presenta una diferencia comparable. La pantalla es de solo lectura y ofrece actualización manual.
+En **Revisões**, la conciliación PostgreSQL compara la cantidad del snapshot B3 con compras brutas registradas por posición, junto con titular, institución, cuenta y fecha de corte. El filtro de titular limita las filas; por defecto se muestran posiciones que ya tienen lotes registrados y un control permite incluir las demás. Los indicadores resumen el universo completo, aunque algunas filas estén ocultas por el filtro. El estado y la diferencia se leen como diagnóstico: las compras brutas no descuentan ventas, rescates ni transferencias, y una diferencia no determina el saldo de apertura ni el costo vigente. Si hay adquisiciones posteriores al snapshot, no se presenta una diferencia comparable. El diagnóstico es de solo lectura y ofrece actualización manual.
 
 ### Importación
 
-El formulario pide fuente, titular, tipo de archivo y fecha de referencia cuando corresponda. Debe confirmar recepción, progreso, procesamiento o fallo con una explicación accionable. Un documento repetido devuelve el resultado ya conocido; no crea otra posición. En B3 se ve el corte del snapshot y la cobertura temporal de movimientos. Para publicar snapshots en Revisões, cada tarjeta identifica titular, fuente y fecha real del extracto. Si esa fecha es anterior al corte global, la confirmación informa que la cartera se reconstruirá al corte actual y conservará la fecha fuente en las posiciones. Solo el documento más reciente del titular/fuente ofrece la acción de revisión; un documento sustituido explica que requiere corrección histórica. La acción sigue siendo individual y requiere confirmación explícita. La bandeja de sombra presenta diferencias candidatas entre reportes; esa decisión no corrige automáticamente la cartera vigente. **Objetivo:** enlazar cada cambio publicado con las filas antiguas y nuevas que lo justifican.
+El formulario pide fuente, titular, tipo de archivo y fecha de referencia cuando corresponda. Debe confirmar recepción, progreso, procesamiento o fallo con una explicación accionable. Un documento repetido devuelve el resultado ya conocido; no crea otra posición. En B3 se ve el corte del snapshot y la cobertura temporal de movimientos. Para publicar snapshots en Revisões, cada tarjeta identifica titular, fuente y fecha real del extracto. Si esa fecha es anterior al corte global, la confirmación informa que la cartera se reconstruirá al corte actual y conservará la fecha fuente en las posiciones. Solo el documento más reciente del titular/fuente ofrece la acción de revisión; un documento sustituido explica que requiere corrección histórica. La acción sigue siendo individual y requiere confirmación explícita. La bandeja de Revisões presenta diferencias candidatas entre reportes; su decisión actualiza la cartera solo cuando se confirma una publicación aprobada. **Objetivo:** enlazar cada cambio publicado con las filas antiguas y nuevas que lo justifican.
 
 ### Foto o mensaje de movimiento
 
@@ -69,9 +69,9 @@ La recepción se confirma aunque la extracción no haya terminado. Se puede abri
 
 La propuesta presenta un resumen antes de habilitar `Aprovar` o `Rejeitar`. El usuario ve los datos económicos, la cuenta y la evidencia utilizada; un campo no confirmado se señala de forma específica. Tras decidir se muestra estado final e identificador estable. Reintentar una aprobación por latencia debe mostrar el mismo resultado, sin crear una segunda operación. Si la identidad de custodia o la cantidad de la posición invertida es insuficiente, se explica el bloqueo. La aprobación no pide ni consulta saldo de caja; ese control queda en manos del usuario.
 
-### Registro de movimientos en sombra
+### Registro de movimientos
 
-La pestaña separada de movimientos pide inversor, cuenta identificada y evidencia escrita o foto pendiente del mismo titular antes de guardar ticker, lado, moneda, cantidad, precio, comisiones y fecha. La evidencia se enlaza una sola vez y aparece en la cola de propuestas junto con el movimiento. Las cuentas no resueltas aparecen deshabilitadas. El resultado queda en «Pendiente de aprobación» y la pantalla repite que no modifica la cartera vigente; esta identidad con rol `reviewer` puede preparar borradores, pero no aprobarlos ni descartarlos. Si las rutas sombra no están disponibles, se conserva el formulario y se explica que el servicio aún no está conectado. No se ofrece una acción de aplicación en esta pantalla.
+La pestaña separada de movimientos pide inversor, cuenta identificada y evidencia escrita o foto pendiente del mismo titular antes de guardar ticker, lado, moneda, cantidad, precio, comisiones y fecha. La evidencia se enlaza una sola vez y aparece en la cola de propuestas junto con el movimiento. Las cuentas no resueltas aparecen deshabilitadas. El resultado queda en «Pendiente de aprobación» hasta que una persona con rol `owner` o `approver` decida. La aprobación publica un evento versionado en PostgreSQL y actualiza la cartera; el historial y la evidencia permanecen auditados. Si el servicio no está disponible, se conserva el formulario y se explica que el resultado no se confirmó.
 
 ## 5. Estados transversales
 
@@ -98,7 +98,7 @@ La pestaña separada de movimientos pide inversor, cuenta identificada y evidenc
 
 ## 7. Interacciones P0: implementación y aceptación
 
-La matriz expande años y emisores y muestra referencia por título, corte por columna, totales parciales y los estados «Sem cobertura», «Faltam dados», «Em revisão» y «Vencido». El control «Motivo» abre la explicación con un elemento nativo accesible. La identidad completa y la ficha de procedencia siguen pendientes. Los requisitos siguientes mantienen el alcance integral de aceptación.
+La matriz productiva expande años y emisores y muestra referencia por título, corte por columna, totales parciales y los estados «Sem cobertura», «Faltam dados», «Em revisão» y «Vencido». El control «Motivo» abre la explicación con un elemento nativo accesible. La pestaña Cartera y movimientos identifica la autoridad activa; el delta D1/R2–PostgreSQL queda en evidencia privada. Los requisitos siguientes mantienen el alcance integral de aceptación.
 
 | Requisito | Presentación requerida |
 |---|---|
@@ -114,8 +114,8 @@ Los totales por emisor incluyen únicamente las posiciones elegibles y marcan la
 
 En la edición manual del costo se muestra la institución/cuenta disponible y el historial de ajustes registrados. Cada cambio agrega una entrada con su fecha base, cantidad, precio unitario medio y momento de registro. Si el mismo titular, instrumento y moneda aparece en varias posiciones sin identidad de cuenta suficiente, el costo agregado se marca pendiente y no se ofrece edición hasta resolver esa ambigüedad.
 
-En la pestaña PostgreSQL sombra, la proyección de renta fija reutiliza la matriz mensual/anual, el desglose por emisor y los filtros por titular. El encabezado identifica claramente que es una lectura de prueba; los importes no sustituyen ni actualizan la cartera vigente. El usuario puede contrastar ese panel con la proyección D1 hasta completar la paridad funcional del dashboard.
+La proyección de renta fija lee la cartera PostgreSQL activa y conserva la matriz mensual/anual, el desglose por emisor y los filtros por titular. La estimación presenta fuente, fecha y cobertura; no representa una promesa contractual ni ejecuta movimientos.
 
-La pestaña PostgreSQL también incluye una comparación de solo lectura de posiciones invertidas entre D1/R2 y PostgreSQL. Agrupa solo para comparar por titular, instrumento y moneda; conserva las cuentas separadas en sus listas patrimoniales. Excluye `USD_CASH`, porque la caja queda fuera del alcance familiar, y presenta conteo, cantidades, valores y diferencias de clave.
+La pestaña Cartera y movimientos muestra conteo, valor invertido y fecha del snapshot desde la autoridad activa; excluye `USD_CASH`, porque la caja queda fuera del alcance patrimonial acordado. El delta D1/R2–PostgreSQL del corte se conserva como evidencia privada y no se presenta como comparación operativa en vivo.
 
-El panel de cotizaciones sombra pide tickers B3 y de Estados Unidos y actualiza solo cuando el usuario pulsa «Actualizar precios sombra». Muestra el estado del trabajo asíncrono, cotización, proveedor y hora observada, además del último USD/BRL disponible. Explica que los datos se conservan para análisis sombra y que no cambian la valorización oficial; no se consulta proveedores automáticamente al abrir la pestaña.
+El panel de mercado pide tickers B3 y de Estados Unidos y actualiza solo cuando el usuario pulsa «Actualizar precios». Muestra el estado del trabajo asíncrono, cotización, proveedor y hora observada, además del USD/BRL disponible. No se consulta proveedores automáticamente al abrir la pestaña.
