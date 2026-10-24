@@ -37,9 +37,6 @@ type Position = {
   unrealized_pnl_cents?: number | null;
   cost_status?: "available" | "missing" | "ambiguous_position";
 };
-type CostHistoryEntry = { request_id: string; currency: string; quantity: number; average_unit_cost: number;
-  as_of: string; source: string; institution: string | null; account: string | null; recorded_at: string };
-
 type PositionsResponse = {
   count: number;
   total_value_cents: number;
@@ -129,14 +126,6 @@ export function DashboardMetrics() {
   useEffect(() => {
     const initialLoad = window.setTimeout(() => {
       void load();
-      void fetch("/api/market/refresh", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ automatic: true }),
-      }).then((response) => response.ok ? response.json() as Promise<{updated?:number}> : null)
-        .then((result: { updated?: number } | null) => {
-          if (result?.updated) window.dispatchEvent(new Event("portfolio-data-updated"));
-        }).catch(() => undefined);
     }, 0);
     window.addEventListener("portfolio-data-updated", load);
     return () => {
@@ -280,13 +269,6 @@ export function PortfolioDialog() {
   const [owner, setOwner] = useState("Todos");
   const [query, setQuery] = useState("");
   const [error, setError] = useState("");
-  const [editing, setEditing] = useState<Position | null>(null);
-  const [averageCost, setAverageCost] = useState("");
-  const [costDate, setCostDate] = useState(new Date().toISOString().slice(0, 10));
-  const [costRequestId, setCostRequestId] = useState("");
-  const [costHistory, setCostHistory] = useState<CostHistoryEntry[]>([]);
-  const [savingCost, setSavingCost] = useState(false);
-  const [quoteStatus, setQuoteStatus] = useState("");
 
   const loadPositions = useCallback(async () => {
     setError("");
@@ -311,68 +293,6 @@ export function PortfolioDialog() {
   function showPortfolio() {
     setOpen(true);
     void loadPositions();
-  }
-
-  async function refreshQuotes() {
-    setQuoteStatus("Atualizando…");
-    try {
-      const response = await fetch("/api/market/refresh", { method: "POST" });
-      const result = await response.json() as {
-        updated?: number;
-        requested?: { b3: number; us: number; us_total: number };
-        sources?: { b3_date: string | null; us_provider: string };
-        configured?: { b3: boolean; us: boolean; requires_api_key: boolean };
-        us_failed?: number;
-        errors?: string[];
-        detail?: string;
-      };
-      if (!response.ok) throw new Error(result.detail ?? "Falha ao atualizar.");
-      await loadPositions();
-      window.dispatchEvent(new Event("portfolio-data-updated"));
-      const parts = [`${result.updated ?? 0} cotações atualizadas`];
-      if (result.sources?.b3_date) parts.push(`B3: fechamento de ${new Date(`${result.sources.b3_date}T12:00:00`).toLocaleDateString("pt-BR")}`);
-      if (result.requested?.us_total) parts.push(`EUA: ${Math.max(0, (result.requested.us ?? 0) - (result.us_failed ?? 0))}/${result.requested.us_total} via fonte pública`);
-      if (result.us_failed) parts.push(`${result.us_failed} símbolo(s) não encontrado(s)`);
-      if (result.errors?.includes("b3_cotahist")) parts.push("B3 indisponível nesta tentativa");
-      setQuoteStatus(`${parts.join(" · ")}.`);
-    } catch (refreshError) {
-      setQuoteStatus(refreshError instanceof Error ? refreshError.message : "Falha ao atualizar.");
-    }
-  }
-
-  async function editCost(position: Position) {
-    setEditing(position);
-    setAverageCost(position.average_unit_cost?.toString() ?? "");
-    setCostDate(position.reference_date || new Date().toISOString().slice(0, 10));
-    setCostRequestId(crypto.randomUUID());
-    setCostHistory([]);
-    const params = new URLSearchParams({ owner: position.owner, instrument_code: position.instrument_code });
-    try {
-      const response = await fetch(`/api/portfolio/cost-basis?${params}`, { cache: "no-store" });
-      if (!response.ok) return;
-      const result = await response.json() as { history?: CostHistoryEntry[] };
-      setCostHistory(result.history ?? []);
-    } catch { /* history remains empty if the read fails */ }
-  }
-
-  async function saveCost() {
-    if (!editing) return;
-    setSavingCost(true);
-    try {
-      const response = await fetch("/api/portfolio/cost-basis", {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ owner: editing.owner, instrument_code: editing.instrument_code,
-          currency: editing.currency ?? "BRL", quantity: editing.quantity,
-          average_unit_cost: Number(averageCost.replace(",", ".")), as_of: costDate,
-          institution: editing.institution, account: editing.account, request_id: costRequestId }),
-      });
-      const result = await response.json() as { detail?: string };
-      if (!response.ok) throw new Error(result.detail ?? "Não foi possível salvar.");
-      setEditing(null);
-      await loadPositions();
-    } catch (saveError) {
-      setError(saveError instanceof Error ? saveError.message : "Não foi possível salvar.");
-    } finally { setSavingCost(false); }
   }
 
   const normalized = query.trim().toLocaleLowerCase("pt-BR");
@@ -402,18 +322,9 @@ export function PortfolioDialog() {
               <div><small>Valor exibido</small><strong>{money.format(filteredTotal / 100)}</strong></div>
             </div>
             <div className="valuation-toolbar">
-              <button className="secondary-button" onClick={() => void refreshQuotes()}>Atualizar cotações</button>
-              <span>{quoteStatus || "Renda fixa: MTM da B3; curva quando MTM não estiver disponível."}</span>
+              <button className="secondary-button" onClick={() => window.dispatchEvent(new CustomEvent("juanca-action", { detail: { type: "open_postgres_market" } }))}>Atualizar cotizaciones en PostgreSQL</button>
+              <span>O preço sombra pode ser atualizado no painel PostgreSQL; esta carteira D1 permanece apenas como referência antes do corte.</span>
             </div>
-            {editing && <div className="cost-editor">
-              <div><strong>{editing.instrument_code || editing.product_name}</strong><small>Custo médio unitário em {editing.currency ?? "BRL"}</small></div>
-              <label>Preço médio<input inputMode="decimal" value={averageCost} onChange={(event) => { setAverageCost(event.target.value); setCostRequestId(crypto.randomUUID()); }} /></label>
-              <label>Data-base<input type="date" value={costDate} onChange={(event) => { setCostDate(event.target.value); setCostRequestId(crypto.randomUUID()); }} /></label>
-              <p className="cost-history-scope">{editing.institution || "Custodio pendiente"}{editing.account ? ` · cuenta ${editing.account}` : " · cuenta no informada"}. Cada ajuste queda registrado con esta referencia.</p>
-              <details className="cost-history"><summary>Historial de costos ({costHistory.length})</summary>{costHistory.length ? <ol>{costHistory.map((entry) => <li key={entry.request_id}><strong>{new Intl.NumberFormat("pt-BR", { style: "currency", currency: entry.currency }).format(entry.average_unit_cost)}</strong> · {entry.quantity} unidades · base {entry.as_of}<small>{entry.institution || "Custodia pendiente"}{entry.account ? ` · cuenta ${entry.account}` : " · cuenta no informada"} · registrado {entry.recorded_at}</small></li>)}</ol> : <p>Aún no hay correcciones registradas en este historial.</p>}</details>
-              <button className="review-save" disabled={savingCost} onClick={() => void saveCost()}>{savingCost ? "Salvando…" : "Salvar custo"}</button>
-              <button className="text-button" onClick={() => setEditing(null)}>Cancelar</button>
-            </div>}
             {error ? (
               <div className="portfolio-state"><p>{error}</p><button className="secondary-button" onClick={() => void loadPositions()}>Tentar novamente</button></div>
             ) : !data ? (
@@ -432,7 +343,7 @@ export function PortfolioDialog() {
                         <td>{position.average_unit_cost === null || position.average_unit_cost === undefined ? "—" : new Intl.NumberFormat("pt-BR", { style: "currency", currency: position.cost_currency ?? position.currency ?? "BRL" }).format(position.average_unit_cost)}{position.cost_status === "ambiguous_position" && <small>Custo legado sem conta; precisa de revisão</small>}</td>
                         <td>{position.market_value_cents===null?"Conversão indisponível":money.format(position.market_value_cents / 100)}</td>
                         <td className={position.unrealized_pnl_cents === null || position.unrealized_pnl_cents === undefined ? "" : position.unrealized_pnl_cents >= 0 ? "pnl-positive" : "pnl-negative"}>{position.unrealized_pnl_cents === null || position.unrealized_pnl_cents === undefined ? "—" : money.format(position.unrealized_pnl_cents / 100)}</td>
-                        <td>{position.cost_status === "ambiguous_position" ? <button className="cost-button" disabled title="Resolva a conta antes de alterar o custo">Conta pendente</button> : <button className="cost-button" onClick={() => void editCost(position)}>Definir custo</button>}</td>
+                        <td><button className="cost-button" onClick={() => window.dispatchEvent(new CustomEvent("juanca-action", { detail: { type: "open_reviews" } }))}>Revisar compras em PostgreSQL</button></td>
                       </tr>
                     ))}
                   </tbody>

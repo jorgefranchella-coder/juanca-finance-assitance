@@ -1,7 +1,7 @@
 "use client";
 
 import { KeyboardEvent, useEffect, useState } from "react";
-import { DashboardMetrics, ReviewPanel } from "./DashboardData";
+import { DashboardMetrics } from "./DashboardData";
 import FixedIncomeProjection from "./FixedIncomeProjection";
 import { DataImportPanel, ProjectionPanel, RecommendationsPanel } from "./InteractiveWorkspace";
 import TransactionChat from "./TransactionChat";
@@ -64,6 +64,7 @@ export default function TabbedWorkspace() {
         setPrefill({message:detail.message,owner:detail.owner});setActive('assistant');
       } else if(detail?.type==='open_transactions') setActive('assistant');
       else if(detail?.type==='open_reviews') setActive('reviews');
+      else if(detail?.type==='open_postgres_market') setActive('postgres-shadow');
     }
     window.addEventListener('juanca-action',action);
     return ()=>window.removeEventListener('juanca-action',action);
@@ -93,7 +94,7 @@ export default function TabbedWorkspace() {
 
       <section className="tab-panel" role="tabpanel" aria-label={current.label}>
         {active === "overview" && <DashboardMetrics />}
-        {active === "reviews" && <><ConfirmationQueue endpoint="/api/shadow/confirmations" /><ReviewPanel /><ManualIntakePanel /><ManualB3Candidates /><ManualPhotoPanel /><B3SnapshotPublicationPanel /><ExternalSnapshotPublicationPanel /><B3ReconciliationPanel /><AcquisitionReconciliationPanel /></>}
+        {active === "reviews" && <><ConfirmationQueue endpoint="/api/shadow/confirmations" /><ManualIntakePanel /><ManualB3Candidates /><ManualPhotoPanel /><B3SnapshotPublicationPanel /><ExternalSnapshotPublicationPanel /><B3ReconciliationPanel /><AcquisitionReconciliationPanel /></>}
         {active === "assistant" && <><TransactionChat key={`${prefill?.owner??"manual"}:${prefill?.message??""}`} prefill={prefill} /><ShadowProposalWorkspace /></>}
         {active === "postgres-shadow" && <><ShadowPortfolioPanel /><ShadowMarketPanel /><FixedIncomeProjection endpoint="/api/shadow/fixed-income-projection" shadow /><ShadowProposalWorkspace /></>}
         {active === "juanca" && <JuancaChat />}
