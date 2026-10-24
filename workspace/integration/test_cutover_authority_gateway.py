@@ -140,6 +140,16 @@ class CutoverAuthorityGatewayTests(unittest.TestCase):
         status, result = self.request('POST', '/api/import/b3', {'file': 'not forwarded'})
         self.assertEqual(status, 503); self.assertEqual(result['code'], 'AUTHORITY_CONFIGURATION_UNAVAILABLE')
 
+    def test_freeze_blocks_legacy_and_postgres_api_writes(self):
+        self.authority.write_text('{"mode":"freeze"}')
+        status, legacy = self.request('POST', '/api/import/b3', {'file': 'not forwarded'})
+        self.assertEqual(status, 423); self.assertEqual(legacy['code'], 'CUTOVER_FREEZE')
+        status, shadow = self.request('POST', '/api/shadow/confirmations', {'source_key': 'fixture:freeze'})
+        self.assertEqual(status, 423); self.assertEqual(shadow['code'], 'CUTOVER_FREEZE')
+        status, authority = self.request('GET', '/api/authority')
+        self.assertEqual(status, 200); self.assertEqual(authority, {'mode': 'freeze', 'authoritative': False, 'frozen': True})
+        self.assertEqual(PortfolioStub.calls, [])
+
 
 if __name__ == '__main__':
     unittest.main()

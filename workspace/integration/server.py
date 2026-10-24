@@ -40,7 +40,7 @@ def portfolio_authority_mode(path=None):
         value = json.loads(path.read_text())
     except FileNotFoundError:
         return 'legacy'
-    if not isinstance(value, dict) or set(value) != {'mode'} or value['mode'] not in {'legacy', 'postgres'}:
+    if not isinstance(value, dict) or set(value) != {'mode'} or value['mode'] not in {'legacy', 'postgres', 'freeze'}:
         raise ValueError('INVALID_AUTHORITY_CONFIGURATION')
     return value['mode']
 
@@ -509,6 +509,9 @@ class Gateway(BaseHTTPRequestHandler):
         except (OSError, ValueError, json.JSONDecodeError):
             self.reply_json(503, {'code': 'AUTHORITY_CONFIGURATION_UNAVAILABLE'})
             return
+        if authority_mode == 'freeze' and path.startswith('/api/') and self.command not in ('GET', 'HEAD', 'OPTIONS'):
+            self.reply_json(423, {'code': 'CUTOVER_FREEZE', 'message': 'Las escrituras están pausadas durante la captura final.'})
+            return
         if authority_mode == 'postgres':
             if path in PORTFOLIO_READ_ROUTES and self.command in ('GET', 'HEAD'):
                 self.postgres_portfolio_read(path)
@@ -518,7 +521,8 @@ class Gateway(BaseHTTPRequestHandler):
                                 {'X-Juanca-Portfolio-Authority': 'postgres'})
                 return
         if path == '/api/authority' and self.command in ('GET', 'HEAD'):
-            self.reply_json(200, {'mode': authority_mode, 'authoritative': authority_mode == 'postgres'})
+            self.reply_json(200, {'mode': authority_mode, 'authoritative': authority_mode == 'postgres',
+                                  'frozen': authority_mode == 'freeze'})
             return
         if path.startswith('/api/shadow/'):
             if path.startswith('/api/shadow/market/'):
