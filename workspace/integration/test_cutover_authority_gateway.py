@@ -43,6 +43,12 @@ class PortfolioStub(BaseHTTPRequestHandler):
             '/v1/confirmations?status=open': {'open_count': 2, 'items': []},
             '/v1/reconciliation/b3/snapshots': {'snapshots': [{'published': True}, {'published': False}]},
             '/v1/reconciliation/external/snapshots': {'snapshots': [{'published': True}]},
+            '/v1/authority/readiness': {
+                'ready': False, 'mode': 'shadow', 'authoritative': False,
+                'blockers': ['legacy_financial_writers_still_active', 'final_cutover_delta_not_verified', 'cutover_and_rollback_not_rehearsed'],
+                'gates': [{'id': gate, 'status': 'blocked', 'detail': 'Pendiente.'} for gate in (
+                    'legacy_financial_writers_still_active', 'final_cutover_delta_not_verified', 'cutover_and_rollback_not_rehearsed')],
+            },
         }
         body = json.dumps(payloads[self.path]).encode()
         self.send_response(200); self.send_header('Content-Type', 'application/json')
@@ -81,6 +87,7 @@ class CutoverAuthorityGatewayTests(unittest.TestCase):
         self.root = Path(self.temp.name)
         self.old_authority = server.AUTHORITY_CONFIG_PATH
         self.old_shadow = server.SHADOW_CONFIG_PATH
+        self.old_report_root = server.CUTOVER_REPORT_ROOT
         self.authority = self.root / 'authority.json'
         self.shadow_config = self.root / 'application.json'
         self.stub = ThreadingHTTPServer(('127.0.0.1', 0), PortfolioStub)
@@ -88,6 +95,7 @@ class CutoverAuthorityGatewayTests(unittest.TestCase):
         self.authority.write_text(json.dumps({'mode': 'postgres'}))
         server.AUTHORITY_CONFIG_PATH = self.authority
         server.SHADOW_CONFIG_PATH = self.shadow_config
+        server.CUTOVER_REPORT_ROOT = self.root / 'reports'
         PortfolioStub.calls = []
         self.gateway = ThreadingHTTPServer(('127.0.0.1', 0), server.Gateway)
         self.threads = [threading.Thread(target=item.serve_forever, daemon=True) for item in (self.stub, self.gateway)]
@@ -99,6 +107,7 @@ class CutoverAuthorityGatewayTests(unittest.TestCase):
         for thread in self.threads: thread.join(timeout=2)
         server.AUTHORITY_CONFIG_PATH = self.old_authority
         server.SHADOW_CONFIG_PATH = self.old_shadow
+        server.CUTOVER_REPORT_ROOT = self.old_report_root
         self.temp.cleanup()
 
     def request(self, method, path, body=None):
@@ -149,6 +158,19 @@ class CutoverAuthorityGatewayTests(unittest.TestCase):
         status, authority = self.request('GET', '/api/authority')
         self.assertEqual(status, 200); self.assertEqual(authority, {'mode': 'freeze', 'authoritative': False, 'frozen': True})
         self.assertEqual(PortfolioStub.calls, [])
+
+    def test_readiness_reports_postgres_cutover_only_with_complete_approval_attestation(self):
+        reports = self.root / 'reports'; reports.mkdir()
+        (reports / 'cutover-approved-delta-2026-10-24.json').write_text(json.dumps({
+            'format': 'juanca-cutover-approved-delta-v1', 'difference_count': 29, 'covered_count': 29,
+            'uncovered': [], 'capture_stable': True, 'dates_match': True,
+        }))
+        status, result = self.request('GET', '/api/shadow/authority/readiness')
+        self.assertEqual(status, 200); self.assertTrue(result['ready'])
+        self.assertEqual(result['mode'], 'postgres'); self.assertTrue(result['authoritative'])
+        self.assertEqual(result['active_authority'], {'mode': 'postgres', 'authoritative': True, 'frozen': False})
+        self.assertEqual(result['blockers'], [])
+        self.assertTrue(all(gate['status'] == 'passed' for gate in result['gates']))
 
 
 if __name__ == '__main__':

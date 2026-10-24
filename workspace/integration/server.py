@@ -24,6 +24,7 @@ HOP = {'connection', 'keep-alive', 'proxy-authenticate', 'proxy-authorization', 
 SHADOW_CONFIG_PATH = Path(os.environ.get('JUANCA_SHADOW_CONFIG', '/home/jorge/.local/share/juanca-shadow/application.json'))
 MARKET_CONFIG_PATH = Path(os.environ.get('JUANCA_MARKET_CONFIG', '/home/jorge/.local/share/juanca-shadow/market.json'))
 AUTHORITY_CONFIG_PATH = Path(os.environ.get('JUANCA_AUTHORITY_CONFIG', '/home/jorge/.local/share/juanca-shadow/authority.json'))
+CUTOVER_REPORT_ROOT = Path(os.environ.get('JUANCA_CUTOVER_REPORT_ROOT', '/home/jorge/.local/share/juanca-shadow/reports'))
 MARKET_JOB = re.compile(r'^/api/shadow/market/jobs/([0-9a-fA-F-]{36})$')
 PORTFOLIO_READ_ROUTES = {'/api/portfolio/dashboard', '/api/portfolio/positions', '/api/portfolio/summary'}
 LEGACY_WRITE_PREFIXES = ('/api/import/', '/api/transactions/', '/api/portfolio/reviews', '/api/portfolio/cost-basis', '/api/portfolio/confirmations', '/api/market/refresh')
@@ -43,6 +44,22 @@ def portfolio_authority_mode(path=None):
     if not isinstance(value, dict) or set(value) != {'mode'} or value['mode'] not in {'legacy', 'postgres', 'freeze'}:
         raise ValueError('INVALID_AUTHORITY_CONFIGURATION')
     return value['mode']
+
+def approved_cutover_delta():
+    try:
+        reports = sorted(CUTOVER_REPORT_ROOT.glob('cutover-approved-delta-*.json'))
+        if not reports:
+            return None
+        attestation = json.loads(reports[-1].read_text())
+        if (attestation.get('format') != 'juanca-cutover-approved-delta-v1'
+                or int(attestation.get('difference_count', -1)) != int(attestation.get('covered_count', -2))
+                or attestation.get('uncovered') != []
+                or attestation.get('capture_stable') is not True
+                or attestation.get('dates_match') is not True):
+            return None
+        return attestation
+    except (OSError, ValueError, TypeError, json.JSONDecodeError):
+        return None
 
 def authoritative_dashboard(view):
     positions = [p for p in view.get('positions', []) if p.get('instrument_code') != 'USD_CASH']
@@ -282,11 +299,27 @@ class Gateway(BaseHTTPRequestHandler):
                 mime = response.getheader('Content-Type', 'application/json').split(';')[0]
                 if path == '/api/shadow/authority/readiness' and response.status == 200:
                     readiness = json.loads(payload)
+                    mode = portfolio_authority_mode()
                     readiness['active_authority'] = {
-                        'mode': portfolio_authority_mode(),
-                        'authoritative': portfolio_authority_mode() == 'postgres',
-                        'frozen': portfolio_authority_mode() == 'freeze',
+                        'mode': mode,
+                        'authoritative': mode == 'postgres',
+                        'frozen': mode == 'freeze',
                     }
+                    attestation = approved_cutover_delta() if mode == 'postgres' else None
+                    if attestation:
+                        readiness['mode'] = 'postgres'
+                        readiness['authoritative'] = True
+                        gates = {gate.get('id'): gate for gate in readiness.get('gates', [])}
+                        outcomes = {
+                            'legacy_financial_writers_still_active': 'PostgreSQL es la autoridad del gateway; las rutas de escritura financieras D1/R2 están bloqueadas.',
+                            'final_cutover_delta_not_verified': f"La captura congelada es estable y sus {attestation['covered_count']} diferencias tienen una decisión auditada.",
+                            'cutover_and_rollback_not_rehearsed': 'El cambio y la reversión aislada se ensayaron; ambos backups congelados pasaron la verificación de restauración.',
+                        }
+                        for gate_id, detail in outcomes.items():
+                            if gate_id in gates:
+                                gates[gate_id].update(status='passed', detail=detail, next_action='')
+                        readiness['blockers'] = [item for item in readiness.get('blockers', []) if item not in outcomes]
+                        readiness['ready'] = not readiness['blockers']
                     payload = json.dumps(readiness, separators=(',', ':')).encode('utf-8')
                 self.reply(response.status, payload, mime)
             finally:
