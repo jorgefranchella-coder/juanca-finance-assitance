@@ -15,6 +15,7 @@ import {authorityReadiness} from './authority-readiness.ts';
 import {listB3PositionSnapshots,publishB3PositionSnapshot} from './b3-snapshot-publications.ts';
 import {listExternalPositionSnapshots,publishExternalPositionSnapshot} from './external-snapshot-publications.ts';
 import {fixedIncomeProjection} from './fixed-income.ts';
+import {listConfirmations,recordConfirmationDecision} from './confirmations.ts';
 const config=JSON.parse(await readFile(process.env.JUANCA_SHADOW_CONFIG??'/home/jorge/.local/share/juanca-shadow/application.json','utf8')) as {token:string;household_id:string;cursor_key:string;port:number};
 if(config.token.length<32||config.cursor_key.length<32||!config.household_id)throw new Error('INVALID_CONFIGURATION');
 const db=pool();
@@ -27,6 +28,12 @@ const server=createServer(async(req,res)=>{
   const provided=createHash('sha256').update(req.headers.authorization??'').digest();const expected=createHash('sha256').update('Bearer '+config.token).digest();
   if(!timingSafeEqual(provided,expected))throw new Conflict('UNAUTHENTICATED',401);
   if(url.pathname==='/v1/authority/readiness'&&req.method==='GET'){reply(200,await authorityReadiness(db,config.household_id));return;}
+  if(url.pathname==='/v1/confirmations'&&req.method==='GET'){reply(200,await listConfirmations(db,config.household_id,url.searchParams.get('status')??undefined));return;}
+  const confirmationDecision=url.pathname.match(/^\/v1\/confirmations\/([A-Za-z0-9._:-]{1,240})\/decisions$/);
+  if(confirmationDecision&&req.method==='POST'){
+   if(process.env.JUANCA_CONFIRMATIONS_WRITABLE!=='true')throw new Conflict('SHADOW_READ_ONLY',405);
+   reply(201,await recordConfirmationDecision(db,config.household_id,String(req.headers['x-juanca-actor']??''),confirmationDecision[1],await readJson(req)));return;
+  }
   if(url.pathname==='/v1/fixed-income-projection'&&req.method==='GET'){reply(200,await fixedIncomeProjection(db,config.household_id));return;}
   if(url.pathname==='/v1/proposals'&&req.method==='GET'){
    reply(200,await listProposals(db,config.household_id,url.searchParams.get('status')??undefined));return;

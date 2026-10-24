@@ -26,6 +26,7 @@ MARKET_JOB = re.compile(r'^/api/shadow/market/jobs/([0-9a-fA-F-]{36})$')
 SHADOW_ROUTES = {
     '/api/shadow/portfolio': {'GET'},
     '/api/shadow/authority/readiness': {'GET'},
+    '/api/shadow/confirmations': {'GET'},
     '/api/shadow/positions': {'GET'},
     '/api/shadow/fixed-income-projection': {'GET'},
     '/api/shadow/conversations/family/messages': {'GET', 'POST'},
@@ -49,6 +50,7 @@ SHADOW_PROPOSAL_COMMAND = re.compile(r'^/api/shadow/proposals/([0-9a-fA-F-]{36})
 SHADOW_B3_PUBLISH = re.compile(r'^/api/shadow/reconciliation/b3/snapshots/([A-Za-z0-9._:-]+)/publish$')
 SHADOW_EXTERNAL_PUBLISH = re.compile(r'^/api/shadow/reconciliation/external/snapshots/([A-Za-z0-9._:-]+)/publish$')
 SHADOW_POSITION_ACQUISITIONS = re.compile(r'^/api/shadow/position-identities/([0-9a-fA-F-]{36})/acquisitions$')
+SHADOW_CONFIRMATION_DECISION = re.compile(r'^/api/shadow/confirmations/([A-Za-z0-9._:-]{1,240})/decisions$')
 PHOTO_TYPES = {'image/jpeg', 'image/png', 'image/webp', 'image/heic'}
 DOCUMENT_TYPES = {
     ('b3', 'positions'): 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
@@ -145,6 +147,7 @@ class Gateway(BaseHTTPRequestHandler):
             b3_publish = SHADOW_B3_PUBLISH.fullmatch(path)
             external_publish = SHADOW_EXTERNAL_PUBLISH.fullmatch(path)
             position_acquisitions = SHADOW_POSITION_ACQUISITIONS.fullmatch(path)
+            confirmation_decision = SHADOW_CONFIRMATION_DECISION.fullmatch(path)
             if proposal_command:
                 methods = {'POST'}
             elif b3_publish:
@@ -153,6 +156,8 @@ class Gateway(BaseHTTPRequestHandler):
                 methods = {'POST'}
             elif position_acquisitions:
                 methods = {'GET', 'POST'}
+            elif confirmation_decision:
+                methods = {'POST'}
             elif not match:
                 self.reply_json(404, {'code': 'NOT_FOUND'})
                 return
@@ -181,6 +186,7 @@ class Gateway(BaseHTTPRequestHandler):
                     SHADOW_B3_PUBLISH.fullmatch(path) or
                     SHADOW_EXTERNAL_PUBLISH.fullmatch(path) or
                     SHADOW_POSITION_ACQUISITIONS.fullmatch(path) or
+                    SHADOW_CONFIRMATION_DECISION.fullmatch(path) or
                     path == '/api/shadow/proposals' and self.command == 'POST' or
                     SHADOW_PROPOSAL_COMMAND.fullmatch(path)) and self.command == 'POST':
                 headers['X-Juanca-Actor'] = CONFIG['user_id']

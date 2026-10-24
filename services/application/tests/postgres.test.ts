@@ -21,6 +21,7 @@ import {listB3DuplicateMovementCandidates,recordB3DuplicateMovementDecision} fro
 import {publishB3PositionSnapshot,listB3PositionSnapshots} from '../src/b3-snapshot-publications.ts';
 import {publishExternalPositionSnapshot,listExternalPositionSnapshots} from '../src/external-snapshot-publications.ts';
 import {fixedIncomeProjection} from '../src/fixed-income.ts';
+import {listConfirmations,recordConfirmationDecision} from '../src/confirmations.ts';
 const database='juanca_test_'+randomUUID().replaceAll('-','');
 const admin=pool('jorge','postgres');const db=pool('juanca_app',database);const migrator=pool('jorge',database);
 before(async()=>{assert.match(database,/^juanca_test_[0-9a-f]+$/);await admin.query('CREATE DATABASE "'+database+'"');await migrator.query(await readFile(new URL('../../../infra/postgres/roles.sql',import.meta.url),'utf8'));await migrate(db);});
@@ -49,6 +50,19 @@ test('written movement is retained once as review evidence without changing the 
  await assert.rejects(()=>recordText(db,h,{...input,text:'Vendí una participación'}),(e:unknown)=>e instanceof Conflict&&e.code==='IDEMPOTENCY_MISMATCH');
  assert.equal((await db.query('SELECT count(*) FROM app.manual_intakes WHERE household_id=$1',[h])).rows[0].count,'1');
  assert.equal((await db.query('SELECT facts_revision FROM app.household_state WHERE household_id=$1',[h])).rows[0].facts_revision,'0');
+});
+test('PostgreSQL confirmation decisions preserve audit history and enforce allowed actions',async()=>{
+ const h='confirmation-'+randomUUID(),actor='confirmation-actor-'+randomUUID(),id='legacy-confirmation-'+randomUUID();
+ await db.query('INSERT INTO app.households VALUES($1)',[h]);await db.query('INSERT INTO app.actors VALUES($1,$2)',[actor,'Confirmation test']);await db.query("INSERT INTO app.memberships VALUES($1,$2,'approver')",[h,actor]);
+ await db.query(`INSERT INTO app.confirmation_items(household_id,id,source_key,owner,category,title,context,evidence,actions,created_at,updated_at)
+ VALUES($1,$2,$2,'Jorge','Fixture','Synthetic queue item','{}','[]',$3,'2026-10-01','2026-10-01')`,[h,id,JSON.stringify([{key:'clarify',label:'Aclarar',keeps_open:true},{key:'accept',label:'Confirmar'}])]);
+ assert.equal((await listConfirmations(db,h)).open_count,1);
+ await assert.rejects(()=>recordConfirmationDecision(db,h,actor,id,{action_key:'missing'}),(e:unknown)=>e instanceof Conflict&&e.code==='INVALID_ACTION');
+ await recordConfirmationDecision(db,h,actor,id,{action_key:'clarify',note:'Primera respuesta'});
+ assert.equal((await listConfirmations(db,h)).items[0].status,'open');
+ await recordConfirmationDecision(db,h,actor,id,{action_key:'accept',note:'Cierre'});
+ const result=await listConfirmations(db,h,'resolved');assert.equal(result.items[0].decisions.length,2);assert.equal(result.items[0].decision.action_key,'accept');
+ await assert.rejects(()=>recordConfirmationDecision(db,h,actor,id,{action_key:'accept'}),(e:unknown)=>e instanceof Conflict&&e.code==='ALREADY_RESOLVED');
 });
 test('overlapping B3 movement decisions are append-only, idempotent review evidence',async()=>{
  const h='b3-overlap-'+randomUUID(),actor='reviewer-'+randomUUID();

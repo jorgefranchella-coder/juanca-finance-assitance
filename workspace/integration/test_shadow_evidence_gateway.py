@@ -45,6 +45,33 @@ class ShadowStub(BaseHTTPRequestHandler):
 
 
 class GatewayEvidenceTest(unittest.TestCase):
+    def test_confirmation_decision_is_forwarded_with_server_actor(self):
+        with tempfile.TemporaryDirectory() as root:
+            stub = ThreadingHTTPServer(('127.0.0.1', 0), ShadowStub)
+            gateway = ThreadingHTTPServer(('127.0.0.1', 0), server.Gateway)
+            old = server.SHADOW_CONFIG_PATH
+            server.SHADOW_CONFIG_PATH = Path(root) / 'shadow.json'
+            server.SHADOW_CONFIG_PATH.write_text(json.dumps({'token': 'x' * 64, 'port': stub.server_port}))
+            ShadowStub.calls = []
+            threads = [threading.Thread(target=s.serve_forever, daemon=True) for s in (stub, gateway)]
+            for thread in threads: thread.start()
+            try:
+                path = '/api/shadow/confirmations/case-001/decisions'
+                payload = json.dumps({'action_key': 'accept', 'note': ''}).encode()
+                connection = http.client.HTTPConnection('127.0.0.1', gateway.server_port)
+                connection.request('POST', path, body=payload, headers={
+                    'Authorization': 'Bearer ' + server.CONFIG['token'], 'Content-Type': 'application/json',
+                    'X-Juanca-Actor': 'attacker-controlled',
+                })
+                response = connection.getresponse();self.assertEqual(response.status, 201);response.read();connection.close()
+                method, forwarded, body, headers = ShadowStub.calls[-1]
+                self.assertEqual((method, forwarded, body), ('POST', '/v1/confirmations/case-001/decisions', payload))
+                self.assertEqual(headers['X-Juanca-Actor'], server.CONFIG['user_id'])
+            finally:
+                server.SHADOW_CONFIG_PATH = old
+                gateway.shutdown();stub.shutdown();gateway.server_close();stub.server_close()
+                for thread in threads: thread.join(timeout=2)
+
     def test_shadow_guided_conversation_uses_authenticated_postgres_service_route(self):
         with tempfile.TemporaryDirectory() as root:
             stub = ThreadingHTTPServer(('127.0.0.1', 0), ShadowStub)

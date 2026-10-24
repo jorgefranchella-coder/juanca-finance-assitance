@@ -8,6 +8,7 @@ type Item = {
   context: Record<string, unknown>; evidence: string[]; actions: Action[];
   status: "open" | "resolved"; created_at: string;
   decision: { action_key: string; note: string | null; decided_at: string | null } | null;
+  decisions?: Array<{ action_key: string; note: string | null; decided_at: string }>;
 };
 type Result = { items: Item[]; open_count: number };
 
@@ -15,7 +16,7 @@ function contextText(context: Record<string, unknown>) {
   return Object.entries(context).map(([key, value]) => `${key.replaceAll("_", " ")}: ${String(value)}`).join(" · ");
 }
 
-export default function ConfirmationQueue() {
+export default function ConfirmationQueue({ endpoint = "/api/portfolio/confirmations", shadow = false }: { endpoint?: string; shadow?: boolean }) {
   const [result, setResult] = useState<Result | null>(null);
   const [showResolved, setShowResolved] = useState(false);
   const [choices, setChoices] = useState<Record<string, string>>({});
@@ -23,10 +24,10 @@ export default function ConfirmationQueue() {
   const [saving, setSaving] = useState("");
   const [error, setError] = useState("");
   const load = useCallback(async () => {
-    const response = await fetch(`/api/portfolio/confirmations${showResolved ? "" : "?status=open"}`, { cache: "no-store" });
+    const response = await fetch(`${endpoint}${showResolved ? "" : "?status=open"}`, { cache: "no-store" });
     if (!response.ok) throw new Error("No se pudo cargar la base de confirmaciones.");
     setResult(await response.json() as Result);
-  }, [showResolved]);
+  }, [endpoint, showResolved]);
 
   useEffect(() => {
     let active = true;
@@ -41,22 +42,22 @@ export default function ConfirmationQueue() {
     if (!actionKey) { setError("Elige una acción para responder cada duda."); return; }
     setSaving(item.id); setError("");
     try {
-      const response = await fetch(`/api/portfolio/confirmations/${encodeURIComponent(item.id)}`, {
-        method: "POST", headers: { "Content-Type": "application/json" },
+      const response = await fetch(`${endpoint}/${encodeURIComponent(item.id)}${shadow ? "/decisions" : ""}`, {
+        method: "POST", headers: { "Content-Type": "application/json", ...(shadow ? { "X-Juanca-Request": "1" } : {}) },
         body: JSON.stringify({ action_key: actionKey, note: notes[item.id] ?? "" }),
       });
       const body = await response.json() as { detail?: string };
       if (!response.ok) throw new Error(body.detail ?? "No se pudo guardar la respuesta.");
       await load();
-      window.dispatchEvent(new Event("portfolio-data-updated"));
+      if (!shadow) window.dispatchEvent(new Event("portfolio-data-updated"));
     } catch (cause) { setError(cause instanceof Error ? cause.message : "No se pudo guardar la respuesta."); }
     finally { setSaving(""); }
   }
 
   const items = result?.items ?? [];
-  return <section className="confirmation-queue panel" aria-label="Base de confirmaciones">
-    <div className="panel-title"><div><p>Decisiones del usuario</p><h2>Base de confirmaciones</h2></div><span className="review-badge">{result?.open_count ?? "…"} abiertas</span></div>
-    <p className="confirmation-queue-intro">Las dudas de conciliación quedan guardadas con evidencia y acciones concretas. Tu respuesta se registra con fecha; cualquier cambio patrimonial posterior se procesa aparte.</p>
+  return <section className="confirmation-queue panel" aria-label={shadow ? "Base de confirmaciones PostgreSQL" : "Base de confirmaciones"}>
+    <div className="panel-title"><div><p>{shadow ? "PostgreSQL · sombra" : "Decisiones del usuario"}</p><h2>Base de confirmaciones</h2></div><span className="review-badge">{result?.open_count ?? "…"} abiertas</span></div>
+    <p className="confirmation-queue-intro">{shadow ? "Réplica de la bandeja D1 para validar la migración. La bandeja oficial sigue recibiendo respuestas hasta el corte." : "Las dudas de conciliación quedan guardadas con evidencia y acciones concretas. Tu respuesta se registra con fecha; cualquier cambio patrimonial posterior se procesa aparte."}</p>
     {error && <p className="confirmation-queue-error" role="alert">{error}</p>}
     {items.length === 0 ? <p className="confirmation-queue-empty">{result ? showResolved ? "Todavía no hay confirmaciones registradas." : "No hay decisiones pendientes." : "Cargando confirmaciones…"}</p> : <div className="confirmation-queue-list">
       {items.map((item) => <article className="confirmation-item" key={item.id}>
@@ -64,7 +65,8 @@ export default function ConfirmationQueue() {
         <h3>{item.title}</h3>
         {!!Object.keys(item.context).length && <p>{contextText(item.context)}</p>}
         {!!item.evidence.length && <details><summary>Evidencia consultada ({item.evidence.length})</summary><ul>{item.evidence.map((entry, index) => <li key={index}>{entry}</li>)}</ul></details>}
-        {item.status === "resolved" ? <div className="confirmation-saved"><strong>Respuesta registrada{item.decision?.decided_at ? ` · ${new Date(item.decision.decided_at.replace(" ", "T") + "Z").toLocaleDateString("es-AR")}` : ""}</strong><p>{item.actions.find((action) => action.key === item.decision?.action_key)?.label ?? item.decision?.action_key}</p>{item.decision?.note && <small>{item.decision.note}</small>}</div> : <>
+        {shadow && <div className="confirmation-saved"><strong>Vista PostgreSQL de solo lectura</strong><p>Las respuestas siguen centralizadas en la bandeja D1 hasta el corte.</p>{item.decisions?.map((decision, index) => <small key={`${decision.decided_at}-${index}`}>{new Date(decision.decided_at.replace(" ", "T") + "Z").toLocaleDateString("es-AR")} · {item.actions.find((action) => action.key === decision.action_key)?.label ?? decision.action_key}{decision.note ? ` · ${decision.note}` : ""}</small>)}</div>}
+        {item.status === "resolved" ? <div className="confirmation-saved"><strong>Respuesta registrada{item.decision?.decided_at ? ` · ${new Date(item.decision.decided_at.replace(" ", "T") + "Z").toLocaleDateString("es-AR")}` : ""}</strong><p>{item.actions.find((action) => action.key === item.decision?.action_key)?.label ?? item.decision?.action_key}</p>{item.decision?.note && <small>{item.decision.note}</small>}</div> : shadow ? null : <>
           <fieldset><legend>¿Qué hacemos con este caso?</legend>{item.actions.map((action) => <label className="confirmation-action" key={action.key}>
             <input type="radio" name={`action-${item.id}`} value={action.key} checked={(choices[item.id] ?? item.decision?.action_key) === action.key} onChange={() => setChoices((current) => ({ ...current, [item.id]: action.key }))} />
             <span><strong>{action.label}</strong>{action.description && <small>{action.description}</small>}</span>
