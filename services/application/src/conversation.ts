@@ -3,6 +3,7 @@ import type pg from 'pg';
 import {D,minor} from './money.ts';
 import {hash} from './migration.ts';
 import {portfolio} from './queries.ts';
+import {fixedIncomeProjection as loadFixedIncomeProjection} from './fixed-income.ts';
 import {Conflict} from './commands.ts';
 
 export type ChatInput={request_id:string;message:string;owner:'family'|'Jorge'|'Julia'};
@@ -42,6 +43,20 @@ export async function answerGuided(db:pg.Pool,household:string,input:ChatInput){
   return {content:`A mensagem de ${selected} foi guardada como evidência pendente nesta conversa em sombra. Confira a operação em Transações na aplicação atual; a aprovação exige revisão explícita.`,actions:[{type:'prepare_transaction',message:input.message,owner:selected}],intent};
  }
  if(intent==='help')return {content:'Posso consultar a carteira copiada para esta aplicação em sombra. Os dados podem estar desatualizados; custos e projeções continuam na aplicação atual. A interpretação livre por IA ainda não está configurada.',actions:[],intent};
+ if(intent==='fixed_income'){
+  const projection=await loadFixedIncomeProjection(db,household),symbols=(input.message.match(/\b[A-Z]{2,8}\d{1,2}\b/g)??[]).filter(s=>s!=='BRL'&&s!=='USD');
+  const items=projection.items.filter(item=>(!selected||item.owner===selected)&&(!symbols.length||symbols.includes(item.instrument_code)));
+  const evidence={portfolio_version:null,reference_date:projection.reference_date,mode:'shadow',authoritative:false};
+  if(!items.length)return {content:`No encontré títulos de renta fija en la fotografía PostgreSQL para este filtro${selected?' de '+selected:''}. Esto no demuestra que no existan activos fuera de la cobertura importada.`,actions:[],intent,evidence};
+  const total=items.reduce((sum,item)=>sum.add(String(item.current_value_cents)),new D(0));
+  const covered=items.filter(item=>item.projected_value_cents!==null);
+  const coveredCurrent=covered.reduce((sum,item)=>sum.add(String(item.current_value_cents)),new D(0));
+  const projected=covered.reduce((sum,item)=>sum.add(String(item.projected_value_cents)),new D(0));
+  const coverage=total.isZero()?0:coveredCurrent.div(total).toNumber();
+  const lines=items.slice(0,20).map(item=>`${item.owner} · ${item.instrument_code} · ${item.issuer}: vence ${item.maturity_date||'fecha no disponible'} · saldo actual ${displayMinor(String(item.current_value_cents))} · ${item.projected_value_cents===null?'sin proyección: '+(item.reason??'datos insuficientes'):'proyección '+displayMinor(String(item.projected_value_cents))+' (confianza '+item.confidence+')'}`);
+  const summary=`Subtotal proyectado para ${covered.length} de ${items.length} títulos con datos suficientes: ${displayMinor(projected.toFixed(0))}; cobertura sobre el valor actual seleccionado: ${(coverage*100).toFixed(1)}%.`;
+  return {content:`Renta fija en la fotografía PostgreSQL al ${projection.reference_date||'fecha no disponible'}:\n${lines.join('\n')}${items.length>20?'\nMostrando 20 de '+items.length+' títulos.':''}\n${summary}\nLa proyección extrapola precios históricos hasta el vencimiento; no es una tasa contractual ni garantizada.`,actions:[],intent,evidence};
+ }
  const view=await portfolio(db,household);const positions=view.positions as Array<{owner:string;instrument_code:string;quantity:string;currency:string;market_value_cents:string|null;market_value_minor:string;price_as_of:string}>;
  const evidence={portfolio_version:view.portfolio_version,effective_as_of:view.effective_as_of,known_at:view.known_at,mode:'shadow',authoritative:false};
  if(intent==='dashboard'){
@@ -55,7 +70,6 @@ export async function answerGuided(db:pg.Pool,household:string,input:ChatInput){
   const issues=view.issues as Array<{code:string;owner?:string}>;const filtered=issues.filter(i=>!selected||i.owner===selected);
   return {content:`Pendências de conciliação nesta fotografia em sombra: ${filtered.length}. As decisões de revisão da aplicação atual não estão incluídas neste número.`,actions:[],intent,evidence};
  }
- if(intent==='fixed_income')return {content:'A projeção de renda fixa ainda não foi migrada para esta aplicação em sombra. Consulte a metodologia e os valores na aplicação atual.',actions:[],intent,evidence};
  const symbols=(input.message.match(/\b[A-Z]{2,8}\d{1,2}\b/g)??[]).filter(s=>s!=='BRL'&&s!=='USD');
  const filtered=positions.filter(p=>(!selected||p.owner===selected)&&(!symbols.length||symbols.includes(p.instrument_code)));
  if(!filtered.length)return {content:'Não encontrei posições cobertas por estes filtros nesta fotografia. Confira as importações antes de concluir que o ativo não existe.',actions:[],intent,evidence};
