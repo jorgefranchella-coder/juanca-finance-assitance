@@ -65,11 +65,15 @@ export async function listAcquisitionLots(db:pg.Pool,household:string,positionId
 
 export async function listAcquisitionReconciliation(db:pg.Pool,household:string){
  const result=await db.query(`WITH latest_lots AS (
-   SELECT DISTINCT ON (l.household_id,l.id) l.household_id,l.id,l.position_id,l.effective_date,l.quantity,l.voided
+   SELECT DISTINCT ON (l.household_id,l.id) l.household_id,l.id,l.position_id,l.effective_date,l.quantity,l.unit_price,l.fees_minor,l.voided
    FROM app.acquisition_lots l WHERE l.household_id=$1 ORDER BY l.household_id,l.id,l.revision DESC
  ), rollup AS (
    SELECT position_id,count(*)::int AS current_lot_count,count(*) FILTER (WHERE NOT voided)::int AS active_lot_count,
-     COALESCE(sum(quantity) FILTER (WHERE NOT voided),0)::text AS current_gross_acquisition_quantity,max(effective_date)::text AS latest_lot_date
+     COALESCE(sum(quantity) FILTER (WHERE NOT voided),0)::text AS current_gross_acquisition_quantity,
+     (sum(quantity*unit_price+COALESCE(fees_minor,0)::numeric/100) FILTER (WHERE NOT voided))::text AS current_gross_acquisition_cost,
+     (sum(quantity*unit_price+COALESCE(fees_minor,0)::numeric/100) FILTER (WHERE NOT voided)
+       / NULLIF(sum(quantity) FILTER (WHERE NOT voided),0))::text AS weighted_average_unit_price,
+     max(effective_date)::text AS latest_lot_date
    FROM latest_lots GROUP BY position_id
  ), identities AS (
    SELECT p.id AS position_id,o.display_name AS owner,ci.canonical_name AS institution,
@@ -77,7 +81,8 @@ export async function listAcquisitionReconciliation(db:pg.Pool,household:string)
      COALESCE(ir.custody_account_id,p.custody_account_id) IS NOT NULL AS custody_identity_resolved,
      sd.effective_as_of::text AS snapshot_as_of,sa.quantity::text AS snapshot_quantity,
      COALESCE(r.current_lot_count,0)::int AS current_lot_count,COALESCE(r.active_lot_count,0)::int AS active_lot_count,
-     COALESCE(r.current_gross_acquisition_quantity,'0') AS current_gross_acquisition_quantity,r.latest_lot_date
+     COALESCE(r.current_gross_acquisition_quantity,'0') AS current_gross_acquisition_quantity,
+     r.current_gross_acquisition_cost,r.weighted_average_unit_price,r.latest_lot_date
    FROM app.position_identities p JOIN app.owners o ON o.household_id=p.household_id AND o.id=p.owner_id
    JOIN app.custody_institutions ci ON ci.id=p.institution_id
    LEFT JOIN LATERAL (SELECT custody_account_id FROM app.position_identity_resolutions x WHERE x.household_id=p.household_id AND x.position_id=p.id ORDER BY revision DESC LIMIT 1) ir ON true

@@ -7,6 +7,7 @@ from http.client import HTTPConnection
 import json
 import ipaddress
 import re
+from decimal import Decimal, ROUND_HALF_UP
 from urllib.parse import urlsplit, unquote, parse_qs
 from pathlib import Path
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -22,7 +23,85 @@ ALLOWED_ORIGINS = {'http://localhost:3040', 'http://127.0.0.1:3040', 'http://nbc
 HOP = {'connection', 'keep-alive', 'proxy-authenticate', 'proxy-authorization', 'te', 'trailer', 'transfer-encoding', 'upgrade', 'host', 'content-length', 'authorization', 'cookie'}
 SHADOW_CONFIG_PATH = Path(os.environ.get('JUANCA_SHADOW_CONFIG', '/home/jorge/.local/share/juanca-shadow/application.json'))
 MARKET_CONFIG_PATH = Path(os.environ.get('JUANCA_MARKET_CONFIG', '/home/jorge/.local/share/juanca-shadow/market.json'))
+AUTHORITY_CONFIG_PATH = Path(os.environ.get('JUANCA_AUTHORITY_CONFIG', '/home/jorge/.local/share/juanca-shadow/authority.json'))
 MARKET_JOB = re.compile(r'^/api/shadow/market/jobs/([0-9a-fA-F-]{36})$')
+PORTFOLIO_READ_ROUTES = {'/api/portfolio/dashboard', '/api/portfolio/positions', '/api/portfolio/summary'}
+LEGACY_WRITE_PREFIXES = ('/api/import/', '/api/transactions/', '/api/portfolio/reviews', '/api/portfolio/cost-basis', '/api/portfolio/confirmations', '/api/market/refresh')
+ALLOCATION_LABELS = {
+    'fixed_income': 'Renda fixa bancária', 'treasury': 'Tesouro Direto', 'equity': 'Ações',
+    'bdr': 'BDRs', 'etf': 'ETFs', 'fund': 'Fundos listados', 'other': 'Outros ativos B3',
+    'international_equity': 'Ações e ETFs internacionais', 'international_fixed_income': 'Renda fixa internacional',
+    'money_market': 'Fundo monetário em USD', 'private_pension': 'Previdência privada',
+}
+
+def portfolio_authority_mode(path=None):
+    path = path or AUTHORITY_CONFIG_PATH
+    try:
+        value = json.loads(path.read_text())
+    except FileNotFoundError:
+        return 'legacy'
+    if not isinstance(value, dict) or set(value) != {'mode'} or value['mode'] not in {'legacy', 'postgres'}:
+        raise ValueError('INVALID_AUTHORITY_CONFIGURATION')
+    return value['mode']
+
+def authoritative_dashboard(view):
+    positions = [p for p in view.get('positions', []) if p.get('instrument_code') != 'USD_CASH']
+    owners, classes = {}, {}
+    for p in positions:
+        value = int(p['market_value_cents']) if p.get('market_value_cents') is not None else 0
+        owner, asset_class = str(p.get('owner') or 'Sin identificar'), str(p.get('asset_class') or 'other')
+        owners[owner] = owners.get(owner, 0) + value
+        classes[asset_class] = classes.get(asset_class, 0) + value
+    total = sum(owners.values())
+    allocations = [{'key': key, 'label': ALLOCATION_LABELS.get(key, ALLOCATION_LABELS['other']),
+                    'value_cents': value, 'share': value / total * 100 if total else 0}
+                   for key, value in sorted(classes.items(), key=lambda row: -row[1])]
+    usd = sum(1 for p in positions if p.get('currency') == 'USD')
+    pension = sum(1 for p in positions if p.get('asset_class') == 'private_pension')
+    dates = sorted(str(p.get('price_as_of') or '')[:10] for p in positions if p.get('price_as_of'))
+    return {'total_value_cents': total, 'portfolio_version': view.get('portfolio_version'),
+            'facts_revision': view.get('facts_revision'), 'valuation_complete': view.get('valuation_complete'),
+            'unvalued_count': view.get('unvalued_count', 0), 'owners': [{'owner': k, 'value_cents': v} for k, v in sorted(owners.items())],
+            'allocation': allocations, 'reference_date': view.get('reference_date'), 'activity': [],
+            'activity_period': {'from': '', 'to': ''},
+            'coverage': 'b3_avenue_pension' if usd and pension else 'b3_pension' if pension else 'b3_avenue' if usd else 'b3_only',
+            'sources': {'avenue_positions': usd, 'pension_positions': pension, 'ptax': view.get('ptax'),
+                        'us_quote_count': sum(1 for p in positions if p.get('currency') == 'USD' and p.get('price_as_of')),
+                        'latest_us_quote': dates[-1] if dates else None,
+                        'quote_status': 'market_quotes_with_fixed_income_mtm' if usd else 'not_applicable'},
+            'mode': 'postgres', 'authoritative': True}
+
+def authoritative_positions(view, acquisition_report=None):
+    identities = (acquisition_report or {}).get('positions', [])
+    index = {}
+    for item in identities:
+        key = (item.get('owner'), item.get('institution'), item.get('instrument_code'), item.get('currency'))
+        index.setdefault(key, []).append(item)
+    positions = []
+    for row in view.get('positions', []):
+        if row.get('instrument_code') == 'USD_CASH':
+            continue
+        key = (row.get('owner'), row.get('institution'), row.get('instrument_code'), row.get('currency'))
+        matches = index.get(key, [])
+        cost = None; cost_status = 'missing'
+        if len(matches) == 1:
+            identity = matches[0]
+            if not identity.get('custody_identity_resolved'):
+                cost_status = 'ambiguous_position'
+            elif identity.get('status') == 'matches_snapshot' and identity.get('weighted_average_unit_price') is not None:
+                cost = Decimal(str(identity['weighted_average_unit_price']))
+                cost_status = 'available'
+        quantity = Decimal(str(row.get('quantity') or '0'))
+        cost_cents = int((cost * quantity * 100).quantize(Decimal('1'), rounding=ROUND_HALF_UP)) if cost is not None else None
+        value = int(row['market_value_cents']) if row.get('market_value_cents') is not None else None
+        positions.append({**row, 'account': row.get('account'), 'average_unit_cost': float(cost) if cost is not None else None,
+                          'cost_currency': row.get('currency') if cost is not None else None,
+                          'cost_basis_cents': cost_cents, 'unrealized_pnl_cents': value - cost_cents if value is not None and cost_cents is not None else None,
+                          'cost_status': cost_status})
+    total = sum(int(p['market_value_cents']) for p in positions if p.get('market_value_cents') is not None)
+    return {'positions': positions, 'count': len(positions), 'total_value_cents': total,
+            'reference_date': view.get('reference_date'), 'portfolio_version': view.get('portfolio_version'),
+            'valuation_complete': view.get('valuation_complete'), 'mode': 'postgres', 'authoritative': True}
 SHADOW_ROUTES = {
     '/api/shadow/portfolio': {'GET'},
     '/api/shadow/authority/readiness': {'GET'},
@@ -268,6 +347,37 @@ class Gateway(BaseHTTPRequestHandler):
         except (OSError, ValueError, KeyError, http.client.HTTPException):
             self.reply_json(502, {'code': 'MARKET_UNAVAILABLE'})
 
+    def postgres_portfolio_read(self, path):
+        try:
+            shadow = json.loads(SHADOW_CONFIG_PATH.read_text())
+            connection = HTTPConnection('127.0.0.1', int(shadow['port']), timeout=30)
+            try:
+                def get(target):
+                    connection.request('GET', target, headers={'Authorization': 'Bearer ' + shadow['token'], 'Accept-Encoding': 'identity'})
+                    response = connection.getresponse(); body = response.read()
+                    if response.status != 200:
+                        raise RuntimeError('POSTGRES_READ_FAILED')
+                    return json.loads(body)
+                view = get('/v1/portfolio')
+                if path == '/api/portfolio/dashboard':
+                    result = authoritative_dashboard(view)
+                elif path == '/api/portfolio/positions':
+                    acquisitions = get('/v1/position-identities/acquisition-reconciliation')
+                    result = authoritative_positions(view, acquisitions)
+                else:
+                    confirmations = get('/v1/confirmations?status=open')
+                    b3 = get('/v1/reconciliation/b3/snapshots')
+                    external = get('/v1/reconciliation/external/snapshots')
+                    published = sum(1 for row in [*b3.get('snapshots', []), *external.get('snapshots', [])] if row.get('published'))
+                    result = {'import_count': published, 'review_count': int(confirmations.get('open_count', 0)),
+                              'reviews': [], 'mode': 'postgres', 'authoritative': True}
+                self.reply_json(200, result, {'X-Juanca-Portfolio-Authority': 'postgres'})
+            finally:
+                connection.close()
+        except (OSError, ValueError, KeyError, TypeError, json.JSONDecodeError, http.client.HTTPException, RuntimeError):
+            self.reply_json(503, {'code': 'POSTGRES_PORTFOLIO_UNAVAILABLE', 'authoritative': True},
+                            {'X-Juanca-Portfolio-Authority': 'postgres'})
+
     def shadow_document_file(self):
         if self.command != 'POST':
             self.reply_json(405, {'code': 'METHOD_NOT_ALLOWED'})
@@ -394,6 +504,22 @@ class Gateway(BaseHTTPRequestHandler):
             if (browser and not machine and not self.same_origin()) or (origin and origin not in ALLOWED_ORIGINS):
                 self.send_error(403, 'Origen no autorizado')
                 return
+        try:
+            authority_mode = portfolio_authority_mode()
+        except (OSError, ValueError, json.JSONDecodeError):
+            self.reply_json(503, {'code': 'AUTHORITY_CONFIGURATION_UNAVAILABLE'})
+            return
+        if authority_mode == 'postgres':
+            if path in PORTFOLIO_READ_ROUTES and self.command in ('GET', 'HEAD'):
+                self.postgres_portfolio_read(path)
+                return
+            if path.startswith(LEGACY_WRITE_PREFIXES) and self.command not in ('GET', 'HEAD', 'OPTIONS'):
+                self.reply_json(409, {'code': 'LEGACY_WRITER_DISABLED', 'authority': 'postgres'},
+                                {'X-Juanca-Portfolio-Authority': 'postgres'})
+                return
+        if path == '/api/authority' and self.command in ('GET', 'HEAD'):
+            self.reply_json(200, {'mode': authority_mode, 'authoritative': authority_mode == 'postgres'})
+            return
         if path.startswith('/api/shadow/'):
             if path.startswith('/api/shadow/market/'):
                 self.shadow_market(path)
