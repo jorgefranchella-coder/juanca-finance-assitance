@@ -73,18 +73,27 @@ export async function publishB3PositionSnapshot(db:pg.Pool,household:string,acto
   const aliasMap=new Map(aliases.rows.map(r=>[String(r.normalized_alias),String(r.institution_id)]));
   const accounts=await c.query(`SELECT id,institution_id,external_reference,identity_basis FROM app.custody_accounts
     WHERE household_id=$1 AND owner_id=$2 AND identity_basis<>'pending' ORDER BY id`,[household,owner]);
+  const confirmedUnique=await c.query(`SELECT DISTINCT a.institution_id
+    FROM app.audit_log l JOIN app.source_documents d ON d.household_id=l.household_id AND d.id=l.resource_id
+    JOIN app.source_assertions a ON a.household_id=d.household_id AND a.document_id=d.id AND a.assertion_kind='position'
+    WHERE l.household_id=$1 AND d.owner_id=$2 AND d.source_system='B3' AND l.action='b3_evidence_registered'
+      AND l.details->>'account_cardinality_confirmation'='one_per_institution_user_in_work_session'
+      AND a.institution_id IS NOT NULL`,[household,owner]);
+  const confirmedInstitutions=new Set(confirmedUnique.rows.map(r=>String(r.institution_id)));
   const resolved=[] as Array<{row:typeof source.rows[number];custody:string;institution:string;account:string;scope:string;decision:'same_custody_account_confirmed_by_institution_uniqueness'|'custody_account_reference_observed'}>;
   const unique=new Set<string>();
   for(const row of source.rows){
    if(String(row.asserted_on??'')!==cut)throw new Conflict('POSITION_REFERENCE_DATE_MISMATCH',422);
    const raw=row.raw_row as Raw,inst=String(row.institution_id??aliasMap.get(normalized(raw.Instituição))??''),institutionAccounts=accounts.rows.filter(a=>String(a.institution_id)===inst);
+   const ref=clean(raw.Conta),uniquenessConfirmed=!ref&&institutionAccounts.length===1&&confirmedInstitutions.has(inst);
    let custody=String(row.custody_account_id??'');
-   if(!custody){const ref=clean(raw.Conta);const candidates=institutionAccounts.filter(a=>String(a.identity_basis)==='user_confirmed_unique'&&(!ref||!a.external_reference||String(a.external_reference)===ref));if(candidates.length===1)custody=String(candidates[0].id);}
-   const accountRow=accounts.rows.find(a=>String(a.id)===custody),ref=clean(raw.Conta);
+   if(!custody){const candidates=institutionAccounts.filter(a=>(String(a.identity_basis)==='user_confirmed_unique'||uniquenessConfirmed)&&(!ref||!a.external_reference||String(a.external_reference)===ref));if(candidates.length===1)custody=String(candidates[0].id);}
+   const accountRow=accounts.rows.find(a=>String(a.id)===custody);
    if(!inst||!accountRow||String(accountRow.institution_id)!==inst||String(accountRow.identity_basis)==='pending')throw new Conflict('CUSTODY_ACCOUNT_UNRESOLVED',422);
    if(ref&&accountRow.external_reference&&String(accountRow.external_reference)!==ref)throw new Conflict('CUSTODY_ACCOUNT_REFERENCE_MISMATCH',422);
    const referenceObserved=!!ref&&String(accountRow.identity_basis)==='observed_reference'&&String(accountRow.external_reference??'')===ref;
-   if(!referenceObserved&&String(accountRow.identity_basis)!=='user_confirmed_unique')throw new Conflict('CUSTODY_ACCOUNT_UNRESOLVED',422);
+   const uniqueAccountConfirmed=uniquenessConfirmed&&String(accountRow.id)===String(institutionAccounts[0]?.id);
+   if(!referenceObserved&&String(accountRow.identity_basis)!=='user_confirmed_unique'&&!uniqueAccountConfirmed)throw new Conflict('CUSTODY_ACCOUNT_UNRESOLVED',422);
    const code=String(row.instrument_code??'').trim(),quantity=String(row.quantity??'');
    let positive=false;try{positive=/^-?(?:\d+)(?:\.\d+)?$/.test(quantity)&&exact(quantity).gt(0);}catch{}
    if(!code||!positive)throw new Conflict('POSITION_IDENTITY_OR_QUANTITY_INVALID',422);
