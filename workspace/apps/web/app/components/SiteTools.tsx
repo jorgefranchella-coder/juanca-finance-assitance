@@ -41,14 +41,28 @@ function selectedOwner(input: ToolInput) {
 const tools: SiteTool[] = [
   {
     name: "consultar_resumo_patrimonial",
-    description: "Consulta o patrimônio familiar consolidado, divisão por investidor, alocação, atividade recente, fontes e data de referência. Somente leitura.",
+    description: "Consulta a carteira PostgreSQL sombra, divisão por investidor, alocação, cobertura e data efetiva. Não é a autoridade financeira antes do corte. Somente leitura.",
     inputSchema: { type: "object", properties: {}, additionalProperties: false },
     annotations: { readOnlyHint: true },
-    execute: async () => readJson("/api/portfolio/dashboard"),
+    execute: async () => {
+      const data = await readJson("/api/shadow/portfolio") as { positions?: Array<Record<string, unknown>>; total_value_cents?: string; effective_as_of?: string; valuation_complete?: boolean; mode?: string; authoritative?: boolean };
+      const positions = (data.positions ?? []).filter(item => item.instrument_code !== "USD_CASH");
+      const groupTotal = (key: string) => {
+        const sums = new Map<string, bigint>();
+        for (const item of positions) {
+          const group = String(item[key] ?? "Não informado") || "Não informado";
+          sums.set(group, (sums.get(group) ?? 0n) + BigInt(String(item.market_value_cents ?? "0")));
+        }
+        return Array.from(sums, ([name, value_cents]) => ({ name, value_cents: value_cents.toString() }));
+      };
+      const total = positions.reduce((sum, item) => sum + BigInt(String(item.market_value_cents ?? "0")), 0n);
+      return { mode: data.mode, authoritative: data.authoritative, reference_date: data.effective_as_of, valuation_complete: data.valuation_complete,
+        total_value_cents: total.toString(), owners: groupTotal("owner"), allocation: groupTotal("asset_class") };
+    },
   },
   {
     name: "consultar_posicoes",
-    description: "Lista posições atuais com investidor, ativo, instituição, quantidade, preço, valor, custo e lucro ou prejuízo não realizado. Somente leitura.",
+    description: "Lista posições PostgreSQL sombra com investidor, custodia, ativo, quantidade, preço e valor observado. Somente leitura; ainda não autoritativa.",
     inputSchema: {
       type: "object",
       properties: {
@@ -61,24 +75,24 @@ const tools: SiteTool[] = [
     },
     annotations: { readOnlyHint: true },
     execute: async (input) => {
-      const data = await readJson("/api/portfolio/positions") as { positions?: Array<Record<string, unknown>>; total_value_cents?: number };
+      const data = await readJson("/api/shadow/portfolio") as { positions?: Array<Record<string, unknown>>; effective_as_of?: string; mode?: string; authoritative?: boolean };
       const owner = selectedOwner(input);
       const assetClass = String(input.classe ?? "").trim().toLowerCase();
       const query = String(input.busca ?? "").trim().toLocaleLowerCase("pt-BR");
       const limit = Math.min(100, Math.max(1, Number(input.limite ?? 50)));
-      const matches = (data.positions ?? []).filter((item) => {
+      const matches = (data.positions ?? []).filter((item) => item.instrument_code !== "USD_CASH").filter((item) => {
         if (owner && item.owner !== owner) return false;
         if (assetClass && String(item.asset_class ?? "").toLowerCase() !== assetClass) return false;
         if (!query) return true;
         return [item.instrument_code, item.product_name, item.institution]
           .some((value) => String(value ?? "").toLocaleLowerCase("pt-BR").includes(query));
       });
-      return { count: matches.length, returned: Math.min(matches.length, limit), positions: matches.slice(0, limit) };
+      return { mode: data.mode, authoritative: data.authoritative, reference_date: data.effective_as_of, count: matches.length, returned: Math.min(matches.length, limit), positions: matches.slice(0, limit) };
     },
   },
   {
     name: "consultar_concentracoes",
-    description: "Agrupa a carteira por instituição, classe de ativo ou investidor e calcula valor e participação percentual. Somente leitura.",
+    description: "Agrupa posições PostgreSQL sombra por instituição, classe ou investidor. Somente leitura; no reemplaza el saldo oficial D1 antes del corte.",
     inputSchema: {
       type: "object",
       properties: {
@@ -90,21 +104,21 @@ const tools: SiteTool[] = [
     },
     annotations: { readOnlyHint: true },
     execute: async (input) => {
-      const data = await readJson("/api/portfolio/positions") as { positions?: Array<Record<string, unknown>> };
+      const data = await readJson("/api/shadow/portfolio") as { positions?: Array<Record<string, unknown>>; effective_as_of?: string; mode?: string; authoritative?: boolean };
       const owner = selectedOwner(input);
       const groupBy = String(input.agrupar_por ?? "instituicao");
       const keyName = groupBy === "classe" ? "asset_class" : groupBy === "investidor" ? "owner" : "institution";
-      const selected = (data.positions ?? []).filter((item) => !owner || item.owner === owner);
-      const total = selected.reduce((sum, item) => sum + Number(item.market_value_cents ?? 0), 0);
-      const groups = new Map<string, number>();
+      const selected = (data.positions ?? []).filter((item) => item.instrument_code !== "USD_CASH" && (!owner || item.owner === owner));
+      const total = selected.reduce((sum, item) => sum + BigInt(String(item.market_value_cents ?? "0")), 0n);
+      const groups = new Map<string, bigint>();
       for (const item of selected) {
         const key = String(item[keyName] ?? "Não informado") || "Não informado";
-        groups.set(key, (groups.get(key) ?? 0) + Number(item.market_value_cents ?? 0));
+        groups.set(key, (groups.get(key) ?? 0n) + BigInt(String(item.market_value_cents ?? "0")));
       }
       return {
-        total_value_cents: total,
-        groups: Array.from(groups, ([name, value_cents]) => ({ name, value_cents, share: total ? value_cents / total : 0 }))
-          .sort((left, right) => right.value_cents - left.value_cents),
+        mode: data.mode, authoritative: data.authoritative, reference_date: data.effective_as_of, total_value_cents: total.toString(),
+        groups: Array.from(groups, ([name, value]) => ({ name, value_cents: value.toString(), share: total ? Number(value * 10000n / total) / 10000 : 0 }))
+          .sort((left, right) => BigInt(right.value_cents) > BigInt(left.value_cents) ? 1 : BigInt(right.value_cents) < BigInt(left.value_cents) ? -1 : 0),
       };
     },
   },
@@ -122,7 +136,7 @@ const tools: SiteTool[] = [
     },
     annotations: { readOnlyHint: true },
     execute: async (input) => {
-      const data = await readJson("/api/portfolio/fixed-income-projection") as { items?: Array<Record<string, unknown>>; summary?: unknown; methodology?: string; reference_date?: string };
+      const data = await readJson("/api/shadow/fixed-income-projection") as { items?: Array<Record<string, unknown>>; summary?: unknown; methodology?: string; reference_date?: string; mode?: string; authoritative?: boolean };
       const owner = selectedOwner(input);
       const until = String(input.vencimento_ate ?? "");
       const projectedOnly = input.somente_projetados === true;
@@ -132,12 +146,12 @@ const tools: SiteTool[] = [
         if (projectedOnly && item.projected_value_cents === null) return false;
         return true;
       });
-      return { reference_date: data.reference_date, methodology: data.methodology, summary: data.summary, count: items.length, items };
+      return { mode: data.mode, authoritative: data.authoritative, reference_date: data.reference_date, methodology: data.methodology, summary: data.summary, count: items.length, items };
     },
   },
   {
     name: "consultar_revisoes_pendentes",
-    description: "Consulta movimentos importados que ainda precisam de revisão humana. Não aprova, ignora nem altera nenhuma revisão.",
+    description: "Consulta confirmaciones abiertas y evidencia manual registrada en PostgreSQL; distingue casos abiertos de archivos recibidos. Solo lectura.",
     inputSchema: {
       type: "object",
       properties: { owner: ownerProperty },
@@ -145,10 +159,19 @@ const tools: SiteTool[] = [
     },
     annotations: { readOnlyHint: true },
     execute: async (input) => {
-      const data = await readJson("/api/portfolio/summary") as { reviews?: Array<Record<string, unknown>>; review_count?: number; import_count?: number };
+      const [confirmationData, textData, photoData] = await Promise.all([
+        readJson("/api/shadow/confirmations?status=open") as Promise<{ items?: Array<Record<string, unknown>>; open_count?: number }>,
+        readJson("/api/shadow/evidence/text") as Promise<{ items?: Array<Record<string, unknown>> }>,
+        readJson("/api/shadow/evidence/photos") as Promise<{ items?: Array<Record<string, unknown>> }>,
+      ]);
       const owner = selectedOwner(input);
-      const reviews = (data.reviews ?? []).filter((item) => !owner || item.owner === owner);
-      return { import_count: data.import_count, total_pending: data.review_count, returned: reviews.length, reviews };
+      const confirmations = (confirmationData.items ?? []).filter(item => !owner || item.owner === owner);
+      const texts = (textData.items ?? []).filter(item => (!owner || item.owner === owner) && item.status === "awaiting_review");
+      const photos = (photoData.items ?? []).filter(item => !owner || item.owner === owner);
+      return { mode: "shadow", authoritative: false, total_open_confirmations: confirmationData.open_count ?? confirmations.length,
+        returned_confirmations: confirmations.length, confirmations, pending_text_evidence: texts.length,
+        registered_photos: photos.length, photos_awaiting_ocr: photos.filter(item => item.ocr_status === "pending" || item.ocr_status === "queued").length,
+        photos_with_review_candidate: photos.filter(item => item.ocr_trade_interpretation?.status === "parsed_review" || item.ocr_trade_interpretation?.status === "needs_manual_review").length };
     },
   },
 ];
