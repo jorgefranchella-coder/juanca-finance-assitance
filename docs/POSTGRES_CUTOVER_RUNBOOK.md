@@ -113,6 +113,8 @@ La comparación estable del 24/10 12:12 UTC ya tiene fechas de snapshot alineada
 
 Se agregó a la bandeja de confirmaciones el caso `b162becb-9051-4ffa-ab58-90552632f593`, con dos acciones: aceptar esos valores PostgreSQL como avisos del corte, o mantener bloqueado el corte y conciliar por ticker. La confirmación previa sobre 19 posiciones (fechas D1 23/10 vs PostgreSQL 21/10) sigue abierta y conserva su decisión de refrescar; no se marcó como resuelta porque ahora el problema restante es distinto (fuentes/precios) y se necesita una decisión explícita sobre los valores residuales.
 
+Después de publicar la nueva versión y crear el caso de confirmación, se ejecutó el backup PostgreSQL: `postgres-verified-2026-10-24T12-13-31-606Z-9b4625d9-61cd-4d4a-b16b-d5be663787bd`. Manifiesto verificado, restore aislado correcto (53 tablas de aplicación, 8 de ingesta, 6 de mercado, 17 archivos de evidencia B3 y 25 objetos de ingesta). La autoridad D1/R2 sigue intacta; su backup verificado de las 07:30 UTC también se mantiene saludable. Este restore actualizado no sustituye el backup del delta final durante la ventana de corte.
+
 Readiness sigue en `ready=false`, `mode=shadow`, `authoritative=false`, con solo los tres gates operativos: terminar el reemplazo de lectores/escritores D1/R2, conciliar el delta final congelado y ensayar reversión. La nueva cartera continúa en sombra y no aplica movimientos; la valoración conserva el aviso `missing_base` ya existente.
 
 ### Gates operativos visibles en la API de readiness (22/10/2026)
