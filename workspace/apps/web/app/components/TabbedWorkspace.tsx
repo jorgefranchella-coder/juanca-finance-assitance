@@ -94,7 +94,7 @@ export default function TabbedWorkspace() {
 
       <section className="tab-panel" role="tabpanel" aria-label={current.label}>
         {active === "overview" && <DashboardMetrics />}
-        {active === "reviews" && <><ConfirmationQueue endpoint="/api/shadow/confirmations" /><ManualIntakePanel /><ManualB3Candidates /><ManualPhotoPanel /><B3SnapshotPublicationPanel /><ExternalSnapshotPublicationPanel /><B3ReconciliationPanel /><AcquisitionReconciliationPanel /></>}
+        {active === "reviews" && <><ExternalSnapshotPublicationPanel /><ConfirmationQueue endpoint="/api/shadow/confirmations" /><ManualIntakePanel /><ManualB3Candidates /><ManualPhotoPanel /><B3SnapshotPublicationPanel /><B3ReconciliationPanel /><AcquisitionReconciliationPanel /></>}
         {active === "assistant" && <><TransactionChat key={`${prefill?.owner??"manual"}:${prefill?.message??""}`} prefill={prefill} /><ShadowProposalWorkspace /></>}
         {active === "postgres-shadow" && <><ShadowPortfolioPanel /><ShadowMarketPanel /><ShadowProposalWorkspace /></>}
         {active === "juanca" && <JuancaChat />}

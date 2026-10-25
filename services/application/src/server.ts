@@ -14,6 +14,7 @@ import {listAcquisitionLots,listAcquisitionReconciliation,listPositionAccountCan
 import {authorityReadiness} from './authority-readiness.ts';
 import {listB3PositionSnapshots,publishB3PositionSnapshot} from './b3-snapshot-publications.ts';
 import {listExternalPositionSnapshots,publishExternalPositionSnapshot} from './external-snapshot-publications.ts';
+import {createManualExternalPositionSnapshot} from './manual-external-snapshots.ts';
 import {fixedIncomeProjection} from './fixed-income.ts';
 import {createConfirmation,listConfirmations,recordConfirmationDecision} from './confirmations.ts';
 const config=JSON.parse(await readFile(process.env.JUANCA_SHADOW_CONFIG??'/home/jorge/.local/share/juanca-shadow/application.json','utf8')) as {token:string;household_id:string;cursor_key:string;port:number};
@@ -85,6 +86,9 @@ const server=createServer(async(req,res)=>{
   }
   if(url.pathname==='/v1/reconciliation/external/snapshots'&&req.method==='GET'){
    reply(200,await listExternalPositionSnapshots(db,config.household_id));return;
+  }
+  if(url.pathname==='/v1/reconciliation/external/manual-snapshots'&&req.method==='POST'){
+   const actor=String(req.headers['x-juanca-actor']??'');reply(201,await createManualExternalPositionSnapshot(db,config.household_id,actor,await readJson(req,100000)));return;
   }
   const externalPublish=url.pathname.match(/^\/v1\/reconciliation\/external\/snapshots\/([^/]+)\/publish$/);
   if(externalPublish&&req.method==='POST'){

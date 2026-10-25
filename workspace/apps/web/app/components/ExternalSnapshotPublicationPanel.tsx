@@ -2,9 +2,9 @@
 
 import {useCallback,useEffect,useState} from "react";
 
-type Snapshot={document_id:string;owner:string;source_system:string;original_name:string;content_sha256:string;effective_as_of:string;rows:number;invalid_rows:number;published:boolean;latest:boolean};
+type Snapshot={document_id:string;owner:string;source_system:string;original_name:string;content_sha256:string;effective_as_of:string;rows:number;invalid_rows:number;published:boolean;latest:boolean;position_details?:{product_name:string|null;fund:string|null;fund_cnpj:string|null;plans?:{plan_number:string;gross_balance:string;net_balance:string}[]}[]};
 type Data={snapshots:Snapshot[];portfolio_effective_as_of:string|null};
-const sourceName=(source:string)=>source==='Avenue'?'Avenue':'Previdência';
+const sourceName=(source:string)=>source==='Avenue'?'Avenue':`Previdência · ${source}`;
 
 export default function ExternalSnapshotPublicationPanel(){
  const [data,setData]=useState<Data|null>(null),[loading,setLoading]=useState(true),[saving,setSaving]=useState(""),[error,setError]=useState("");
@@ -23,7 +23,8 @@ export default function ExternalSnapshotPublicationPanel(){
   {loading?<p>Consultando snapshots externos…</p>:error&&<p className="chat-error" role="alert">{error}</p>}
   {!loading&&data?.snapshots.length===0&&<p>No hay snapshots de Avenue o previdencia en PostgreSQL.</p>}
   {!loading&&data?.snapshots.map(snapshot=><div className="review-card" key={snapshot.document_id}><strong>{snapshot.owner} · {sourceName(snapshot.source_system)} · {snapshot.effective_as_of} · {snapshot.original_name}</strong><span>{snapshot.rows} posiciones · {snapshot.invalid_rows} filas incompletas{data.portfolio_effective_as_of&&snapshot.effective_as_of!==data.portfolio_effective_as_of?` · la cartera se conservará al ${data.portfolio_effective_as_of}`:""}</span>
-   {snapshot.published?<span className="review-badge">Publicado en sombra</span>:!snapshot.latest?<span>Reemplazado por un extracto más reciente de esta fuente; requiere corrección histórica.</span>:<button type="button" disabled={!!saving||snapshot.rows===0||snapshot.invalid_rows>0} onClick={()=>void publish(snapshot)}>{saving===snapshot.document_id?"Publicando…":"Revisar y publicar snapshot"}</button>}
+   {snapshot.position_details?.flatMap(position=>position.plans??[]).map(plan=><span key={`${snapshot.document_id}:${plan.plan_number}`}>Plan {plan.plan_number} · bruto {money.format(Number(plan.gross_balance))} · líquido {money.format(Number(plan.net_balance))}</span>)}
+   {snapshot.published?<span className="review-badge">Publicado en sombra</span>:!snapshot.latest?<span>Reemplazado por un extracto más reciente de esta fuente; requiere corrección histórica.</span>:<button type="button" disabled={!!saving||snapshot.rows===0||snapshot.invalid_rows>0} onClick={()=>void publish(snapshot)}>{saving===snapshot.document_id?"Publicando…":"Aprobar y publicar snapshot"}</button>}
   </div>)}
  </section>;
 }

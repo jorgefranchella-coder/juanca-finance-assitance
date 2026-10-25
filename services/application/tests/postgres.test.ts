@@ -20,6 +20,7 @@ import {receiveMarketEvent} from '../src/market-bridge.ts';
 import {listB3DuplicateMovementCandidates,recordB3DuplicateMovementDecision} from '../src/b3-duplicate-candidates.ts';
 import {publishB3PositionSnapshot,listB3PositionSnapshots} from '../src/b3-snapshot-publications.ts';
 import {publishExternalPositionSnapshot,listExternalPositionSnapshots} from '../src/external-snapshot-publications.ts';
+import {createManualExternalPositionSnapshot} from '../src/manual-external-snapshots.ts';
 import {fixedIncomeProjection} from '../src/fixed-income.ts';
 import {createConfirmation,listConfirmations,recordConfirmationDecision} from '../src/confirmations.ts';
 const database='juanca_test_'+randomUUID().replaceAll('-','');
@@ -384,4 +385,19 @@ test('explicit account confirmation is scoped, audited, idempotent and changes o
   assert.equal((await db.query('SELECT facts_revision FROM app.household_state WHERE household_id=$1',[h])).rows[0].facts_revision,'1');
   assert.equal((await db.query('SELECT count(*) FROM app.events WHERE household_id=$1 AND application_status=$2',[h,'applied'])).rows[0].count,'0');
  }finally{await rm(dir,{recursive:true,force:true});}
+});
+
+test('manual pension snapshot is staged atomically and idempotently without publishing portfolio data',async()=>{
+ const h='manual-pension-'+randomUUID(),actor='manual-pension-actor-'+randomUUID();
+ await db.query('INSERT INTO app.households VALUES($1)',[h]);await db.query('INSERT INTO app.actors VALUES($1,$2)',[actor,'Manual pension fixture']);await db.query("INSERT INTO app.memberships VALUES($1,$2,'owner')",[h,actor]);await db.query("INSERT INTO app.owners VALUES($1,'jorge','Jorge')",[h]);
+ const body={request_key:'telegram-pension-fixture-001',owner:'Jorge',institution:'Fixture Previdencia',reference_date:'2026-10-20',valuation_basis:'net',evidence_refs:['photo-fixture'],plans:[{plan_number:'Plano A',product_name:'PGBL',fund:'Fundo A',fund_cnpj:'12345678000199',gross_balance:'1200.50',net_balance:'1000.25',tax_regime:'regressivo'},{plan_number:'Plano B',product_name:'PGBL',fund:'Fundo A',fund_cnpj:'12345678000199',gross_balance:'2000',net_balance:'1800',tax_regime:'progressivo'}]};
+ const first=await createManualExternalPositionSnapshot(db,h,actor,body),replay=await createManualExternalPositionSnapshot(db,h,actor,body);
+ assert.equal(first.portfolio_published,false);assert.equal(first.plans,2);assert.equal(first.positions,1);assert.equal(replay.replayed,true);assert.equal(first.document_id,replay.document_id);
+ const review=await listExternalPositionSnapshots(db,h),candidate=review.snapshots.find((item:{document_id:string;position_details?:{plans?:{plan_number:string}[]}[]})=>item.document_id===first.document_id);
+ assert.equal(candidate?.invalid_rows,0);assert.equal(candidate?.rows,1);assert.equal(candidate?.latest,true);assert.equal(candidate?.published,false);
+ assert.deepEqual(candidate?.position_details?.[0]?.plans?.map((plan:{plan_number:string})=>plan.plan_number),['Plano A','Plano B']);
+ const assertion=await db.query('SELECT quantity::text,raw_row FROM app.source_assertions WHERE household_id=$1 AND document_id=$2',[h,first.document_id]);assert.equal(assertion.rows[0].quantity,'1');assert.equal(assertion.rows[0].raw_row.market_value,'2800.25');assert.equal(assertion.rows[0].raw_row.plans.length,2);
+ assert.equal((await db.query('SELECT count(*) FROM app.external_position_snapshot_publications WHERE household_id=$1',[h])).rows[0].count,'0');
+ await assert.rejects(()=>createManualExternalPositionSnapshot(db,h,actor,{...body,request_key:'telegram-pension-fixture-002',plans:[{...body.plans[0],fund_cnpj:'missing'}]}),(e:unknown)=>e instanceof Conflict&&e.code==='FUND_CNPJ_REQUIRED');
+ await assert.rejects(()=>createManualExternalPositionSnapshot(db,h,actor,{...body,request_key:'telegram-pension-fixture-003',plans:[body.plans[0],{...body.plans[1],plan_number:body.plans[0].plan_number}]}),(e:unknown)=>e instanceof Conflict&&e.code==='DUPLICATE_PLAN_NUMBER');
 });
