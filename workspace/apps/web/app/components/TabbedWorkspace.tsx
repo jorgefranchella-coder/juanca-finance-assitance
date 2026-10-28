@@ -85,7 +85,7 @@ export default function TabbedWorkspace() {
       <MobileApp />
       <header className="topbar">
         <div><p className="eyebrow">{current.eyebrow}</p><h1>{current.title}</h1><p className="subtitle">{current.subtitle}</p></div>
-        <div className="topbar-actions">{active !== "imports" && <button className="primary-button" onClick={() => select("imports")}>Importar dados</button>}<SessionControls /></div>
+        <div className="topbar-actions">{active === "reviews" && <button type="button" className="primary-button" onClick={() => window.dispatchEvent(new Event("juanca-reviews-refresh"))} aria-label="Refrescar revisiones">↻ Refrescar revisiones</button>}{active !== "imports" && <button className="primary-button" onClick={() => select("imports")}>Importar dados</button>}<SessionControls /></div>
       </header>
       <TabButtons active={active} onSelect={select} className="mobile-tabs" />
 
