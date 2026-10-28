@@ -25,3 +25,9 @@ test('custody label uses institution rather than raw account scope and marks int
  assert.equal(custodyLabel(p,positions),'Itaú Corretora de Valores');
  assert.match(custodyLabel(p,positions,2),/ref\. interna/);
 });
+
+test('a recorded keep-open answer moves to follow-up rather than asking again',()=>{
+ const confirmation={id:'quote-refresh',owner:'Jorge',category:'Valoración',title:'Actualizar cotizaciones',context:{},evidence:[],actions:[{key:'refresh',label:'Actualizar',keeps_open:true},{key:'accept',label:'Aceptar'}],status:'open',created_at:'2026-10-24T12:00:00Z',updated_at:'2026-10-28T12:00:00Z',decision:{action_key:'refresh',note:null,decided_at:'2026-10-28T12:00:00Z'}};
+ const card=buildReviewCards(input({confirmations:[confirmation]}))[0];assert.equal(card.lane,'follow_up');assert.equal(card.status,'in_follow_up');
+ const resolved=buildReviewCards(input({confirmations:[{...confirmation,status:'resolved'}]}))[0];assert.equal(resolved.lane,'history');
+});

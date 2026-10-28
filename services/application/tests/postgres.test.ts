@@ -22,7 +22,7 @@ import {publishB3PositionSnapshot,listB3PositionSnapshots} from '../src/b3-snaps
 import {publishExternalPositionSnapshot,listExternalPositionSnapshots} from '../src/external-snapshot-publications.ts';
 import {createManualExternalPositionSnapshot} from '../src/manual-external-snapshots.ts';
 import {fixedIncomeProjection} from '../src/fixed-income.ts';
-import {createConfirmation,listConfirmations,recordConfirmationDecision} from '../src/confirmations.ts';
+import {completeQuoteRefreshFollowUp,createConfirmation,listConfirmations,recordConfirmationDecision} from '../src/confirmations.ts';
 const database='juanca_test_'+randomUUID().replaceAll('-','');
 const admin=pool('jorge','postgres');const db=pool('juanca_app',database);const migrator=pool('jorge',database);
 before(async()=>{assert.match(database,/^juanca_test_[0-9a-f]+$/);await admin.query('CREATE DATABASE "'+database+'"');await migrator.query(await readFile(new URL('../../../infra/postgres/roles.sql',import.meta.url),'utf8'));await migrate(db);});
@@ -64,6 +64,21 @@ test('PostgreSQL confirmation decisions preserve audit history and enforce allow
  await recordConfirmationDecision(db,h,actor,id,{action_key:'accept',note:'Cierre'});
  const result=await listConfirmations(db,h,'resolved');assert.equal(result.items[0].decisions.length,2);assert.equal(result.items[0].decision.action_key,'accept');
  await assert.rejects(()=>recordConfirmationDecision(db,h,actor,id,{action_key:'accept'}),(e:unknown)=>e instanceof Conflict&&e.code==='ALREADY_RESOLVED');
+});
+test('completed quote refresh closes the follow-up without replacing the user decision',async()=>{
+ const h='quote-follow-up-'+randomUUID(),actor='quote-follow-up-actor-'+randomUUID(),id='quote-follow-up-item-'+randomUUID(),version='quote-follow-up-version-'+randomUUID();
+ await db.query('INSERT INTO app.households VALUES($1)',[h]);await db.query('INSERT INTO app.actors VALUES($1,$2)',[actor,'Quote follow-up test']);await db.query("INSERT INTO app.memberships VALUES($1,$2,'approver')",[h,actor]);await db.query('INSERT INTO app.household_state(household_id,latest_version) VALUES($1,$2)',[h,version]);
+ const view=(date:string)=>({positions:[{owner:'Jorge',currency:'USD',price_as_of:date},{owner:'Jorge',currency:'USD',price_as_of:date}]});
+ await db.query("INSERT INTO app.portfolio_versions(household_id,id,facts_revision,market_revision,calculation_version,effective_as_of,known_at,view) VALUES($1,$2,0,'fixture','fixture','2026-10-23',now(),$3)",[h,version,JSON.stringify(view('2026-10-21'))]);
+ await db.query(`INSERT INTO app.confirmation_items(household_id,id,source_key,owner,category,title,context,evidence,actions,created_at,updated_at)
+ VALUES($1,$2,'cutover-delta-20261021-jorge-market-quotes','Jorge','Valoración de corte','Actualizar cotizaciones',$3,'[]',$4,now(),now())`,[h,id,JSON.stringify({fecha_cotizacion_d1:'2026-10-23',posiciones_con_diferencia_de_valor_y_cantidad_igual:2}),JSON.stringify([{key:'refresh_postgresql_quotes',label:'Actualizar',keeps_open:true},{key:'accept_valuation_lag',label:'Aceptar'}])]);
+ await recordConfirmationDecision(db,h,actor,id,{action_key:'refresh_postgresql_quotes'});
+ await assert.rejects(()=>completeQuoteRefreshFollowUp(db,h,actor,id),(e:unknown)=>e instanceof Conflict&&e.code==='QUOTE_REFRESH_INCOMPLETE');
+ await db.query('UPDATE app.portfolio_versions SET view=$3 WHERE household_id=$1 AND id=$2',[h,version,JSON.stringify(view('2026-10-23'))]);
+ const done=await completeQuoteRefreshFollowUp(db,h,actor,id);assert.equal(done.status,'resolved');assert.equal(done.refreshed_positions,2);
+ const listed=(await listConfirmations(db,h)).items[0];assert.equal(listed.status,'resolved');assert.equal(listed.decision.action_key,'refresh_postgresql_quotes');assert.equal(listed.decisions.length,1);
+ assert.equal((await completeQuoteRefreshFollowUp(db,h,actor,id)).duplicate,true);
+ assert.equal((await db.query("SELECT count(*) FROM app.audit_log WHERE household_id=$1 AND action='confirmation_follow_up_completed'",[h])).rows[0].count,'1');
 });
 test('PostgreSQL confirmation creation is idempotent, audited and independent from portfolio facts',async()=>{
  const h='confirmation-create-'+randomUUID(),actor='confirmation-create-actor-'+randomUUID(),source=`test:${randomUUID()}`;

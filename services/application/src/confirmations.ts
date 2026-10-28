@@ -67,3 +67,28 @@ export async function recordConfirmationDecision(db:pg.Pool,household:string,act
   await c.query('COMMIT');return {saved:true,id,action_key:actionKey,status:next};
  }catch(error){await c.query('ROLLBACK');throw error;}finally{c.release();}
 }
+
+export async function completeQuoteRefreshFollowUp(db:pg.Pool,household:string,actor:string,id:string){
+ if(!actor||!id||!/^[A-Za-z0-9._:-]{1,240}$/.test(id))throw new Conflict('VALIDATION',422);
+ const c=await db.connect();
+ try{
+  await c.query('BEGIN');
+  const member=await c.query('SELECT 1 FROM app.memberships WHERE household_id=$1 AND actor_id=$2',[household,actor]);if(!member.rowCount)throw new Conflict('FORBIDDEN',403);
+  const itemResult=await c.query('SELECT id,source_key,status,context FROM app.confirmation_items WHERE household_id=$1 AND id=$2 FOR UPDATE',[household,id]);
+  const item=itemResult.rows[0];if(!item)throw new Conflict('NOT_FOUND',404);
+  if(item.status==='resolved'){await c.query('COMMIT');return{saved:true,id,status:'resolved',duplicate:true};}
+  if(item.source_key!=='cutover-delta-20261021-jorge-market-quotes')throw new Conflict('INVALID_FOLLOW_UP',422);
+  const decision=await c.query('SELECT action_key FROM app.confirmation_decisions WHERE household_id=$1 AND item_id=$2 ORDER BY ordinal DESC LIMIT 1',[household,id]);
+  if(decision.rows[0]?.action_key!=='refresh_postgresql_quotes')throw new Conflict('FOLLOW_UP_NOT_REQUESTED',409);
+  const target=String(item.context?.fecha_cotizacion_d1??''),required=Number(item.context?.posiciones_con_diferencia_de_valor_y_cantidad_igual);
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(target)||!Number.isSafeInteger(required)||required<1)throw new Conflict('INVALID_FOLLOW_UP',422);
+  const latest=await c.query('SELECT v.view FROM app.portfolio_versions v JOIN app.household_state s ON s.household_id=v.household_id AND s.latest_version=v.id WHERE v.household_id=$1',[household]);
+  const positions=latest.rows[0]?.view?.positions;
+  if(!Array.isArray(positions))throw new Conflict('PORTFOLIO_UNAVAILABLE',409);
+  const refreshed=positions.filter((position:any)=>position.owner==='Jorge'&&position.currency==='USD'&&typeof position.price_as_of==='string'&&position.price_as_of.slice(0,10)>=target).length;
+  if(refreshed<required)throw new Conflict('QUOTE_REFRESH_INCOMPLETE',409);
+  await c.query("UPDATE app.confirmation_items SET status='resolved',updated_at=now() WHERE household_id=$1 AND id=$2",[household,id]);
+  await c.query("INSERT INTO app.audit_log(household_id,actor_id,action,resource_id,details) VALUES($1,$2,'confirmation_follow_up_completed',$3,$4)",[household,actor,id,{previous_decision:'refresh_postgresql_quotes',target_date:target,required_positions:required,refreshed_positions:refreshed}]);
+  await c.query('COMMIT');return{saved:true,id,status:'resolved',refreshed_positions:refreshed,required_positions:required};
+ }catch(error){await c.query('ROLLBACK');throw error;}finally{c.release();}
+}

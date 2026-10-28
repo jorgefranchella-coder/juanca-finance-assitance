@@ -16,7 +16,7 @@ import {listB3PositionSnapshots,publishB3PositionSnapshot} from './b3-snapshot-p
 import {listExternalPositionSnapshots,publishExternalPositionSnapshot} from './external-snapshot-publications.ts';
 import {createManualExternalPositionSnapshot} from './manual-external-snapshots.ts';
 import {fixedIncomeProjection} from './fixed-income.ts';
-import {createConfirmation,listConfirmations,recordConfirmationDecision} from './confirmations.ts';
+import {completeQuoteRefreshFollowUp,createConfirmation,listConfirmations,recordConfirmationDecision} from './confirmations.ts';
 const config=JSON.parse(await readFile(process.env.JUANCA_SHADOW_CONFIG??'/home/jorge/.local/share/juanca-shadow/application.json','utf8')) as {token:string;household_id:string;cursor_key:string;port:number};
 if(config.token.length<32||config.cursor_key.length<32||!config.household_id)throw new Error('INVALID_CONFIGURATION');
 const db=pool();
@@ -38,6 +38,11 @@ const server=createServer(async(req,res)=>{
   if(confirmationDecision&&req.method==='POST'){
    if(process.env.JUANCA_CONFIRMATIONS_WRITABLE!=='true')throw new Conflict('SHADOW_READ_ONLY',405);
    reply(201,await recordConfirmationDecision(db,config.household_id,String(req.headers['x-juanca-actor']??''),confirmationDecision[1],await readJson(req)));return;
+  }
+  const quoteFollowUp=url.pathname.match(/^\/v1\/confirmations\/([A-Za-z0-9._:-]{1,240})\/complete-quote-refresh$/);
+  if(quoteFollowUp&&req.method==='POST'){
+   if(process.env.JUANCA_CONFIRMATIONS_WRITABLE!=='true')throw new Conflict('SHADOW_READ_ONLY',405);
+   reply(200,await completeQuoteRefreshFollowUp(db,config.household_id,String(req.headers['x-juanca-actor']??''),quoteFollowUp[1]));return;
   }
   if(url.pathname==='/v1/fixed-income-projection'&&req.method==='GET'){reply(200,await fixedIncomeProjection(db,config.household_id));return;}
   if(url.pathname==='/v1/proposals'&&req.method==='GET'){
