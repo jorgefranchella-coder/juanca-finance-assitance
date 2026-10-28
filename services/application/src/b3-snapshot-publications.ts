@@ -13,7 +13,7 @@ const normalized=(value:unknown)=>clean(value).normalize('NFD').replace(/[\u0300
 const assetClass:Record<string,string>={Acoes:'equity',BDR:'bdr',ETF:'etf','Fundo de Investimento':'fund','Renda Fixa':'fixed_income','Tesouro Direto':'treasury'};
 
 export async function listB3PositionSnapshots(db:pg.Pool,household:string){
-  const result=await db.query(`SELECT d.id AS document_id,d.owner_id,o.display_name AS owner,d.original_name,d.content_sha256,d.effective_as_of::text AS effective_as_of,d.status,
+  const result=await db.query(`SELECT d.id AS document_id,d.owner_id,o.display_name AS owner,d.original_name,d.content_sha256,d.effective_as_of::text AS effective_as_of,d.registered_at,d.status,
    count(a.id)::int AS rows,count(*) FILTER(WHERE a.instrument_code IS NULL OR a.quantity IS NULL OR a.quantity<=0 OR
     COALESCE(NULLIF(a.raw_row->>'Valor Atualizado MTM',''),NULLIF(a.raw_row->>'Valor Atualizado FECHAMENTO',''),NULLIF(a.raw_row->>'Valor Atualizado CURVA',''),NULLIF(a.raw_row->>'Valor Atualizado','')) IS NULL)::int AS invalid_rows,
    count(*) FILTER(WHERE a.custody_account_id IS NULL)::int AS account_pending,

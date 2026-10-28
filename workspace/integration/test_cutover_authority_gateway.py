@@ -42,7 +42,8 @@ class PortfolioStub(BaseHTTPRequestHandler):
                  'weighted_average_unit_price': '40'},
             ]},
             '/v1/confirmations?status=open': {'open_count': 2, 'items': []},
-            '/v1/reconciliation/b3/snapshots': {'snapshots': [{'published': True}, {'published': False}]},
+            '/v1/proposals?status=pending': {'proposals': [{'id': 'pending-1'}]},
+            '/v1/reconciliation/b3/snapshots': {'snapshots': [{'published': True}, {'published': False, 'latest': True}]},
             '/v1/reconciliation/external/snapshots': {'snapshots': [{'published': True}]},
             '/v1/authority/readiness': {
                 'ready': False, 'mode': 'shadow', 'authoritative': False,
@@ -141,8 +142,9 @@ class CutoverAuthorityGatewayTests(unittest.TestCase):
         status, result = self.request('POST', '/api/import/b3', {'file': 'not forwarded'})
         self.assertEqual(status, 409); self.assertEqual(result['code'], 'LEGACY_WRITER_DISABLED')
         status, summary = self.request('GET', '/api/portfolio/summary')
-        self.assertEqual(status, 200); self.assertEqual(summary['import_count'], 2); self.assertEqual(summary['review_count'], 2)
+        self.assertEqual(status, 200); self.assertEqual(summary['import_count'], 2); self.assertEqual(summary['review_count'], 4)
         self.assertIn(('GET', '/v1/confirmations?status=open', None), PortfolioStub.calls)
+        self.assertIn(('GET', '/v1/proposals?status=pending', None), PortfolioStub.calls)
         status, created = self.request('POST', '/api/shadow/confirmations', {
             'owner': 'Jorge', 'category': 'fixture', 'title': 'Fixture confirmation',
             'source_key': 'fixture:single-writer', 'context': {}, 'evidence': [],

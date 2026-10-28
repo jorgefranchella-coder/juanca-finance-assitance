@@ -414,10 +414,14 @@ class Gateway(BaseHTTPRequestHandler):
                     result = authoritative_positions(view, acquisitions)
                 else:
                     confirmations = get('/v1/confirmations?status=open')
+                    proposals = get('/v1/proposals?status=pending')
                     b3 = get('/v1/reconciliation/b3/snapshots')
                     external = get('/v1/reconciliation/external/snapshots')
-                    published = sum(1 for row in [*b3.get('snapshots', []), *external.get('snapshots', [])] if row.get('published'))
-                    result = {'import_count': published, 'review_count': int(confirmations.get('open_count', 0)),
+                    snapshots = [*b3.get('snapshots', []), *external.get('snapshots', [])]
+                    published = sum(1 for row in snapshots if row.get('published'))
+                    publishable = sum(1 for row in snapshots if row.get('latest') and not row.get('published'))
+                    review_count = int(confirmations.get('open_count', 0)) + len(proposals.get('proposals', [])) + publishable
+                    result = {'import_count': published, 'review_count': review_count,
                               'reviews': [], 'mode': 'postgres', 'authoritative': True}
                 self.reply_json(200, result, {'X-Juanca-Portfolio-Authority': 'postgres'})
             finally:

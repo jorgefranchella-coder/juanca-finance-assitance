@@ -10,7 +10,7 @@ const clean=(value:unknown)=>String(value??'').trim().replace(/\s+/g,' ');
 const sha=(value:string)=>createHash('sha256').update(value).digest('hex');
 
 export async function listExternalPositionSnapshots(db:pg.Pool,household:string){
- const result=await db.query(`SELECT d.id AS document_id,d.owner_id,o.display_name AS owner,d.source_system,d.original_name,d.content_sha256,
+ const result=await db.query(`SELECT d.id AS document_id,d.owner_id,o.display_name AS owner,d.source_system,d.original_name,d.content_sha256,d.registered_at,
    d.effective_as_of::text AS effective_as_of,d.status,count(a.id)::int AS rows,
    jsonb_agg(jsonb_build_object('instrument_code',a.instrument_code,'product_name',a.raw_row->>'product_name','fund',a.raw_row->>'fund',
      'fund_cnpj',a.raw_row->>'fund_cnpj','gross_balance',a.raw_row->>'gross_balance','net_balance',a.raw_row->>'net_balance',

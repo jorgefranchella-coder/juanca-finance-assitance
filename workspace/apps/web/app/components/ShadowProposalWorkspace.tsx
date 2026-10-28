@@ -7,7 +7,7 @@ type Evidence = { id: string; kind: "manual_text" | "manual_photo"; owner_id: st
 type Proposal = { id: string; owner_id: string; owner: string; account_id: string; account_scope: string; instrument_code: string; currency: string; side: "buy" | "sell"; quantity: string; unit_price: string; fees_minor: string; effective_date: string; version:number; summary_hash:string; status: string; source_evidence_kind?: string | null; source_evidence_id?: string | null; source_evidence_text?: string | null };
 const money = (value: string, currency: string) => new Intl.NumberFormat("pt-BR", { style: "currency", currency }).format(Number(value));
 
-export default function ShadowProposalWorkspace() {
+export default function ShadowProposalWorkspace({showQueue=false}:{showQueue?:boolean}) {
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [evidence, setEvidence] = useState<Evidence[]>([]);
   const [proposals, setProposals] = useState<Proposal[]>([]);
@@ -81,7 +81,8 @@ export default function ShadowProposalWorkspace() {
       });
       const result = await response.json() as { code?: string; proposal_id?: string };
       if (!response.ok) throw new Error(result.code === "FORBIDDEN" ? "Este usuario puede preparar propuestas; la API todavía no le permite ejecutar ni descartar movimientos." : result.code ?? "No se pudo guardar la propuesta.");
-      setMessage(`Propuesta ${result.proposal_id ?? ""} guardada como pendiente. La cartera no cambió.`);
+      setMessage(`Propuesta ${result.proposal_id ?? ""} guardada como pendiente. Puedes revisarla en Revisiones.`);
+      window.dispatchEvent(new Event("shadow-evidence-updated"));
       pendingRequest.current = null; setInstrument(""); setQuantity(""); setUnitPrice(""); setFees("0"); await load();
     } catch (cause) { setError(cause instanceof Error ? cause.message : "No se pudo guardar la propuesta."); }
     finally { setSaving(false); }
@@ -104,7 +105,7 @@ export default function ShadowProposalWorkspace() {
   }
 
   return <section className="panel shadow-proposals">
-    <div className="panel-title"><div><p>PostgreSQL · sombra</p><h2>Registrar movimiento</h2><span>La propuesta queda pendiente y no altera la cartera. La revisión final sigue protegida por permisos.</span></div><span className="review-badge">sin ejecución</span></div>
+    <div className="panel-title"><div><p>Movimiento manual</p><h2>Registrar movimiento</h2><span>La propuesta queda pendiente hasta que la revises.</span></div><button type="button" className="text-button" onClick={()=>window.dispatchEvent(new CustomEvent("juanca-action",{detail:{type:"open_reviews"}}))}>Ir a Revisiones</button></div>
     {error && <p className="chat-error" role="alert">{error}</p>}
     {message && <p className="form-status" role="status">{message}</p>}
     {!loading && accounts.length === 0 && !error && <p>No hay cuentas disponibles para registrar movimientos.</p>}
@@ -121,6 +122,6 @@ export default function ShadowProposalWorkspace() {
       <label>Comisiones (centavos)<input type="number" min="0" step="1" value={fees} onChange={e => setFees(e.target.value)} required /></label>
       <button className="primary-button" disabled={saving || loading || !selectedAccountId}>{saving ? "Guardando…" : "Guardar propuesta pendiente"}</button>
     </form>
-    <div className="shadow-proposal-queue"><h3>Propuestas pendientes ({proposals.length})</h3>{loading ? <p>Cargando…</p> : proposals.length === 0 ? <p>No hay propuestas pendientes.</p> : <div className="table-wrap"><table><thead><tr><th>Fecha</th><th>Inversor / cuenta</th><th>Movimiento</th><th>Cantidad</th><th>Precio</th><th>Evidencia</th><th>Decisión</th></tr></thead><tbody>{proposals.map(p => <tr key={p.id}><td>{p.effective_date}</td><td>{p.owner}<small>{p.account_scope}</small></td><td>{p.side === "buy" ? "Compra" : "Venta"} {p.instrument_code}</td><td>{p.quantity}</td><td>{money(p.unit_price, p.currency)}</td><td>{p.source_evidence_kind === "manual_photo" && p.source_evidence_id ? <a href={`/api/shadow/evidence/photos/${p.source_evidence_id}/content`} target="_blank" rel="noreferrer">{p.source_evidence_text ?? "Abrir foto"}</a> : p.source_evidence_text ?? "Evidencia histórica pendiente"}</td><td><div className="proposal-actions"><button className="proposal-reject" disabled={reviewing===p.id} onClick={()=>void decide(p,"reject")}>{reviewing===p.id?"Guardando…":"Rechazar"}</button><button className="proposal-approve" disabled={reviewing===p.id} onClick={()=>void decide(p,"approve")}>{reviewing===p.id?"Guardando…":"Aprobar en PostgreSQL"}</button></div></td></tr>)}</tbody></table></div>}</div>
+    {showQueue&&<div className="shadow-proposal-queue"><h3>Propuestas pendientes ({proposals.length})</h3>{loading ? <p>Cargando…</p> : proposals.length === 0 ? <p>No hay propuestas pendientes.</p> : <div className="table-wrap"><table><thead><tr><th>Fecha</th><th>Inversor / cuenta</th><th>Movimiento</th><th>Cantidad</th><th>Precio</th><th>Evidencia</th><th>Decisión</th></tr></thead><tbody>{proposals.map(p => <tr key={p.id}><td>{p.effective_date}</td><td>{p.owner}<small>{p.account_scope}</small></td><td>{p.side === "buy" ? "Compra" : "Venta"} {p.instrument_code}</td><td>{p.quantity}</td><td>{money(p.unit_price, p.currency)}</td><td>{p.source_evidence_kind === "manual_photo" && p.source_evidence_id ? <a href={`/api/shadow/evidence/photos/${p.source_evidence_id}/content`} target="_blank" rel="noreferrer">{p.source_evidence_text ?? "Abrir foto"}</a> : p.source_evidence_text ?? "Evidencia histórica pendiente"}</td><td><div className="proposal-actions"><button className="proposal-reject" disabled={reviewing===p.id} onClick={()=>void decide(p,"reject")}>{reviewing===p.id?"Guardando…":"Rechazar"}</button><button className="proposal-approve" disabled={reviewing===p.id} onClick={()=>void decide(p,"approve")}>{reviewing===p.id?"Guardando…":"Aprobar en PostgreSQL"}</button></div></td></tr>)}</tbody></table></div>}</div>}
   </section>;
 }

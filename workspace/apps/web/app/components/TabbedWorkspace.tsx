@@ -10,20 +10,16 @@ import SiteTools from "./SiteTools";
 import MobileApp from "./MobileApp";
 import SessionControls from "./SessionControls";
 import B3ReconciliationPanel from "./B3ReconciliationPanel";
-import B3SnapshotPublicationPanel from "./B3SnapshotPublicationPanel";
-import ExternalSnapshotPublicationPanel from "./ExternalSnapshotPublicationPanel";
-import ManualIntakePanel from "./ManualIntakePanel";
 import ManualB3Candidates from "./ManualB3Candidates";
-import ManualPhotoPanel from "./ManualPhotoPanel";
 import AcquisitionReconciliationPanel from "./AcquisitionReconciliationPanel";
-import ConfirmationQueue from "./ConfirmationQueue";
 import ShadowProposalWorkspace from "./ShadowProposalWorkspace";
 import ShadowPortfolioPanel from "./ShadowPortfolioPanel";
 import ShadowMarketPanel from "./ShadowMarketPanel";
+import ReviewInbox from "./ReviewInbox";
 
 const tabs = [
   { id: "overview", label: "Visão geral", eyebrow: "Patrimônio consolidado", title: "Bom dia, Jorge.", subtitle: "Uma visão confiável do patrimônio de Jorge e Julia." },
-  { id: "reviews", label: "Revisões", eyebrow: "Qualidade dos dados", title: "Pendências de conciliação", subtitle: "Confirme eventos ambíguos antes que influenciem recomendações." },
+  { id: "reviews", label: "Revisões", eyebrow: "Decisiones patrimoniales", title: "Revisiones", subtitle: "Revisa movimientos, extractos y evidencias de Jorge y Julia." },
   { id: "juanca", label: "Juanca", eyebrow: "Seu patrimônio", title: "Converse com Juanca", subtitle: "Seu assistente de patrimônio, conectado aos dados da família." },
   { id: "assistant", label: "Assistente", eyebrow: "Entrada conversacional", title: "Transações", subtitle: "Interprete ordens e comprovantes antes de ajustar a carteira." },
   { id: "postgres-shadow", label: "PostgreSQL", eyebrow: "Autoridade ativa", title: "Carteira e movimentos", subtitle: "Consulte posições e revise movimentos registrados na base produtiva." },
@@ -56,6 +52,7 @@ function TabButtons({ active, onSelect, className }: { active: TabId; onSelect: 
 
 export default function TabbedWorkspace() {
   const [active, setActive] = useState<TabId>("overview");
+  const [advancedReviews, setAdvancedReviews] = useState(false);
   const [prefill, setPrefill] = useState<{message:string;owner:string}|undefined>();
   useEffect(()=>{
     function action(event: Event) {
@@ -94,7 +91,7 @@ export default function TabbedWorkspace() {
 
       <section className="tab-panel" role="tabpanel" aria-label={current.label}>
         {active === "overview" && <DashboardMetrics />}
-        {active === "reviews" && <><ExternalSnapshotPublicationPanel /><ConfirmationQueue endpoint="/api/shadow/confirmations" /><ManualIntakePanel /><ManualB3Candidates /><ManualPhotoPanel /><B3SnapshotPublicationPanel /><B3ReconciliationPanel /><AcquisitionReconciliationPanel /></>}
+        {active === "reviews" && <><ReviewInbox /><details className="review-advanced" open={advancedReviews} onToggle={event=>setAdvancedReviews(event.currentTarget.open)}><summary>Conciliación detallada de B3 y costos</summary>{advancedReviews&&<><ManualB3Candidates /><B3ReconciliationPanel /><AcquisitionReconciliationPanel /></>}</details></>}
         {active === "assistant" && <><TransactionChat key={`${prefill?.owner??"manual"}:${prefill?.message??""}`} prefill={prefill} /><ShadowProposalWorkspace /></>}
         {active === "postgres-shadow" && <><ShadowPortfolioPanel /><ShadowMarketPanel /><ShadowProposalWorkspace /></>}
         {active === "juanca" && <JuancaChat />}
