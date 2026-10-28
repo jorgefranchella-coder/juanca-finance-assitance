@@ -1,9 +1,10 @@
 "use client";
 
-import {useCallback,useEffect,useMemo,useState} from "react";
+import {useCallback,useEffect,useMemo,useState,type FormEvent} from "react";
 import {buildReviewCards,type Confirmation,type PhotoEvidence,type Position,type Proposal,type ReviewCard,type ReviewKind,type ReviewLane,type Snapshot,type TextEvidence} from "../../lib/review-inbox";
 
-type InboxData={cards:ReviewCard[];factsRevision:string;portfolioDate:string|null};
+type Account={id:string;owner_id:string;owner:string;identity_status:string;account_scope:string};
+type InboxData={cards:ReviewCard[];factsRevision:string;portfolioDate:string|null;accounts:Account[];positions:Position[]};
 const EMPTY_CARDS:ReviewCard[]=[];
 const date=(value:string|null)=>{if(!value)return "Sin fecha";const parsed=new Date(/^\d{4}-\d{2}-\d{2}$/.test(value)?`${value}T12:00:00Z`:value);return Number.isNaN(parsed.getTime())?value:new Intl.DateTimeFormat("es-AR",{day:"2-digit",month:"2-digit",year:"numeric",timeZone:"America/Sao_Paulo"}).format(parsed);};
 const money=(value:string,currency:string)=>new Intl.NumberFormat("es-AR",{style:"currency",currency:currency==='USD'?'USD':'BRL'}).format(Number(value));
@@ -15,6 +16,31 @@ function relatedLabel(card:ReviewCard){const parts:string[]=[];if(card.related_t
 
 async function jsonFetch<T>(path:string):Promise<T>{const response=await fetch(path,{cache:'no-store'});if(!response.ok)throw new Error(`No se pudo cargar ${path.split('/').at(-1)??'la bandeja'}.`);return response.json() as Promise<T>;}
 
+function PhotoTradeDraft({photo,accounts,positions,onSaved}:{photo:PhotoEvidence;accounts:Account[];positions:Position[];onSaved:()=>Promise<void>}){
+ const fields=photo.ocr_trade_interpretation?.fields;
+ const[accountId,setAccountId]=useState(''),[side,setSide]=useState(fields?.side??''),[ticker,setTicker]=useState(fields?.instrument_code??''),[quantity,setQuantity]=useState(fields?.quantity??''),[price,setPrice]=useState(fields?.unit_price??''),[currency,setCurrency]=useState(fields?.currency??'BRL'),[tradeDate,setTradeDate]=useState(fields?.trade_date??''),[executed,setExecuted]=useState(false),[saving,setSaving]=useState(false),[error,setError]=useState('');
+ const choices=accounts.filter(account=>account.owner===photo.owner&&account.identity_status==='known');
+ const institution=(id:string)=>positions.find(position=>position.owner===photo.owner&&position.account_id===id)?.institution;
+ async function submit(event:FormEvent){
+  event.preventDefault();setError('');
+  if(!executed){setError('Confirma primero que la orden fue ejecutada. La captura solo muestra la solicitud.');return;}
+  const account=choices.find(item=>item.id===accountId);
+  if(!account){setError('Elige una cuenta de custodia conocida.');return;}
+  setSaving(true);
+  try{
+   const response=await fetch('/api/shadow/proposals',{method:'POST',headers:{'Content-Type':'application/json','Idempotency-Key':crypto.randomUUID().replaceAll('-','_')},body:JSON.stringify({owner_id:account.owner_id,account_id:account.id,side,instrument_code:ticker.trim().toUpperCase(),quantity,unit_price:price,currency,effective_date:tradeDate,fees_minor:'0',source_evidence:{kind:'manual_photo',id:photo.upload_id}})});
+   const result=await response.json() as {code?:string};if(!response.ok)throw new Error(result.code??'No se pudo guardar la propuesta.');
+   await onSaved();
+  }catch(problem){setError(problem instanceof Error?problem.message:'No se pudo guardar la propuesta.');}finally{setSaving(false);}
+ }
+ return <form className="review-photo-draft" onSubmit={event=>void submit(event)}>
+  <strong>Datos extraídos para comprobar</strong><p>La captura muestra una orden solicitada. Confirma la ejecución antes de preparar el movimiento; la cartera solo cambia tras la aprobación en Revisiones.</p>
+  <div className="review-photo-draft-grid"><label>Titular<input value={photo.owner} readOnly /></label><label>Cuenta de custodia<select value={accountId} onChange={event=>setAccountId(event.target.value)} required><option value="">Elegir cuenta</option>{choices.map(item=><option key={item.id} value={item.id}>{institution(item.id)??item.account_scope}</option>)}</select></label><label>Operación<select value={side} onChange={event=>setSide(event.target.value)} required><option value="">Elegir</option><option value="buy">Compra</option><option value="sell">Venta</option></select></label><label>Ticker<input value={ticker} onChange={event=>setTicker(event.target.value)} required /></label><label>Cantidad<input type="number" min="0.00000001" step="any" value={quantity} onChange={event=>setQuantity(event.target.value)} required /></label><label>Precio unitario<input type="number" min="0.00000001" step="any" value={price} onChange={event=>setPrice(event.target.value)} required /></label><label>Moneda<select value={currency} onChange={event=>setCurrency(event.target.value)} required><option>BRL</option><option>USD</option></select></label><label>Fecha de operación<input type="date" value={tradeDate} onChange={event=>setTradeDate(event.target.value)} required /></label></div>
+  <label className="review-photo-executed"><input type="checkbox" checked={executed} onChange={event=>setExecuted(event.target.checked)}/> Confirmo que la orden fue ejecutada, no solo solicitada</label><small>Comisiones no informadas: 0 centavos provisionales. Verifica el comprobante antes de aprobar.</small>
+  {error&&<p className="chat-error" role="alert">{error}</p>}<div className="review-inbox-final"><button type="submit" className="proposal-approve" disabled={saving||!executed}>{saving?'Guardando…':'Guardar propuesta pendiente'}</button></div>
+ </form>;
+}
+
 export default function ReviewInbox(){
  const[data,setData]=useState<InboxData|null>(null),[loading,setLoading]=useState(true),[error,setError]=useState(''),[notice,setNotice]=useState(''),[saving,setSaving]=useState('');
  const[owner,setOwner]=useState('Todos'),[kind,setKind]=useState('Todos'),[custody,setCustody]=useState('Todas'),[lane,setLane]=useState<ReviewLane|'all'>('decision'),[search,setSearch]=useState('');
@@ -24,14 +50,14 @@ export default function ReviewInbox(){
    jsonFetch<{proposals:Proposal[]}>('/api/shadow/proposals'),jsonFetch<{items:Confirmation[]}>('/api/shadow/confirmations'),
    jsonFetch<{items:TextEvidence[]}>('/api/shadow/evidence/text'),jsonFetch<{items:PhotoEvidence[]}>('/api/shadow/evidence/photos'),
    jsonFetch<{snapshots:Snapshot[]}>('/api/shadow/reconciliation/b3/snapshots'),jsonFetch<{snapshots:Snapshot[]}>('/api/shadow/reconciliation/external/snapshots'),
-   jsonFetch<{facts_revision:string|number;effective_as_of?:string;positions:Position[]}>('/api/shadow/portfolio')
+   jsonFetch<{facts_revision:string|number;effective_as_of?:string;positions:Position[]}>('/api/shadow/portfolio'),jsonFetch<{accounts:Account[]}>('/api/shadow/accounts')
   ]);
-  const names=['movimientos','confirmaciones','textos','fotos','extractos B3','extractos externos','cartera'];
+  const names=['movimientos','confirmaciones','textos','fotos','extractos B3','extractos externos','cartera','cuentas'];
   const failed=results.flatMap((result,index)=>result.status==='rejected'?[names[index]]:[]);
   if(failed.length===results.length)throw new Error('No se pudo cargar ninguna fuente de Revisiones.');
   const take=<T,>(index:number,fallback:T):T=>results[index].status==='fulfilled'?(results[index] as PromiseFulfilledResult<T>).value:fallback;
-  const proposals=take(0,{proposals:[] as Proposal[]}),confirmations=take(1,{items:[] as Confirmation[]}),texts=take(2,{items:[] as TextEvidence[]}),photos=take(3,{items:[] as PhotoEvidence[]}),b3=take(4,{snapshots:[] as Snapshot[]}),external=take(5,{snapshots:[] as Snapshot[]}),portfolio=take(6,{facts_revision:'',positions:[] as Position[],effective_as_of:null as string|null});
-  setData({cards:buildReviewCards({proposals:proposals.proposals??[],confirmations:confirmations.items??[],texts:texts.items??[],photos:photos.items??[],b3:b3.snapshots??[],external:external.snapshots??[],positions:portfolio.positions??[]}),factsRevision:String(portfolio.facts_revision??''),portfolioDate:portfolio.effective_as_of??null});
+  const proposals=take(0,{proposals:[] as Proposal[]}),confirmations=take(1,{items:[] as Confirmation[]}),texts=take(2,{items:[] as TextEvidence[]}),photos=take(3,{items:[] as PhotoEvidence[]}),b3=take(4,{snapshots:[] as Snapshot[]}),external=take(5,{snapshots:[] as Snapshot[]}),portfolio=take(6,{facts_revision:'',positions:[] as Position[],effective_as_of:null as string|null}),accounts=take(7,{accounts:[] as Account[]});
+  setData({cards:buildReviewCards({proposals:proposals.proposals??[],confirmations:confirmations.items??[],texts:texts.items??[],photos:photos.items??[],b3:b3.snapshots??[],external:external.snapshots??[],positions:portfolio.positions??[]}),factsRevision:String(portfolio.facts_revision??''),portfolioDate:portfolio.effective_as_of??null,accounts:accounts.accounts??[],positions:portfolio.positions??[]});
   if(failed.length)setError(`Carga parcial: faltan ${failed.join(', ')}. Actualiza la bandeja para volver a intentarlo.`);
  },[]);
  const refresh=useCallback(async()=>{setLoading(true);setError('');try{await load();}catch(problem){setError(problem instanceof Error?problem.message:'No se pudo cargar Revisiones.');}finally{setLoading(false);}},[load]);
@@ -96,7 +122,7 @@ export default function ReviewInbox(){
   if(card.kind==='text'){
    const item=card.data as TextEvidence;return <><blockquote>{item.original_text}</blockquote>{item.fields&&<p>Lectura sugerida: {item.fields.side??'operación pendiente'} · {item.fields.instrument_code??'activo pendiente'} · {item.fields.quantity??'cantidad pendiente'} · {item.fields.unit_price&&item.fields.currency?`${item.fields.currency} ${item.fields.unit_price}`:'precio pendiente'}</p>}{!!item.review_reasons?.length&&<p>Falta revisar: {item.review_reasons.join(', ')}</p>}<div className="review-inbox-final"><button type="button" className="proposal-approve" onClick={()=>window.dispatchEvent(new CustomEvent('juanca-action',{detail:{type:'prepare_transaction',message:item.original_text,owner:item.owner}}))}>Preparar movimiento</button></div></>;
   }
-  const photo=card.data as PhotoEvidence;return <><p>{photo.ocr_status==='completed'?'Texto reconocido disponible para comprobar contra la imagen.':'La foto está guardada; la lectura automática puede estar pendiente.'}</p>{photo.ocr_text&&<details><summary>Ver texto reconocido</summary><pre>{photo.ocr_text}</pre></details>}<a href={`/api/shadow/evidence/photos/${photo.upload_id}/content`} target="_blank" rel="noreferrer">Abrir foto original</a><div className="review-inbox-final"><button type="button" className="proposal-approve" onClick={()=>window.dispatchEvent(new CustomEvent('juanca-action',{detail:photo.ocr_text?{type:'prepare_transaction',message:photo.ocr_text,owner:photo.owner}:{type:'open_transactions'}}))}>Preparar movimiento</button></div></>;
+  const photo=card.data as PhotoEvidence;return <><p>{photo.ocr_status==='completed'?'Texto reconocido disponible para comprobar contra la imagen.':'La foto está guardada; la lectura automática puede estar pendiente.'}</p><a href={`/api/shadow/evidence/photos/${photo.upload_id}/content`} target="_blank" rel="noreferrer">Abrir foto original</a>{photo.ocr_text&&<details><summary>Ver texto reconocido</summary><pre>{photo.ocr_text}</pre></details>}{photo.ocr_trade_interpretation?.fields?<PhotoTradeDraft key={photo.upload_id} photo={photo} accounts={data?.accounts??[]} positions={data?.positions??[]} onSaved={async()=>{setNotice('Propuesta pendiente guardada. Revísala antes de aprobar.');await load();}}/>:<p>La lectura estructurada está pendiente. Actualiza esta bandeja en unos momentos.</p>}</>;
  }
  return <section className="panel review-inbox" aria-label="Bandeja de revisiones">
   <div className="panel-title"><div><p>Patrimonio familiar</p><h2>Revisiones pendientes</h2><span>Decisiones y evidencia reunidas por caso.</span></div><button type="button" className="text-button" disabled={loading} onClick={()=>void refresh()}>Actualizar</button></div>

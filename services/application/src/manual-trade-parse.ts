@@ -1,4 +1,4 @@
-const VERSION='manual-trade-v2';
+const VERSION='manual-trade-v3';
 type Side='buy'|'sell';
 type Span={value:string;index:number;length:number};
 
@@ -87,5 +87,9 @@ export function interpretManualTrade(text:string,occurredOn:string|null) {
  if(!price.value)reviewReasons.push('unit_price_unresolved');
  if(!tradeDate)reviewReasons.push('trade_date_unresolved');
  if(!price.currency)reviewReasons.push('currency_unresolved');
+ // A broker's order request is evidence of intent, not proof that the trade executed.
+ const orderRequest=/\b(?:compra|venda|venta) limitada\b|\bordem limitada\b|\bdata de solicitacao\b|\blimit order\b/.test(flat);
+ const executionConfirmed=/\b(?:executad[ao]|ejecutad[ao]|executed|filled|preenchid[ao]|comprei|vendi|bought|sold)\b/.test(flat);
+ if(orderRequest&&!executionConfirmed)reviewReasons.push('execution_unconfirmed');
  return {parser_version:VERSION,status:!detected?'not_detected':reviewReasons.length?'needs_manual_review':'parsed_review',fields,review_reasons:reviewReasons};
 }

@@ -37,3 +37,13 @@ test('manual trade parser keeps contradictory sides and ambiguous fields in revi
  assert.equal(result.fields.side,null);
  assert.ok(result.review_reasons.includes('side_conflict'));
 });
+
+test('limited broker order keeps structured fields but requires execution confirmation',()=>{
+ const result=interpretManualTrade('Compra limitada de RDOR3\nTipo Compra\nOrdem Limitada\nValor R$ 3.369,00\nQuantidade 100 unidades\nPreco R$ 33,69\nData de solicitação 28/10/2026',null);
+ assert.equal(result.status,'needs_manual_review');
+ assert.equal(result.fields.instrument_code,'RDOR3');
+ assert.equal(result.fields.quantity,'100');
+ assert.equal(result.fields.unit_price,'33.69');
+ assert.equal(result.fields.trade_date,'2026-10-28');
+ assert.ok(result.review_reasons.includes('execution_unconfirmed'));
+});
