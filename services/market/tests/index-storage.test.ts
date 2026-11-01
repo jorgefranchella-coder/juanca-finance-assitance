@@ -7,6 +7,7 @@ import {pool as marketPool} from '../src/db.ts';
 import {fetchBcbSelicDaily} from '../src/bcb-selic.ts';
 import {listSelicObservations,storeSelicImport,listDiObservations,storeDiImport} from '../src/index-storage.ts';
 import {listCalendar,storeCalendar} from '../src/calendar-storage.ts';
+import {verifyB3DiCalendar2026,storeVerifiedB3Di2026} from '../src/b3-di-calendar-2026.ts';
 import {accumulateBusiness252} from '../../application/src/business-252.ts';
 
 const database='juanca_test_'+randomUUID().replaceAll('-',''),admin=appPool('jorge','postgres'),migrator=appPool('jorge',database),db=marketPool('juanca_market',database);
@@ -58,4 +59,12 @@ test('confirmed calendar evidence has priority over estimates and preserves clas
  await storeCalendar(db,{...common,coverage_kind:'confirmed',source_revision:'official',days:[{date:'2026-01-02',business_day:true}]});
  await storeCalendar(db,{...common,coverage_kind:'estimated',source_revision:'scenario',days:[{date:'2026-01-02',business_day:false}]});
  const actual=await listCalendar(db,'classified-di','2026-01-02','2026-01-02');assert.equal(actual.calendar?.days[0].business_day,true);assert.equal(actual.calendar?.days[0].coverage_kind,'confirmed');
+});
+
+test('verified calendar and DI import commit together and can be replayed',async()=>{
+ const verified=await verifyB3DiCalendar2026({from:'2026-10-30',to:'2026-10-31',as_of:'2026-11-01'},async(from,to)=>({provider:'B3_DI_FTP',source_uri:'ftp://fixture',requested_from:from,requested_to:to,version:'b'.repeat(64),observations:[{date:'2026-10-30',rate_pct:'13.65',unit:'annual_effective_252',indexer:'CDI',source_uri:'ftp://fixture',version:'b'.repeat(64)}]}));
+ assert.equal(verified.status,'complete');if(verified.status!=='complete')return;
+ const broken=structuredClone(verified);broken.data.observations[0].rate_pct='999.00';await assert.rejects(()=>storeVerifiedB3Di2026(db,broken));
+ assert.equal((await listCalendar(db,'b3-di','2026-10-30','2026-10-31')).coverage,'missing');
+ const first=await storeVerifiedB3Di2026(db,verified),again=await storeVerifiedB3Di2026(db,verified);assert.equal(first.calendar_replayed,false);assert.equal(again.calendar_replayed,true);assert.equal(again.index_replayed,true);assert.equal((await listDiObservations(db,'2026-10-30','2026-10-30')).observations[0].rate_pct,'13.65');
 });
