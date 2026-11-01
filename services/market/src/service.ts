@@ -4,7 +4,7 @@ import type pg from 'pg';
 import {pool} from './db.ts';
 import {config} from './config.ts';
 import type {Quote} from './providers.ts';
-import {listSelicObservations} from './index-storage.ts';
+import {listSelicObservations,listDiObservations} from './index-storage.ts';
 import {listCalendar} from './calendar-storage.ts';
 
 export type RefreshInput={b3_symbols:string[];us_symbols:string[];include_fx:boolean};
@@ -82,12 +82,16 @@ export async function createMarketServer(){
     if([...url.searchParams.keys()].some(key=>!['from','to'].includes(key))||url.searchParams.getAll('from').length!==1||url.searchParams.getAll('to').length!==1)throw new Error('INVALID_SGS_INTERVAL');
     reply(200,await listSelicObservations(db,url.searchParams.get('from')??'',url.searchParams.get('to')??''));return;
    }
+   if(url.pathname==='/v1/indices/cdi'&&req.method==='GET'){
+    if([...url.searchParams.keys()].some(key=>!['from','to'].includes(key))||url.searchParams.getAll('from').length!==1||url.searchParams.getAll('to').length!==1)throw new Error('INVALID_DI_INTERVAL');
+    reply(200,await listDiObservations(db,url.searchParams.get('from')??'',url.searchParams.get('to')??''));return;
+   }
    const calendarMatch=url.pathname.match(/^\/v1\/calendars\/([a-z0-9_-]{1,60})$/);
    if(calendarMatch&&req.method==='GET'){
     if([...url.searchParams.keys()].some(key=>!['from','to'].includes(key))||url.searchParams.getAll('from').length!==1||url.searchParams.getAll('to').length!==1)throw new Error('INVALID_CALENDAR_INTERVAL');
     reply(200,await listCalendar(db,calendarMatch[1],url.searchParams.get('from')??'',url.searchParams.get('to')??''));return;
    }
    reply(404,{code:'NOT_FOUND',request_id:requestId});
-  }catch(error){const code=error instanceof Error?error.message:'DEPENDENCY_UNAVAILABLE',status=code==='IDEMPOTENCY_MISMATCH'?409:['INVALID_BODY','INVALID_SYMBOLS','INVALID_IDEMPOTENCY_KEY','INVALID_SGS_INTERVAL','INVALID_CALENDAR_INTERVAL','EMPTY_REFRESH'].includes(code)?422:503;reply(status,{code,request_id:requestId,retryable:status===503});}
+  }catch(error){const code=error instanceof Error?error.message:'DEPENDENCY_UNAVAILABLE',status=code==='IDEMPOTENCY_MISMATCH'?409:['INVALID_BODY','INVALID_SYMBOLS','INVALID_IDEMPOTENCY_KEY','INVALID_SGS_INTERVAL','INVALID_DI_INTERVAL','INVALID_CALENDAR_INTERVAL','EMPTY_REFRESH'].includes(code)?422:503;reply(status,{code,request_id:requestId,retryable:status===503});}
  });server.requestTimeout=15000;server.headersTimeout=10000;server.listen(cfg.port,'127.0.0.1',()=>console.log('Juanca market API ready on loopback.'));return{server,db,cfg};
 }

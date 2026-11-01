@@ -5,12 +5,12 @@ import {readFile} from 'node:fs/promises';
 import {pool as appPool} from '../../application/src/db.ts';
 import {pool as marketPool} from '../src/db.ts';
 import {fetchBcbSelicDaily} from '../src/bcb-selic.ts';
-import {listSelicObservations,storeSelicImport} from '../src/index-storage.ts';
+import {listSelicObservations,storeSelicImport,listDiObservations,storeDiImport} from '../src/index-storage.ts';
 import {listCalendar,storeCalendar} from '../src/calendar-storage.ts';
 import {accumulateBusiness252} from '../../application/src/business-252.ts';
 
 const database='juanca_test_'+randomUUID().replaceAll('-',''),admin=appPool('jorge','postgres'),migrator=appPool('jorge',database),db=marketPool('juanca_market',database);
-before(async()=>{assert.match(database,/^juanca_test_[0-9a-f]+$/);await admin.query('CREATE DATABASE "'+database+'"');await migrator.query(await readFile(new URL('../../../infra/postgres/roles.sql',import.meta.url),'utf8'));await migrator.query('GRANT CREATE ON DATABASE "'+database+'" TO juanca_market');for(const id of ['005_market','006_market_run_identity','007_market_index_observations','008_market_calendars'])await db.query(await readFile(new URL('../../../infra/postgres/'+id+'.sql',import.meta.url),'utf8'));});
+before(async()=>{assert.match(database,/^juanca_test_[0-9a-f]+$/);await admin.query('CREATE DATABASE "'+database+'"');await migrator.query(await readFile(new URL('../../../infra/postgres/roles.sql',import.meta.url),'utf8'));await migrator.query('GRANT CREATE ON DATABASE "'+database+'" TO juanca_market');for(const id of ['005_market','006_market_run_identity','007_market_index_observations','008_market_calendars','009_market_di'])await db.query(await readFile(new URL('../../../infra/postgres/'+id+'.sql',import.meta.url),'utf8'));});
 after(async()=>{await db.end();await migrator.end();await admin.query('DROP DATABASE "'+database+'"');await admin.end();});
 
 test('SELIC imports are idempotent, versioned, and immutable within the market database',async()=>{
@@ -34,4 +34,11 @@ test('calendar evidence requires every civil date, preserves revisions and feeds
  const scenario=accumulateBusiness252({from:'2026-01-01',to:'2026-01-05',observed_through:'2026-01-02',calendar:result.calendar!,observations:index.observations,relation:'multiplier',contract_rate_pct:'100',future_assumption:{annual_rate_pct:'12',source:'fixture:scenario',as_of:'2026-01-02'}});
  assert.equal(scenario.status,'complete');assert.equal(scenario.days.length,2);
  await assert.rejects(()=>db.query('DELETE FROM market.calendar_days WHERE import_id=$1',[first.calendar_id]));
+});
+
+test('DI observations retain annual units and revisions independently of Selic',async()=>{
+ const data={provider:'B3_DI_FTP' as const,source_uri:'ftp://ftp.cetip.com.br/MediaCDI',requested_from:'2026-01-02',requested_to:'2026-01-02',version:'a'.repeat(64),observations:[{date:'2026-01-02',rate_pct:'14.90',unit:'annual_effective_252' as const,indexer:'CDI' as const,source_uri:'ftp://ftp.cetip.com.br/MediaCDI',version:'a'.repeat(64)}]};
+ const first=await storeDiImport(db,data),replay=await storeDiImport(db,data);assert.equal(replay.replayed,true);assert.equal(replay.import_id,first.import_id);
+ const listed=await listDiObservations(db,'2026-01-02','2026-01-02');assert.equal(listed.observations[0].rate_pct,'14.90');assert.equal(listed.observations[0].unit,'annual_effective_252');assert.equal(listed.coverage,'not_assessed_without_calendar');
+ await assert.rejects(()=>storeDiImport(db,{...data,observations:[]}),/B3_DI_EMPTY_IMPORT/);
 });

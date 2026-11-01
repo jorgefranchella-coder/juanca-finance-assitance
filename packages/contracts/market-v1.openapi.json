@@ -45,6 +45,10 @@
       {"name": "from", "in": "query", "required": true, "schema": {"type": "string", "format": "date"}},
       {"name": "to", "in": "query", "required": true, "schema": {"type": "string", "format": "date"}}
     ], "responses": {"200": {"description": "Latest received SELIC daily-percent revisions; coverage is not assessed without an explicit calendar"}, "422": {"description": "Invalid interval"}}}},
+    "/v1/indices/cdi": {"get": {"security": [{"serviceToken": []}], "parameters": [
+      {"name": "from", "in": "query", "required": true, "schema": {"type": "string", "format": "date"}},
+      {"name": "to", "in": "query", "required": true, "schema": {"type": "string", "format": "date"}}
+    ], "responses": {"200": {"description": "Latest received CDI annual-effective-252 revisions; coverage is not assessed without an explicit calendar"}, "422": {"description": "Invalid interval"}}}},
     "/v1/calendars/{code}": {"get": {"security": [{"serviceToken": []}], "parameters": [
       {"name": "code", "in": "path", "required": true, "schema": {"type": "string", "pattern": "^[a-z0-9_-]{1,60}$"}},
       {"name": "from", "in": "query", "required": true, "schema": {"type": "string", "format": "date"}},
