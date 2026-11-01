@@ -10,7 +10,7 @@ import {listCalendar,storeCalendar} from '../src/calendar-storage.ts';
 import {accumulateBusiness252} from '../../application/src/business-252.ts';
 
 const database='juanca_test_'+randomUUID().replaceAll('-',''),admin=appPool('jorge','postgres'),migrator=appPool('jorge',database),db=marketPool('juanca_market',database);
-before(async()=>{assert.match(database,/^juanca_test_[0-9a-f]+$/);await admin.query('CREATE DATABASE "'+database+'"');await migrator.query(await readFile(new URL('../../../infra/postgres/roles.sql',import.meta.url),'utf8'));await migrator.query('GRANT CREATE ON DATABASE "'+database+'" TO juanca_market');for(const id of ['005_market','006_market_run_identity','007_market_index_observations','008_market_calendars','009_market_di'])await db.query(await readFile(new URL('../../../infra/postgres/'+id+'.sql',import.meta.url),'utf8'));});
+before(async()=>{assert.match(database,/^juanca_test_[0-9a-f]+$/);await admin.query('CREATE DATABASE "'+database+'"');await migrator.query(await readFile(new URL('../../../infra/postgres/roles.sql',import.meta.url),'utf8'));await migrator.query('GRANT CREATE ON DATABASE "'+database+'" TO juanca_market');for(const id of ['005_market','006_market_run_identity','007_market_index_observations','008_market_calendars','009_market_di','010_market_calendar_classification'])await db.query(await readFile(new URL('../../../infra/postgres/'+id+'.sql',import.meta.url),'utf8'));});
 after(async()=>{await db.end();await migrator.end();await admin.query('DROP DATABASE "'+database+'"');await admin.end();});
 
 test('SELIC imports are idempotent, versioned, and immutable within the market database',async()=>{
@@ -51,4 +51,11 @@ test('calendar coverage composes adjacent versions and honors the latest correct
  const version=result.calendar?.version;await storeCalendar(db,{...common,source_revision:'correction',coverage_start:'2026-01-02',coverage_end:'2026-01-02',days:[{date:'2026-01-02',business_day:false}]});
  result=await listCalendar(db,'composite-di','2026-01-01','2026-01-04');assert.equal(result.calendar?.days[1].business_day,false);assert.notEqual(result.calendar?.version,version);assert.equal(result.calendar?.sources.length,3);
  assert.equal((await listCalendar(db,'composite-di','2026-01-01','2026-01-05')).coverage,'missing');
+});
+
+test('confirmed calendar evidence has priority over estimates and preserves classification',async()=>{
+ const common={calendar_code:'classified-di',source_uri:'https://example.test/calendar',coverage_start:'2026-01-02',coverage_end:'2026-01-02'};
+ await storeCalendar(db,{...common,coverage_kind:'confirmed',source_revision:'official',days:[{date:'2026-01-02',business_day:true}]});
+ await storeCalendar(db,{...common,coverage_kind:'estimated',source_revision:'scenario',days:[{date:'2026-01-02',business_day:false}]});
+ const actual=await listCalendar(db,'classified-di','2026-01-02','2026-01-02');assert.equal(actual.calendar?.days[0].business_day,true);assert.equal(actual.calendar?.days[0].coverage_kind,'confirmed');
 });

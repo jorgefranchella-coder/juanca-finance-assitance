@@ -53,6 +53,6 @@
       {"name": "code", "in": "path", "required": true, "schema": {"type": "string", "pattern": "^[a-z0-9_-]{1,60}$"}},
       {"name": "from", "in": "query", "required": true, "schema": {"type": "string", "format": "date"}},
       {"name": "to", "in": "query", "required": true, "schema": {"type": "string", "format": "date"}}
-    ], "responses": {"200": {"description": "Source-versioned calendar with complete coverage, composed from latest daily revisions if needed, or an explicit missing status"}, "422": {"description": "Invalid interval"}}}}
+    ], "responses": {"200": {"description": "Calendar with complete coverage; confirmed dates take precedence over estimated dates, with source versions and per-day classification; otherwise explicit missing status"}, "422": {"description": "Invalid interval"}}}}
   }
 }

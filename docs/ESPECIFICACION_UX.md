@@ -141,3 +141,5 @@ Una respuesta que inicia trabajo técnico (`keeps_open`) pasa a **En seguimiento
 La cabecera de Revisiones ofrece un botón visible **Refrescar revisiones**. Al pulsarlo, la bandeja vuelve a consultar propuestas, confirmaciones, evidencias, extractos, cuentas y cartera; se actualizan las tarjetas y los contadores sin recargar toda la página. Mientras consulta, la bandeja indica «Actualizando…».
 
 El formulario preparado permite seleccionar base civil o DI B3 e ingresar el código de calendario y la fuente y fecha del supuesto futuro. La base DI muestra cobertura incompleta si faltan datos; se encuentra pendiente de despliegue y de carga de calendarios suficientes.
+
+Cuando la proyección usa fechas futuras estimadas de calendario, el detalle del título indica cuántas fechas dependen de ese escenario y que pueden cambiar.

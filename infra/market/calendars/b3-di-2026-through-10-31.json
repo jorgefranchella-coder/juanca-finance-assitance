@@ -1,9 +1,9 @@
 {
   "calendar_code": "b3-di",
   "source_uri": "https://www.b3.com.br/data/files/20/57/01/AA/06A1F910ADC36BE9AC094EA8/OC%20041-2026-VNC%20ERRATA%20-%20CALENDARIO%20DE%20FERIADOS%20EM%202026_PT.pdf",
-  "source_revision": "041/2026-VNC; cotejado con archivos diarios DI B3 hasta 2026-10-30",
+  "source_revision": "041/2026-VNC; cotejado con archivos diarios DI B3 hasta 2026-10-31",
   "coverage_start": "2026-01-01",
-  "coverage_end": "2026-10-30",
+  "coverage_end": "2026-10-31",
   "days": [
     {
       "date": "2026-01-01",
@@ -1216,6 +1216,10 @@
     {
       "date": "2026-10-30",
       "business_day": true
+    },
+    {
+      "date": "2026-10-31",
+      "business_day": false
     }
   ]
 }
