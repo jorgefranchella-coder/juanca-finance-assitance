@@ -1,6 +1,7 @@
 import {createHash,randomUUID} from 'node:crypto';
 import type pg from 'pg';
 import {Conflict} from './commands.ts';
+import {calculateB3DiContractProjection,type B3DiMarketData} from './fixed-income-b3-di.ts';
 
 const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const DOCUMENT_ID=/^[A-Za-z0-9._:-]{1,240}$/;
@@ -10,7 +11,7 @@ const DECIMAL=/^-?\d{1,6}(?:\.\d{1,8})?$/;
 const hash=(value:string)=>createHash('sha256').update(value).digest('hex');
 const validDate=(value:string)=>{if(!DATE.test(value))return false;const d=new Date(value+'T12:00:00Z');return Number.isFinite(d.valueOf())&&d.toISOString().slice(0,10)===value;};
 type Payment={date:string;kind:'coupon'|'amortization';amount_per_unit:string};
-export type ContractTerms={method:'fixed'|'indexed';interest_treatment:'capitalize'|'cashflow';indexer_relation:'additive'|'compound'|'multiplier';indexer:'none'|'CDI'|'IPCA'|'SELIC';annual_rate_pct:string;indexer_assumption_pct:string|null;tax_rate_pct:string|null;schedule_confirmed:boolean;payment_schedule:Payment[]};
+export type ContractTerms={calculation_basis?:'act_365_25'|'b3_di';method:'fixed'|'indexed';interest_treatment:'capitalize'|'cashflow';indexer_relation:'additive'|'compound'|'multiplier';indexer:'none'|'CDI'|'IPCA'|'SELIC';annual_rate_pct:string;indexer_assumption_pct:string|null;tax_rate_pct:string|null;schedule_confirmed:boolean;payment_schedule:Payment[]};
 
 function parseTerms(value:unknown):ContractTerms {
  if(!value||typeof value!=='object'||Array.isArray(value))throw new Conflict('VALIDATION',422);
@@ -32,7 +33,8 @@ function parseTerms(value:unknown):ContractTerms {
  return {method:method as ContractTerms['method'],interest_treatment:treatment as ContractTerms['interest_treatment'],indexer_relation:relation as ContractTerms['indexer_relation'],indexer:indexer as ContractTerms['indexer'],annual_rate_pct:rate,indexer_assumption_pct:indexRate,tax_rate_pct:tax,schedule_confirmed:input.schedule_confirmed,payment_schedule:schedule};
 }
 
-export function calculateContractProjection(input:{current_value_cents:number;quantity:number;as_of:string;maturity_date:string;terms:ContractTerms}) {
+export function calculateContractProjection(input:{current_value_cents:number;quantity:number;as_of:string;maturity_date:string;terms:ContractTerms;market?:B3DiMarketData|null}) {
+ if(input.terms.calculation_basis==='b3_di')return calculateB3DiContractProjection({...input,market:input.market??null});
  const {terms}=input,missing:string[]=[];
  if(!validDate(input.maturity_date))missing.push('fecha de vencimiento');
  if(!validDate(input.as_of)||!Number.isSafeInteger(input.current_value_cents)||input.current_value_cents<=0||!Number.isFinite(input.quantity)||input.quantity<=0)missing.push('posición y fecha de referencia');
