@@ -27,7 +27,7 @@ En escritorio la navegación lateral deja espacio al contenido. En móvil se con
 
 ## 3. Renta fija: matriz de tiempo
 
-Estado de la mejora contractual: preparada en el repositorio y pendiente de despliegue en la interfaz activa.
+Estado de la mejora contractual (01/11/2026): desplegada en la interfaz activa; las condiciones aún deben registrarse por título.
 
 La vista inicia con cuatro indicadores: valor actual cubierto, estimación en los vencimientos, crecimiento estimado y cobertura del modelo. Debajo se muestra el filtro **Investidor** con `Todos` y los titulares que aparecen en los datos actuales. `Todos` puede mostrar a varios titulares, pero nunca une sus títulos bajo una cuenta común.
 
@@ -140,6 +140,6 @@ Una respuesta que inicia trabajo técnico (`keeps_open`) pasa a **En seguimiento
 
 La cabecera de Revisiones ofrece un botón visible **Refrescar revisiones**. Al pulsarlo, la bandeja vuelve a consultar propuestas, confirmaciones, evidencias, extractos, cuentas y cartera; se actualizan las tarjetas y los contadores sin recargar toda la página. Mientras consulta, la bandeja indica «Actualizando…».
 
-El formulario preparado permite seleccionar base civil o DI B3 e ingresar el código de calendario y la fuente y fecha del supuesto futuro. La base DI muestra cobertura incompleta si faltan datos; se encuentra pendiente de despliegue y de carga de calendarios suficientes.
+El formulario preparado permite seleccionar base civil o DI B3 e ingresar el código de calendario y la fuente y fecha del supuesto futuro. La base DI muestra cobertura incompleta si faltan datos. El código de calendario cargado es `b3-di`; las fechas futuras son estimadas y se muestran como tales.
 
 Cuando la proyección usa fechas futuras estimadas de calendario, el detalle del título indica cuántas fechas dependen de ese escenario y que pueden cambiar.

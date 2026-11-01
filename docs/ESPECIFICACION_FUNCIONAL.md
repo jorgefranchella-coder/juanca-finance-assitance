@@ -65,7 +65,7 @@ El costo de adquisición puede proceder de una compra documentada, un dato manua
 
 ## 4. Renta fija: histórico y proyección
 
-**Estado de esta mejora:** implementación preparada en el repositorio; la migración 033 y la nueva interfaz aún deben desplegarse y verificarse en el entorno activo.
+**Estado de esta mejora (01/11/2026):** la proyección contractual y su interfaz están desplegadas. Las condiciones por título deben registrarse con evidencia antes de calcular importes.
 
 La proyección vigente toma observaciones de precio por titular e instrumento. Una compra B3 puede servir como adquisición inicial solo si se identifica la institución, hay un único día de compra, las filas no requieren revisión, no aparecen ventas ni otros cambios de principal y la cantidad comprada coincide con la posición actual. Compras del mismo día se combinan con promedio ponderado por cantidad; se omiten fechas ya cubiertas por un snapshot y movimientos sin institución identificable. Un costo de otra fuente se usa solo cuando su procedencia está verificada. Los costos referenciados a la hoja con un mapeo de columnas pendiente se excluyen del cálculo hasta su confirmación y permanecen visibles como fuente excluida. Requiere dos fechas con precios positivos y vencimiento válido. Anualiza la variación observada y compone el precio hasta cada período y hasta el vencimiento. La tasa obtenida **no equivale necesariamente a la tasa contractual**. La interfaz muestra la confianza: alta desde 180 días y cuatro observaciones; media desde 90 días y tres; baja para historiales más cortos. No modela completamente CDI/IPCA, cupones, amortizaciones, impuestos, rescate anticipado ni riesgo de crédito; tasas fuera del intervalo admitido se excluyen.
 
@@ -159,6 +159,6 @@ Una propuesta muestra titular, institución de custodia, cantidad, precio, comis
 
 Una captura de una orden muestra datos candidatos del movimiento (titular, lado, ticker, cantidad, precio unitario, moneda y fecha). La bandeja de Revisiones muestra esos campos por separado y permite corregirlos y elegir una cuenta de custodia conocida. Una pantalla de orden limitada o solicitud no prueba ejecución: la propuesta solo puede prepararse cuando el usuario confirma expresamente que se ejecutó. Crear la propuesta no modifica la cartera; la aplicación exige una aprobación posterior. La foto original y el OCR siguen disponibles para cotejar los datos. Si no se informan comisiones, se muestran como cero provisional y se pide verificarlas antes de aprobar.
 
-La base DI B3 para un porcentaje de CDI capitalizado requiere calendario DI con cobertura, tasas históricas y un supuesto futuro identificado. Si falta cualquiera de esos datos, la posición queda incompleta. La primera implementación no admite pagos intermedios para esta base y sigue pendiente de despliegue.
+La base DI B3 para un porcentaje de CDI capitalizado requiere calendario DI con cobertura, tasas históricas y un supuesto futuro identificado. Si falta cualquiera de esos datos, la posición queda incompleta. La primera implementación desplegada no admite pagos intermedios para esta base.
 
 El calendario de proyección puede incluir fechas futuras estimadas con feriados de ANBIMA; se identifican como escenario y no sustituyen fechas históricas confirmadas. El calendario y las tasas deben actualizarse periódicamente.
