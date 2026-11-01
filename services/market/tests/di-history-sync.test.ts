@@ -1,0 +1,12 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {syncDiHistory} from '../src/di-history-sync.ts';
+import type {fetchB3Di} from '../src/b3-di.ts';
+import type {listCalendar} from '../src/calendar-storage.ts';
+const input={from:'2026-01-02',to:'2026-01-03',as_of:'2026-01-04',apply:true};
+const calendar={coverage:'declared',calendar:{calendar_code:'b3-di',source_uri:'https://example.test',source_revision:'v1',version:'v1',coverage_start:input.from,coverage_end:input.to,days:[{date:'2026-01-02',business_day:true,coverage_kind:'confirmed'},{date:'2026-01-03',business_day:false,coverage_kind:'confirmed'}],sources:[]}} as Awaited<ReturnType<typeof listCalendar>>;
+const data={provider:'B3_DI_FTP',source_uri:'ftp://example.test',requested_from:input.from,requested_to:input.to,version:'a'.repeat(64),observations:[{date:'2026-01-02',rate_pct:'14.90',unit:'annual_effective_252',indexer:'CDI',source_uri:'ftp://example.test',version:'a'.repeat(64)}]} as Awaited<ReturnType<typeof fetchB3Di>>;
+test('historical sync stores only after confirmed dates and published rates agree',async()=>{let stored=0;const deps={loadCalendar:async()=>calendar,fetchDi:async()=>data,storeDi:async()=>{stored++;return {};}};const preview=await syncDiHistory({...input,apply:false},deps);assert.equal(preview.status,'complete');assert.equal(stored,0);await syncDiHistory(input,deps);assert.equal(stored,1);});
+test('missing and unexpected rates block the entire import',async()=>{let stored=0;const deps={loadCalendar:async()=>calendar,fetchDi:async()=>({...data,observations:[{...data.observations[0],date:'2026-01-03'}]}),storeDi:async()=>{stored++;}};const result=await syncDiHistory(input,deps);assert.equal(result.status,'blocked');assert.equal(result.reason,'calendar_index_disagreement');assert.equal(stored,0);});
+test('estimated calendar cannot be promoted by rate availability',async()=>{let fetched=0;const estimated=structuredClone(calendar);if(estimated.calendar)estimated.calendar.days[0].coverage_kind='estimated';const result=await syncDiHistory(input,{loadCalendar:async()=>estimated,fetchDi:async()=>{fetched++;return data;},storeDi:async()=>{}});assert.equal(result.status,'blocked');assert.equal(result.reason,'historical_calendar_unconfirmed');assert.equal(fetched,0);});
+test('today is never treated as completed history',async()=>{await assert.rejects(()=>syncDiHistory({...input,as_of:'2026-01-03'},{loadCalendar:async()=>calendar,fetchDi:async()=>data,storeDi:async()=>{}}),/INVALID_DI_SYNC_INTERVAL/);});

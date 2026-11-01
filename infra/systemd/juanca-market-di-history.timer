@@ -1,0 +1,10 @@
+[Unit]
+Description=Daily refresh of confirmed B3 DI history
+
+[Timer]
+OnCalendar=*-*-* 06:30:00 America/Sao_Paulo
+Persistent=true
+Unit=juanca-market-di-history.service
+
+[Install]
+WantedBy=timers.target

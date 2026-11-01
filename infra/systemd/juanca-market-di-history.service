@@ -1,0 +1,13 @@
+[Unit]
+Description=Juanca DI historical observations with calendar validation
+Requires=juanca-shadow-postgres.service
+After=juanca-shadow-postgres.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/jorge/juanca
+ExecStart=/home/jorge/.local/bin/node --experimental-strip-types infra/market/sync_di_daily.ts --apply
+Environment=JUANCA_DATABASE=juanca_shadow
+UMask=0077
+NoNewPrivileges=true
+TimeoutStartSec=10min
