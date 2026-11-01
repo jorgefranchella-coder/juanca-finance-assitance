@@ -263,6 +263,33 @@ class GatewayEvidenceTest(unittest.TestCase):
                 for thread in threads:
                     thread.join(timeout=2)
 
+    def test_fixed_income_contract_terms_reads_and_writes_use_authenticated_gateway_actor(self):
+        with tempfile.TemporaryDirectory() as root:
+            stub = ThreadingHTTPServer(('127.0.0.1', 0), ShadowStub)
+            gateway = ThreadingHTTPServer(('127.0.0.1', 0), server.Gateway)
+            old = server.SHADOW_CONFIG_PATH
+            server.SHADOW_CONFIG_PATH = Path(root) / 'shadow.json'
+            server.SHADOW_CONFIG_PATH.write_text(json.dumps({'token': 'x' * 64, 'port': stub.server_port}))
+            ShadowStub.calls = []
+            threads = [threading.Thread(target=s.serve_forever, daemon=True) for s in (stub, gateway)]
+            for thread in threads: thread.start()
+            try:
+                for method, body in [('GET', None), ('POST', json.dumps({'position_id': 'fixture'}).encode())]:
+                    connection = http.client.HTTPConnection('127.0.0.1', gateway.server_port)
+                    headers = {'Authorization': 'Bearer ' + server.CONFIG['token']}
+                    if body is not None:
+                        headers.update({'Content-Type': 'application/json', 'Idempotency-Key': 'contract_fixture_001'})
+                    connection.request(method, '/api/shadow/fixed-income-terms', body=body, headers=headers)
+                    response = connection.getresponse(); self.assertEqual(response.status, 200 if method == 'GET' else 201); response.read(); connection.close()
+                self.assertEqual([(call[0], call[1]) for call in ShadowStub.calls], [
+                    ('GET', '/v1/fixed-income-terms'), ('POST', '/v1/fixed-income-terms')])
+                self.assertEqual(ShadowStub.calls[1][3]['X-Juanca-Actor'], server.CONFIG['user_id'])
+                self.assertEqual(ShadowStub.calls[1][3]['Idempotency-Key'], 'contract_fixture_001')
+            finally:
+                server.SHADOW_CONFIG_PATH = old
+                gateway.shutdown(); stub.shutdown(); gateway.server_close(); stub.server_close()
+                for thread in threads: thread.join(timeout=2)
+
     def test_account_catalog_is_forwarded_only_through_authenticated_shadow_gateway(self):
         with tempfile.TemporaryDirectory() as root:
             stub = ThreadingHTTPServer(('127.0.0.1', 0), ShadowStub)

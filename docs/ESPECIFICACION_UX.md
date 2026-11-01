@@ -27,6 +27,8 @@ En escritorio la navegación lateral deja espacio al contenido. En móvil se con
 
 ## 3. Renta fija: matriz de tiempo
 
+Estado de la mejora contractual: preparada en el repositorio y pendiente de despliegue en la interfaz activa.
+
 La vista inicia con cuatro indicadores: valor actual cubierto, estimación en los vencimientos, crecimiento estimado y cobertura del modelo. Debajo se muestra el filtro **Investidor** con `Todos` y los titulares que aparecen en los datos actuales. `Todos` puede mostrar a varios titulares, pero nunca une sus títulos bajo una cuenta común.
 
 | Elemento | Interacción y significado |
@@ -37,11 +39,14 @@ La vista inicia con cuatro indicadores: valor actual cubierto, estimación en lo
 | Fila de título | Muestra código, nombre y vencimiento; cada celda usa la misma regla de cálculo que la fila agregada. |
 | Importe principal | Saldo proyectado de los títulos que siguen vigentes al final del período. |
 | `Venc.` | Importe proyectado al vencimiento de títulos que vencen dentro del período, separado del saldo activo. |
+| `Flujos` contractual | Cupones, amortizaciones y principal pagados en el período, separados del saldo de cierre. |
 | Guion `—` | No hay importe para esa celda; la ausencia de proyección por datos insuficientes se explica mediante cobertura y metodología. |
 
 La primera columna permanece visible mientras el usuario se desplaza horizontalmente; las cabeceras permanecen visibles al desplazarse verticalmente. La tabla conserva encabezados y botones con `aria-expanded` para teclado y lector de pantalla. Al cambiar de inversor se cierran las filas de emisor previamente abiertas para evitar que un estado visual antiguo se aplique a otro conjunto.
 
-La nota metodológica bajo la matriz explica que se extrapola una tasa **histórica observada**, que cada título se detiene al vencimiento y que no se incluyen impuestos, cupones ni amortizaciones. No mostrar un importe de proyección cuando faltan fechas, precios o tasa utilizable. **Objetivo:** ofrecer en el futuro una vista contractual diferenciada, con indexador, cupones y supuestos propios.
+El selector distingue los métodos **Histórica** y **Contractual**. La nota histórica aclara que la tasa observada no es una tasa contratada y no modela impuestos, cupones o amortizaciones. La contractual expone fuente, localizador, número de revisión, supuesto de índice y calendario usado; muestra importes brutos y, solo si se informó una alícuota, netos ilustrativos. Títulos sin cuenta resuelta, contrato, supuesto o fecha suficiente muestran el dato faltante y no aportan importes inventados a los totales.
+
+El botón **Registrar condiciones contractuales** abre un formulario por posición/cuenta resuelta. El usuario selecciona el documento de evidencia y su página/sección/fila; ingresa tipo de tasa, si capitaliza el saldo o se paga por flujo, índice y relación (suma o composición con spread, o porcentaje del índice), supuesto anual, impuestos opcionales y flujos en formato `AAAA-MM-DD;coupon|amortization;importe por unidad`. Los números aceptan coma decimal. Para proyectar debe confirmar que el calendario está completo, incluso cuando no hay pagos intermedios. Guardar crea una revisión nueva y conserva las anteriores. La interfaz advierte que la tasa histórica y el snapshot B3 no son fuentes de condiciones contractuales.
 
 ## 4. Consulta, carga y revisión
 
@@ -114,7 +119,7 @@ Los totales por emisor incluyen únicamente las posiciones elegibles y marcan la
 
 En la edición manual del costo se muestra la institución/cuenta disponible y el historial de ajustes registrados. Cada cambio agrega una entrada con su fecha base, cantidad, precio unitario medio y momento de registro. Si el mismo titular, instrumento y moneda aparece en varias posiciones sin identidad de cuenta suficiente, el costo agregado se marca pendiente y no se ofrece edición hasta resolver esa ambigüedad.
 
-La proyección de renta fija lee la cartera PostgreSQL activa y conserva la matriz mensual/anual, el desglose por emisor y los filtros por titular. La estimación presenta fuente, fecha y cobertura; no representa una promesa contractual ni ejecuta movimientos.
+La proyección de renta fija lee la cartera PostgreSQL activa y conserva la matriz mensual/anual, el desglose por emisor y los filtros por titular. Las vistas histórica y contractual están separadas. La contractual muestra tasa/spread, índice y supuesto, pagos fechados, fuente, fecha, cobertura y versión; conserva las causas de datos incompletos. El editor agrega revisiones sin alterar patrimonio. Ninguna vista representa una promesa de rendimiento ni ejecuta movimientos.
 
 La pestaña Cartera y movimientos muestra conteo, valor invertido y fecha del snapshot desde la autoridad activa; excluye `USD_CASH`, porque la caja queda fuera del alcance patrimonial acordado. El delta D1/R2–PostgreSQL del corte se conserva como evidencia privada y no se presenta como comparación operativa en vivo.
 

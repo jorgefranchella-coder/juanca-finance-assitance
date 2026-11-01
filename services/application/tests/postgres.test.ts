@@ -22,11 +22,35 @@ import {publishB3PositionSnapshot,listB3PositionSnapshots} from '../src/b3-snaps
 import {publishExternalPositionSnapshot,listExternalPositionSnapshots} from '../src/external-snapshot-publications.ts';
 import {createManualExternalPositionSnapshot} from '../src/manual-external-snapshots.ts';
 import {fixedIncomeProjection} from '../src/fixed-income.ts';
+import {listFixedIncomeContractTerms,recordFixedIncomeContractTerms} from '../src/fixed-income-contract.ts';
 import {completeQuoteRefreshFollowUp,createConfirmation,listConfirmations,recordConfirmationDecision} from '../src/confirmations.ts';
 const database='juanca_test_'+randomUUID().replaceAll('-','');
 const admin=pool('jorge','postgres');const db=pool('juanca_app',database);const migrator=pool('jorge',database);
 before(async()=>{assert.match(database,/^juanca_test_[0-9a-f]+$/);await admin.query('CREATE DATABASE "'+database+'"');await migrator.query(await readFile(new URL('../../../infra/postgres/roles.sql',import.meta.url),'utf8'));await migrate(db);});
 after(async()=>{await db.end();await migrator.end();await admin.query('DROP DATABASE "'+database+'"');await admin.end();});
+test('contract terms persist in an isolated PostgreSQL database as evidence-linked idempotent revisions',async()=>{
+ const h='contract-fixture-'+randomUUID(),actor='contract-actor-'+randomUUID(),institution='contract-bank-'+randomUUID(),account='contract-account-'+randomUUID(),position=randomUUID(),document=randomUUID();
+ await db.query('INSERT INTO app.households VALUES($1)',[h]);await db.query("INSERT INTO app.actors VALUES($1,'Contract fixture')",[actor]);
+ await db.query("INSERT INTO app.memberships VALUES($1,$2,'approver')",[h,actor]);await db.query("INSERT INTO app.owners VALUES($1,'jorge','Jorge')",[h]);
+ await db.query("INSERT INTO app.custody_institutions(id,canonical_name,kind) VALUES($1,'Contract Fixture','custodian')",[institution]);
+ await db.query("INSERT INTO app.custody_accounts(household_id,id,owner_id,institution_id,external_reference,identity_basis) VALUES($1,$2,'jorge',$3,'account','user_confirmed_unique')",[h,account,institution]);
+ await db.query("INSERT INTO app.position_identities(household_id,id,owner_id,institution_id,custody_account_id,instrument_code,currency,identity_status) VALUES($1,$2,'jorge',$3,$4,'CDBTEST','BRL','resolved')",[h,position,institution,account]);
+ await db.query("INSERT INTO app.source_documents(household_id,id,owner_id,source_system,report_kind,original_name,content_sha256,storage_key,date_basis) VALUES($1,$2,'jorge','fixture','position','contract.pdf',$3,'fixture','declared')",[h,document,hash('contract fixture')]);
+ const body={position_id:position,source_document_id:document,source_locator:'page 1',terms:{method:'fixed',interest_treatment:'capitalize',indexer_relation:'additive',indexer:'none',annual_rate_pct:'10',indexer_assumption_pct:null,tax_rate_pct:null,schedule_confirmed:true,payment_schedule:[]}};
+ const first=await recordFixedIncomeContractTerms(db,h,actor,'contract-fixture-001',body),replay=await recordFixedIncomeContractTerms(db,h,actor,'contract-fixture-001',body);
+ assert.equal(first.revision,1);assert.equal(replay.replayed,true);assert.equal(first.terms_id,replay.terms_id);
+ const second=await recordFixedIncomeContractTerms(db,h,actor,'contract-fixture-002',{...body,terms:{...body.terms,annual_rate_pct:'11'}});
+ assert.equal(second.revision,2);
+ const listed=await listFixedIncomeContractTerms(db,h);const saved=listed.positions.find(p=>p.position_id===position);
+ assert.equal(saved?.revision,2);assert.equal(saved?.source_document_id,document);assert.equal(saved?.schedule_confirmed,true);
+ await assert.rejects(()=>db.query('UPDATE app.fixed_income_contract_terms SET source_locator=$3 WHERE household_id=$1 AND id=$2',[h,first.terms_id,'changed']));
+ const run=randomUUID();await db.query("INSERT INTO app.migration_runs(id,source_sha256,exported_at,source_counts,source_envelope) VALUES($1,$2,'2026-10-02','{}'::jsonb,'{}')",[run,hash(run)]);
+ const fixtures=[['imports',{id:'contract-current',user_id:h,owner:'Jorge',status:'processed',file_type:'positions',reference_date:'2026-10-01',created_at:'2026-10-02'}],
+   ['import_records',{id:1,import_id:'contract-current',record_kind:'position',payload:JSON.stringify({owner:'Jorge',asset_class:'fixed_income',product_name:'CDB fixture',institution:'Contract Fixture',instrument_code:'CDBTEST',quantity:'2',unit_price:'100',market_value_cents:'20000',maturity_date:'2027-10-01',reference_date:'2026-10-01'})}]] as const;
+ for(const [index,[table,value]] of fixtures.entries()){const json=JSON.stringify(value);await db.query('INSERT INTO app.received_sources(run_id,id,household_id,source_table,original,sha256,source_ordinal) VALUES($1,$2,$3,$4,$5,$6,$7)',[run,`${table}:contract-fixture`,h,table,json,hash(json),index+1]);}
+ const projection=await fixedIncomeProjection(db,h),projected=projection.items.find(item=>item.instrument_code==='CDBTEST') as (typeof projection.items[number]&{contractual?:{status:string;revision:number;gross_maturity_cents:number|null}})|undefined;
+ assert.equal(projected?.contractual?.status,'complete');assert.equal(projected?.contractual?.revision,2);assert.ok((projected?.contractual?.gross_maturity_cents??0)>20000);
+});
 test('PostgreSQL projection joins a resolved acquisition lot to its unambiguous fixed-income holding',async()=>{
  const h='lot-projection-'+randomUUID(),actor='lot-projection-actor-'+randomUUID(),custody='lot-projection-account-'+randomUUID(),institution='lot-projection-bank-'+randomUUID(),position='lot-projection-position-'+randomUUID(),run='lot-projection-run-'+randomUUID();
  await db.query('INSERT INTO app.households VALUES($1)',[h]);await db.query("INSERT INTO app.actors VALUES($1,'Lot projection test')",[actor]);await db.query("INSERT INTO app.memberships VALUES($1,$2,'owner')",[h,actor]);await db.query("INSERT INTO app.owners VALUES($1,'jorge','Jorge')",[h]);

@@ -577,12 +577,43 @@
     "/v1/fixed-income-projection": {
       "get": {
         "security": [{"bearerAuth": []}],
-        "summary": "Project shadow fixed-income holdings from archived price observations",
+        "summary": "Return historical and evidence-backed contractual fixed-income projections",
         "responses": {
-          "200": {"description": "Issuer- and owner-scoped projection, explicitly non-authoritative"},
+          "200": {"description": "Issuer-, owner- and account-scoped projection with model version and incomplete-coverage reasons"},
           "401": {"description": "Authentication required"},
           "503": {"description": "Projection source unavailable"}
         }
+      }
+    },
+    "/v1/fixed-income-terms": {
+      "get": {
+        "security": [{"bearerAuth": []}],
+        "summary": "List fixed-income position identities, source documents, and latest contract-terms revision",
+        "responses": {"200": {"description": "Household-scoped positions and evidence choices"}, "401": {"description": "Authentication required"}}
+      },
+      "post": {
+        "security": [{"bearerAuth": []}],
+        "summary": "Append an evidence-linked revision of fixed-income contract terms",
+        "parameters": [{"name": "Idempotency-Key", "in": "header", "required": true, "schema": {"type": "string", "pattern": "^[A-Za-z0-9._:-]{8,128}$"}}],
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"type": "object", "additionalProperties": false,
+          "required": ["position_id", "source_document_id", "source_locator", "terms"],
+          "properties": {
+            "position_id": {"type": "string", "format": "uuid"}, "source_document_id": {"type": "string", "minLength": 1, "maxLength": 240, "pattern": "^[A-Za-z0-9._:-]+$"},
+            "source_assertion_id": {"type": ["string", "null"], "pattern": "^[A-Za-z0-9._:-]+$"}, "source_locator": {"type": "string", "minLength": 1, "maxLength": 240},
+              "terms": {"type": "object", "additionalProperties": false, "required": ["method", "interest_treatment", "indexer_relation", "indexer", "annual_rate_pct", "schedule_confirmed", "payment_schedule"],
+              "properties": {
+                "method": {"type": "string", "enum": ["fixed", "indexed"]}, "indexer": {"type": "string", "enum": ["none", "CDI", "IPCA", "SELIC"]},
+                "interest_treatment": {"type": "string", "enum": ["capitalize", "cashflow"]},
+                "indexer_relation": {"type": "string", "enum": ["additive", "compound", "multiplier"]},
+                "annual_rate_pct": {"type": "string", "pattern": "^-?\\d{1,6}(?:\\.\\d{1,8})?$"},
+                "indexer_assumption_pct": {"type": ["string", "null"]}, "tax_rate_pct": {"type": ["string", "null"]},
+                "schedule_confirmed": {"type": "boolean"}, "payment_schedule": {"type": "array", "maxItems": 200, "items": {"type": "object", "additionalProperties": false,
+                  "required": ["date", "kind", "amount_per_unit"], "properties": {"date": {"type": "string", "format": "date"},
+                    "kind": {"type": "string", "enum": ["coupon", "amortization"]}, "amount_per_unit": {"type": "string", "pattern": "^\\d{1,6}(?:\\.\\d{1,8})?$"}}}}
+              }}
+          }}}}},
+        "responses": {"201": {"description": "New immutable terms revision recorded; portfolio unchanged"}, "401": {"description": "Authentication required"}, "403": {"description": "Owner or approver membership required"},
+          "409": {"description": "Idempotency mismatch or conflicting revision"}, "422": {"description": "Invalid terms, unresolved custody identity, or evidence-owner mismatch"}}
       }
     },
     "/v1/portfolio": {
