@@ -40,6 +40,15 @@
     }},
     "/v1/jobs/{id}": {"get": {"security": [{"serviceToken": []}], "parameters": [{"name": "id", "in": "path", "required": true, "schema": {"type": "string", "format": "uuid"}}], "responses": {"200": {"description": "Job status, cumulative successful quotes, and symbols/FX still pending after the latest attempt"}, "404": {"description": "Unknown job"}}}},
     "/v1/quotes": {"get": {"security": [{"serviceToken": []}], "parameters": [{"name": "market", "in": "query", "required": true, "schema": {"enum": ["B3", "US"]}}, {"name": "symbols", "in": "query", "required": true, "schema": {"type": "string", "description": "Comma-separated list, up to 100 symbols"}}], "responses": {"200": {"description": "Latest persisted observations; never calls a provider"}, "422": {"description": "Invalid query"}}}},
-    "/v1/fx/USD-BRL": {"get": {"security": [{"serviceToken": []}], "responses": {"200": {"description": "Latest persisted PTAX observation or null"}}}}
+    "/v1/fx/USD-BRL": {"get": {"security": [{"serviceToken": []}], "responses": {"200": {"description": "Latest persisted PTAX observation or null"}}}},
+    "/v1/indices/selic": {"get": {"security": [{"serviceToken": []}], "parameters": [
+      {"name": "from", "in": "query", "required": true, "schema": {"type": "string", "format": "date"}},
+      {"name": "to", "in": "query", "required": true, "schema": {"type": "string", "format": "date"}}
+    ], "responses": {"200": {"description": "Latest received SELIC daily-percent revisions; coverage is not assessed without an explicit calendar"}, "422": {"description": "Invalid interval"}}}},
+    "/v1/calendars/{code}": {"get": {"security": [{"serviceToken": []}], "parameters": [
+      {"name": "code", "in": "path", "required": true, "schema": {"type": "string", "pattern": "^[a-z0-9_-]{1,60}$"}},
+      {"name": "from", "in": "query", "required": true, "schema": {"type": "string", "format": "date"}},
+      {"name": "to", "in": "query", "required": true, "schema": {"type": "string", "format": "date"}}
+    ], "responses": {"200": {"description": "One source-versioned calendar with full requested coverage, or an explicit missing status"}, "422": {"description": "Invalid interval"}}}}
   }
 }
