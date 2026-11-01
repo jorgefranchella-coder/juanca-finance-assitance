@@ -11,11 +11,11 @@ const DECIMAL=/^-?\d{1,6}(?:\.\d{1,8})?$/;
 const hash=(value:string)=>createHash('sha256').update(value).digest('hex');
 const validDate=(value:string)=>{if(!DATE.test(value))return false;const d=new Date(value+'T12:00:00Z');return Number.isFinite(d.valueOf())&&d.toISOString().slice(0,10)===value;};
 type Payment={date:string;kind:'coupon'|'amortization';amount_per_unit:string};
-export type ContractTerms={calculation_basis?:'act_365_25'|'b3_di';method:'fixed'|'indexed';interest_treatment:'capitalize'|'cashflow';indexer_relation:'additive'|'compound'|'multiplier';indexer:'none'|'CDI'|'IPCA'|'SELIC';annual_rate_pct:string;indexer_assumption_pct:string|null;tax_rate_pct:string|null;schedule_confirmed:boolean;payment_schedule:Payment[]};
+export type ContractTerms={calculation_basis?:'act_365_25'|'b3_di';calendar_code?:string|null;scenario_source?:string|null;scenario_as_of?:string|null;method:'fixed'|'indexed';interest_treatment:'capitalize'|'cashflow';indexer_relation:'additive'|'compound'|'multiplier';indexer:'none'|'CDI'|'IPCA'|'SELIC';annual_rate_pct:string;indexer_assumption_pct:string|null;tax_rate_pct:string|null;schedule_confirmed:boolean;payment_schedule:Payment[]};
 
 function parseTerms(value:unknown):ContractTerms {
  if(!value||typeof value!=='object'||Array.isArray(value))throw new Conflict('VALIDATION',422);
- const input=value as Record<string,unknown>,allowed=['method','interest_treatment','indexer_relation','indexer','annual_rate_pct','indexer_assumption_pct','tax_rate_pct','schedule_confirmed','payment_schedule'];
+ const input=value as Record<string,unknown>,allowed=['method','interest_treatment','indexer_relation','indexer','annual_rate_pct','indexer_assumption_pct','tax_rate_pct','schedule_confirmed','payment_schedule','calculation_basis','calendar_code','scenario_source','scenario_as_of'];
  if(Object.keys(input).some(key=>!allowed.includes(key)))throw new Conflict('VALIDATION',422);
  const method=input.method,treatment=input.interest_treatment,relation=input.indexer_relation,indexer=input.indexer,rate=String(input.annual_rate_pct??'');
  if(!['fixed','indexed'].includes(String(method))||!['capitalize','cashflow'].includes(String(treatment))||!['additive','compound','multiplier'].includes(String(relation))||!['none','CDI','IPCA','SELIC'].includes(String(indexer))||!DECIMAL.test(rate)||Number(rate)<=-100||Number(rate)>1000)throw new Conflict('VALIDATION',422);
@@ -24,13 +24,15 @@ function parseTerms(value:unknown):ContractTerms {
  const tax=input.tax_rate_pct==null?null:String(input.tax_rate_pct);
  if(tax!==null&&(!DECIMAL.test(tax)||Number(tax)<0||Number(tax)>100))throw new Conflict('VALIDATION',422);
  if(typeof input.schedule_confirmed!=='boolean'||!Array.isArray(input.payment_schedule)||input.payment_schedule.length>200)throw new Conflict('VALIDATION',422);
+ const basis=input.calculation_basis??'act_365_25',calendarCode=input.calendar_code??null,scenarioSource=input.scenario_source??null,scenarioAsOf=input.scenario_as_of??null;
+ if(!['act_365_25','b3_di'].includes(String(basis))||basis==='act_365_25'&&(calendarCode!==null||scenarioSource!==null||scenarioAsOf!==null)||basis==='b3_di'&&(method!=='indexed'||indexer!=='CDI'||relation!=='multiplier'||treatment!=='capitalize'||typeof calendarCode!=='string'||!/^[a-z0-9_-]{1,60}$/.test(calendarCode)||typeof scenarioSource!=='string'||!scenarioSource.trim()||scenarioSource.length>240||typeof scenarioAsOf!=='string'||!validDate(scenarioAsOf)||!indexRate||!/^\d{1,3}(?:\.\d{1,2})?$/.test(indexRate)))throw new Conflict('VALIDATION',422);
  const schedule=input.payment_schedule.map((raw):Payment=>{
    if(!raw||typeof raw!=='object'||Array.isArray(raw))throw new Conflict('VALIDATION',422);
    const row=raw as Record<string,unknown>,date=String(row.date??''),kind=row.kind,amount=String(row.amount_per_unit??'');
    if(Object.keys(row).some(key=>!['date','kind','amount_per_unit'].includes(key))||!validDate(date)||!['coupon','amortization'].includes(String(kind))||!DECIMAL.test(amount)||Number(amount)<=0)throw new Conflict('VALIDATION',422);
    return {date,kind:kind as Payment['kind'],amount_per_unit:amount};
  }).sort((a,b)=>a.date.localeCompare(b.date));
- return {method:method as ContractTerms['method'],interest_treatment:treatment as ContractTerms['interest_treatment'],indexer_relation:relation as ContractTerms['indexer_relation'],indexer:indexer as ContractTerms['indexer'],annual_rate_pct:rate,indexer_assumption_pct:indexRate,tax_rate_pct:tax,schedule_confirmed:input.schedule_confirmed,payment_schedule:schedule};
+ return {calculation_basis:basis as ContractTerms['calculation_basis'],calendar_code:calendarCode as string|null,scenario_source:typeof scenarioSource==='string'?scenarioSource.trim():null,scenario_as_of:scenarioAsOf as string|null,method:method as ContractTerms['method'],interest_treatment:treatment as ContractTerms['interest_treatment'],indexer_relation:relation as ContractTerms['indexer_relation'],indexer:indexer as ContractTerms['indexer'],annual_rate_pct:rate,indexer_assumption_pct:indexRate,tax_rate_pct:tax,schedule_confirmed:input.schedule_confirmed,payment_schedule:schedule};
 }
 
 export function calculateContractProjection(input:{current_value_cents:number;quantity:number;as_of:string;maturity_date:string;terms:ContractTerms;market?:B3DiMarketData|null}) {
@@ -83,7 +85,7 @@ export async function listFixedIncomeContractTerms(db:pg.Pool,household:string){
    sd.original_name AS position_source_document_name,concat_ws(' · ',sa.source_sheet,CASE WHEN sa.source_row IS NOT NULL THEN 'fila '||sa.source_row::text END) AS position_source_locator,
    (COALESCE(ir.custody_account_id,p.custody_account_id) IS NOT NULL) AS custody_identity_resolved,
    terms.id AS terms_id,terms.revision,terms.method,terms.interest_treatment,terms.indexer_relation,terms.indexer,terms.annual_rate_pct::text,terms.indexer_assumption_pct::text,terms.tax_rate_pct::text,
-   terms.schedule_confirmed,terms.payment_schedule,terms.source_document_id,doc.original_name AS source_document_name,terms.source_assertion_id,terms.source_locator
+   terms.schedule_confirmed,terms.payment_schedule,terms.calculation_basis,terms.calendar_code,terms.scenario_source,terms.scenario_as_of::text,terms.source_document_id,doc.original_name AS source_document_name,terms.source_assertion_id,terms.source_locator
    FROM app.position_identities p JOIN app.owners o ON o.household_id=p.household_id AND o.id=p.owner_id
    JOIN app.custody_institutions ci ON ci.id=p.institution_id
    LEFT JOIN LATERAL (SELECT custody_account_id FROM app.position_identity_resolutions x WHERE x.household_id=p.household_id AND x.position_id=p.id ORDER BY revision DESC LIMIT 1) ir ON true
@@ -112,8 +114,8 @@ export async function recordFixedIncomeContractTerms(db:pg.Pool,household:string
    const doc=await c.query('SELECT owner_id FROM app.source_documents WHERE household_id=$1 AND id=$2',[household,input.source_document_id]);if(doc.rows[0]?.owner_id!==position.rows[0].owner_id)throw new Conflict('CONTRACT_EVIDENCE_OWNER_MISMATCH',422);
    const previous=await c.query('SELECT id,revision FROM app.fixed_income_contract_terms WHERE household_id=$1 AND position_id=$2 ORDER BY revision DESC LIMIT 1 FOR UPDATE',[household,input.position_id]);
    const id=randomUUID(),revision=Number(previous.rows[0]?.revision??0)+1;
-   await c.query(`INSERT INTO app.fixed_income_contract_terms(household_id,id,position_id,revision,method,interest_treatment,indexer_relation,indexer,annual_rate_pct,indexer_assumption_pct,tax_rate_pct,schedule_confirmed,payment_schedule,source_document_id,source_assertion_id,source_locator,recorded_by,request_key,request_hash,supersedes_id)
-     VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13::jsonb,$14,$15,$16,$17,$18,$19,$20)`,[household,id,input.position_id,revision,terms.method,terms.interest_treatment,terms.indexer_relation,terms.indexer,terms.annual_rate_pct,terms.indexer_assumption_pct,terms.tax_rate_pct,terms.schedule_confirmed,JSON.stringify(terms.payment_schedule),input.source_document_id,input.source_assertion_id??null,input.source_locator.trim(),actor,key,digest,previous.rows[0]?.id??null]);
+   await c.query(`INSERT INTO app.fixed_income_contract_terms(household_id,id,position_id,revision,method,interest_treatment,indexer_relation,indexer,annual_rate_pct,indexer_assumption_pct,tax_rate_pct,schedule_confirmed,payment_schedule,source_document_id,source_assertion_id,source_locator,recorded_by,request_key,request_hash,supersedes_id,calculation_basis,calendar_code,scenario_source,scenario_as_of)
+     VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13::jsonb,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24)`,[household,id,input.position_id,revision,terms.method,terms.interest_treatment,terms.indexer_relation,terms.indexer,terms.annual_rate_pct,terms.indexer_assumption_pct,terms.tax_rate_pct,terms.schedule_confirmed,JSON.stringify(terms.payment_schedule),input.source_document_id,input.source_assertion_id??null,input.source_locator.trim(),actor,key,digest,previous.rows[0]?.id??null,terms.calculation_basis,terms.calendar_code,terms.scenario_source,terms.scenario_as_of]);
    await c.query("INSERT INTO app.audit_log(household_id,actor_id,action,resource_id,details) VALUES($1,$2,'fixed_income_contract_terms_recorded',$3,$4)",[household,actor,id,{position_id:input.position_id,revision,source_document_id:input.source_document_id,source_assertion_id:input.source_assertion_id??null,terms_version:'fixed-income-contract-v1',portfolio_changed:false}]);
    await c.query('COMMIT');return {terms_id:id,revision,replayed:false,portfolio_changed:false,terms_version:'fixed-income-contract-v1'};
  }catch(error){await c.query('ROLLBACK');throw error;}finally{c.release();}

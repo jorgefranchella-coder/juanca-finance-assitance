@@ -50,6 +50,12 @@ test('contract terms persist in an isolated PostgreSQL database as evidence-link
  for(const [index,[table,value]] of fixtures.entries()){const json=JSON.stringify(value);await db.query('INSERT INTO app.received_sources(run_id,id,household_id,source_table,original,sha256,source_ordinal) VALUES($1,$2,$3,$4,$5,$6,$7)',[run,`${table}:contract-fixture`,h,table,json,hash(json),index+1]);}
  const projection=await fixedIncomeProjection(db,h),projected=projection.items.find(item=>item.instrument_code==='CDBTEST') as (typeof projection.items[number]&{contractual?:{status:string;revision:number;gross_maturity_cents:number|null}})|undefined;
  assert.equal(projected?.contractual?.status,'complete');assert.equal(projected?.contractual?.revision,2);assert.ok((projected?.contractual?.gross_maturity_cents??0)>20000);
+ const b3={...body,terms:{...body.terms,method:'indexed',indexer:'CDI',indexer_relation:'multiplier',annual_rate_pct:'110',indexer_assumption_pct:'12.00',calculation_basis:'b3_di',calendar_code:'fixture-calendar',scenario_source:'fixture',scenario_as_of:'2026-10-01'}};
+ const third=await recordFixedIncomeContractTerms(db,h,actor,'contract-fixture-003',b3);assert.equal(third.revision,3);
+ const updated=(await listFixedIncomeContractTerms(db,h)).positions.find(p=>p.position_id===position);assert.equal(updated?.calculation_basis,'b3_di');assert.equal(updated?.calendar_code,'fixture-calendar');
+ await assert.rejects(()=>recordFixedIncomeContractTerms(db,h,actor,'contract-fixture-004',{...b3,terms:{...b3.terms,calendar_code:null}}),(error:unknown)=>error instanceof Conflict&&error.code==='VALIDATION');
+ const withoutCalendar=await fixedIncomeProjection(db,h);const pending=withoutCalendar.items.find(item=>item.instrument_code==='CDBTEST') as (typeof withoutCalendar.items[number]&{contractual?:{status:string;gross_maturity_cents:number|null}})|undefined;
+ assert.equal(pending?.contractual?.status,'incomplete');assert.equal(pending?.contractual?.gross_maturity_cents,null);
 });
 test('PostgreSQL projection joins a resolved acquisition lot to its unambiguous fixed-income holding',async()=>{
  const h='lot-projection-'+randomUUID(),actor='lot-projection-actor-'+randomUUID(),custody='lot-projection-account-'+randomUUID(),institution='lot-projection-bank-'+randomUUID(),position='lot-projection-position-'+randomUUID(),run='lot-projection-run-'+randomUUID();

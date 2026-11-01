@@ -30,7 +30,7 @@ type ProjectionResponse = {
   contractual_summary?: { total_count: number; projected_count: number; current_cents: number; gross_maturity_cents: number; coverage: number; version: string };
 };
 type ContractPosition = { position_id: string; instrument_code: string; currency: string; owner: string; institution: string; account: string | null;
-  custody_identity_resolved: boolean;
+  custody_identity_resolved: boolean; calculation_basis?: "act_365_25" | "b3_di"; calendar_code?: string | null; scenario_source?: string | null; scenario_as_of?: string | null;
   source_document_id?: string | null; source_locator?: string | null; revision?: number; interest_treatment?: "capitalize" | "cashflow"; indexer_relation?: "additive" | "compound" | "multiplier"; schedule_confirmed?: boolean;
   method?: "fixed" | "indexed"; indexer?: "none" | "CDI" | "IPCA" | "SELIC"; annual_rate_pct?: string; indexer_assumption_pct?: string | null;
   tax_rate_pct?: string | null; payment_schedule?: Array<{ date: string; kind: "coupon" | "amortization"; amount_per_unit: string }>;
@@ -78,6 +78,10 @@ export default function FixedIncomeProjection({ endpoint = "/api/portfolio/fixed
   const [method, setMethod] = useState<"fixed" | "indexed">("fixed");
   const [interestTreatment, setInterestTreatment] = useState<"capitalize" | "cashflow">("capitalize");
   const [indexerRelation, setIndexerRelation] = useState<"additive" | "compound" | "multiplier">("additive");
+  const [basis, setBasis] = useState<"act_365_25" | "b3_di">("act_365_25");
+  const [calendarCode, setCalendarCode] = useState("");
+  const [scenarioSource, setScenarioSource] = useState("");
+  const [scenarioDate, setScenarioDate] = useState("");
   const [indexer, setIndexer] = useState<"CDI" | "IPCA" | "SELIC">("CDI");
   const [rate, setRate] = useState("");
   const [indexRate, setIndexRate] = useState("");
@@ -154,6 +158,7 @@ export default function FixedIncomeProjection({ endpoint = "/api/portfolio/fixed
   const saveTerms = async () => {
     const position = contracts?.positions.find((candidate) => candidate.position_id === selectedPosition);
     if (!position || !sourceDocument || !sourceLocator.trim() || !rate.trim()) { setSaveMessage("Completa título, documento, ubicación y tasa."); return; }
+    if (basis === "b3_di" && (method !== "indexed" || indexer !== "CDI" || indexerRelation !== "multiplier" || interestTreatment !== "capitalize" || !calendarCode.trim() || !scenarioSource.trim() || !scenarioDate)) { setSaveMessage("Para la base DI, selecciona porcentaje de CDI capitalizado e indica calendario, fuente y fecha del supuesto."); return; }
     setSaving(true); setSaveMessage("");
     try {
       const schedule = scheduleText.split("\n").map((line) => line.trim()).filter(Boolean).map((line) => {
@@ -163,6 +168,7 @@ export default function FixedIncomeProjection({ endpoint = "/api/portfolio/fixed
         return { date: dateValue, kind: kindValue as "coupon" | "amortization", amount_per_unit: amount };
       });
       const body = JSON.stringify({ position_id: selectedPosition, source_document_id: sourceDocument, source_locator: sourceLocator.trim(), terms: {
+          calculation_basis: basis, calendar_code: basis === "b3_di" ? calendarCode.trim() : null, scenario_source: basis === "b3_di" ? scenarioSource.trim() : null, scenario_as_of: basis === "b3_di" ? scenarioDate : null,
           method, interest_treatment: interestTreatment, indexer_relation: method === "fixed" ? "additive" : indexerRelation, indexer: method === "fixed" ? "none" : indexer, annual_rate_pct: decimalValue(rate),
           indexer_assumption_pct: method === "fixed" ? null : decimalValue(indexRate), tax_rate_pct: tax ? decimalValue(tax) : null, schedule_confirmed: scheduleConfirmed, payment_schedule: schedule,
         } });
@@ -194,6 +200,7 @@ export default function FixedIncomeProjection({ endpoint = "/api/portfolio/fixed
         <label>Título/cuenta<select value={selectedPosition} onChange={(event) => {
           const id = event.target.value, p = contracts?.positions.find((x) => x.position_id === id);
           setSelectedPosition(id); setSourceDocument(p?.source_document_id ?? ""); setSourceLocator(p?.source_locator ?? "");
+          setBasis(p?.calculation_basis ?? "act_365_25"); setCalendarCode(p?.calendar_code ?? ""); setScenarioSource(p?.scenario_source ?? ""); setScenarioDate(p?.scenario_as_of ?? "");
           setMethod(p?.method ?? "fixed"); setInterestTreatment(p?.interest_treatment ?? "capitalize"); setIndexerRelation(p?.indexer_relation ?? "additive");
           setIndexer(p?.indexer && p.indexer !== "none" ? p.indexer : "CDI"); setRate(p?.annual_rate_pct ?? "");
           setIndexRate(p?.indexer_assumption_pct ?? ""); setTax(p?.tax_rate_pct ?? ""); setScheduleConfirmed(p?.schedule_confirmed ?? false);
@@ -202,6 +209,8 @@ export default function FixedIncomeProjection({ endpoint = "/api/portfolio/fixed
         <label>Documento<select value={sourceDocument} onChange={(event) => setSourceDocument(event.target.value)}><option value="">Seleccionar evidencia</option>{contracts?.source_documents.filter((d) => { const p = contracts.positions.find((x) => x.position_id === selectedPosition); return !p || d.owner === p.owner; }).map((doc) => <option key={doc.source_document_id} value={doc.source_document_id}>{doc.owner} · {doc.original_name} · {doc.source_system} · {doc.effective_as_of ?? "sin fecha"}</option>)}</select></label>
         <label>Ubicación precisa (página, sección, fila)<input value={sourceLocator} onChange={(event) => setSourceLocator(event.target.value)} maxLength={240} /></label>
         {selectedContractPosition?.method && <small>Condiciones actuales: revisión {selectedContractPosition.revision}; corregirlas crea una nueva revisión y conserva la anterior.</small>}
+        <label>Base de cálculo<select value={basis} onChange={(event) => setBasis(event.target.value as "act_365_25" | "b3_di")}><option value="act_365_25">Días civiles (ACT/365,25)</option><option value="b3_di">DI B3 (252 días hábiles)</option></select></label>
+        {basis === "b3_di" && <><p>Disponible para porcentaje de CDI capitalizado sin pagos intermedios. El calendario y la serie deben cubrir el período.</p><label>Código del calendario de mercado<input value={calendarCode} onChange={(event) => setCalendarCode(event.target.value)} placeholder="Código de calendario registrado" /></label><label>Fuente del supuesto futuro<input value={scenarioSource} onChange={(event) => setScenarioSource(event.target.value)} maxLength={240} /></label><label>Fecha del supuesto futuro<input type="date" value={scenarioDate} onChange={(event) => setScenarioDate(event.target.value)} /></label></>}
         <label>Tipo<select value={method} onChange={(event) => setMethod(event.target.value as "fixed" | "indexed")}><option value="fixed">Tasa fija</option><option value="indexed">Indexado</option></select></label>
         <label>Aplicación de interés<select value={interestTreatment} onChange={(event) => setInterestTreatment(event.target.value as "capitalize" | "cashflow")}><option value="capitalize">Capitaliza sobre el saldo</option><option value="cashflow">Interés pagado en flujos</option></select></label>
         {method === "indexed" && <><label>Índice<select value={indexer} onChange={(event) => setIndexer(event.target.value as "CDI" | "IPCA" | "SELIC")}><option>CDI</option><option>IPCA</option><option>SELIC</option></select></label><label>Relación con el índice<select value={indexerRelation} onChange={(event) => setIndexerRelation(event.target.value as "additive" | "compound" | "multiplier")}><option value="additive">Índice más spread: suma simple</option><option value="compound">Índice y spread: composición</option><option value="multiplier">Porcentaje del índice</option></select></label><label>Supuesto anual del índice (%)<input inputMode="decimal" value={indexRate} onChange={(event) => setIndexRate(event.target.value)} /></label></>}

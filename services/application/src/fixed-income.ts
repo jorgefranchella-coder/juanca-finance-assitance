@@ -1,6 +1,7 @@
 import type pg from 'pg';
 import {buildFixedIncomeProjectionItems,type FixedIncomeGroup,type CostBasisPoint} from './fixed-income-projection.ts';
 import {calculateContractProjection,type ContractTerms} from './fixed-income-contract.ts';
+import {marketB3DiInputs} from './market-bridge.ts';
 
 type ArchivedRow={run_id:string;import:Record<string,unknown>;record:Record<string,unknown>};
 const fixedClasses=new Set(['fixed_income','treasury','international_fixed_income','private_pension']);
@@ -123,12 +124,15 @@ export async function fixedIncomeProjection(db:pg.Pool,household:string){
  const items=buildFixedIncomeProjectionItems(groups.values(),[...costMap.values()]),covered=items.filter(item=>item.projected_value_cents!==null),total=items.reduce((sum,item)=>sum+item.current_value_cents,0),coveredCurrent=covered.reduce((sum,item)=>sum+item.current_value_cents,0),coveredProjected=covered.reduce((sum,item)=>sum+(item.projected_value_cents??0),0);
  const contracts=await db.query(`SELECT p.id AS position_id,p.instrument_code,p.currency,o.display_name AS owner,ci.canonical_name AS institution,ca.external_reference AS account,
    (COALESCE(ir.custody_account_id,p.custody_account_id) IS NOT NULL) AS custody_identity_resolved,
-   t.method,t.interest_treatment,t.indexer_relation,t.indexer,t.annual_rate_pct::text,t.indexer_assumption_pct::text,t.tax_rate_pct::text,t.schedule_confirmed,t.payment_schedule,t.source_document_id,t.source_locator,t.revision
+   t.method,t.interest_treatment,t.indexer_relation,t.indexer,t.annual_rate_pct::text,t.indexer_assumption_pct::text,t.tax_rate_pct::text,t.schedule_confirmed,t.payment_schedule,t.calculation_basis,t.calendar_code,t.scenario_source,t.scenario_as_of::text,t.source_document_id,t.source_locator,t.revision
    FROM app.position_identities p JOIN app.owners o ON o.household_id=p.household_id AND o.id=p.owner_id JOIN app.custody_institutions ci ON ci.id=p.institution_id
    LEFT JOIN LATERAL (SELECT custody_account_id FROM app.position_identity_resolutions x WHERE x.household_id=p.household_id AND x.position_id=p.id ORDER BY revision DESC LIMIT 1) ir ON true
    LEFT JOIN app.custody_accounts ca ON ca.household_id=p.household_id AND ca.id=COALESCE(ir.custody_account_id,p.custody_account_id)
    LEFT JOIN LATERAL (SELECT * FROM app.fixed_income_contract_terms x WHERE x.household_id=p.household_id AND x.position_id=p.id ORDER BY revision DESC LIMIT 1) t ON true
    WHERE p.household_id=$1`,[household]);
+ const today=new Intl.DateTimeFormat('en-CA',{timeZone:'America/Sao_Paulo',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());
+ const observedThrough=new Date(Date.parse(today+'T00:00:00Z')-86400000).toISOString().slice(0,10);
+ const marketCache=new Map<string,Promise<Awaited<ReturnType<typeof marketB3DiInputs>> | null>>();
  let contractualCovered=0,contractualCurrent=0,contractualMaturity=0;
  for(const item of items){
    const candidates=contracts.rows.filter(p=>p.custody_identity_resolved&&p.owner===item.owner&&institutionCode(p.institution)===institutionCode(item.institution)&&code(p.instrument_code)===code(item.instrument_code)&&p.currency===item.currency&&(!item.account||!p.account||String(p.account)===String(item.account)));
@@ -136,7 +140,14 @@ export async function fixedIncomeProjection(db:pg.Pool,household:string){
    let contractual;
    if(!matched)contractual={status:'incomplete',missing:[candidates.length?'identidad de cuenta inequívoca':'posición de custodia vinculada'],version:'contract-projection-v1',calendar:[],gross_maturity_cents:null,net_maturity_cents:null,gross_cashflows_cents:null,net_cashflows_cents:null};
    else if(!matched.method)contractual={status:'incomplete',missing:['condiciones contractuales documentadas'],version:'contract-projection-v1',calendar:[],gross_maturity_cents:null,net_maturity_cents:null,gross_cashflows_cents:null,net_cashflows_cents:null,position_id:matched.position_id};
-   else contractual={...calculateContractProjection({current_value_cents:item.current_value_cents,quantity:item.quantity,as_of:item.reference_date,maturity_date:item.maturity_date,terms:{method:matched.method,interest_treatment:matched.interest_treatment,indexer_relation:matched.indexer_relation,indexer:matched.indexer,annual_rate_pct:matched.annual_rate_pct,indexer_assumption_pct:matched.indexer_assumption_pct,tax_rate_pct:matched.tax_rate_pct,schedule_confirmed:matched.schedule_confirmed,payment_schedule:matched.payment_schedule} as ContractTerms}),position_id:matched.position_id,revision:matched.revision,source_document_id:matched.source_document_id,source_locator:matched.source_locator,base_value_cents:item.current_value_cents,base_date:item.reference_date,base_price_source:item.price_source};
+   else {
+    let market=null;
+    if(matched.calculation_basis==='b3_di'&&isoDate(item.reference_date)&&isoDate(item.maturity_date)&&item.reference_date<item.maturity_date){
+     const args={from:item.reference_date,to:item.maturity_date,observed_through:observedThrough,calendar_code:matched.calendar_code,assumption:{annual_rate_pct:matched.indexer_assumption_pct,source:matched.scenario_source,as_of:matched.scenario_as_of}},key=JSON.stringify(args);
+     if(!marketCache.has(key))marketCache.set(key,marketB3DiInputs(args).catch(()=>null));market=await marketCache.get(key)!;
+    }
+    contractual={...calculateContractProjection({current_value_cents:item.current_value_cents,quantity:item.quantity,as_of:item.reference_date,maturity_date:item.maturity_date,terms:{calculation_basis:matched.calculation_basis,method:matched.method,interest_treatment:matched.interest_treatment,indexer_relation:matched.indexer_relation,indexer:matched.indexer,annual_rate_pct:matched.annual_rate_pct,indexer_assumption_pct:matched.indexer_assumption_pct,tax_rate_pct:matched.tax_rate_pct,schedule_confirmed:matched.schedule_confirmed,payment_schedule:matched.payment_schedule} as ContractTerms,market}),position_id:matched.position_id,revision:matched.revision,source_document_id:matched.source_document_id,source_locator:matched.source_locator,base_value_cents:item.current_value_cents,base_date:item.reference_date,base_price_source:item.price_source};
+   }
    Object.assign(item,{contractual});
    if(contractual.status==='complete'){contractualCovered++;contractualCurrent+=item.current_value_cents;contractualMaturity+=contractual.gross_maturity_cents??0;}
  }

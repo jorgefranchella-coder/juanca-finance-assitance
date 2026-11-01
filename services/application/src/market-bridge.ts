@@ -22,3 +22,21 @@ export async function receiveMarketEvent(db:pg.Pool,event:MarketEvent){
   await c.query("UPDATE app.market_feed_state SET last_outbox_id=$1,updated_at=now() WHERE feed='market'",[event.id]);await c.query('COMMIT');return{replayed:false,quotes:event.payload.quotes.length,fx:event.payload.fx.length};
  }catch(error){await c.query('ROLLBACK');throw error;}finally{c.release();}
 }
+
+/** Internal authenticated market reads; missing calendars or unavailable data never imply a forecast. */
+export async function marketB3DiInputs(input:{from:string;to:string;observed_through:string;calendar_code:string;assumption:{annual_rate_pct:string;source:string;as_of:string}}){
+ const valid=(s:string)=>/^\d{4}-\d{2}-\d{2}$/.test(s)&&Number.isFinite(Date.parse(s+'T00:00:00Z'))&&new Date(s+'T00:00:00Z').toISOString().slice(0,10)===s;
+ if(!valid(input.from)||!valid(input.to)||!valid(input.observed_through)||input.from>=input.to||! /^[a-z0-9_-]{1,60}$/.test(input.calendar_code))throw new Error('MARKET_DI_INVALID_INTERVAL');
+ const cfg=await marketConfig(),end=new Date(Date.parse(input.to+'T00:00:00Z')-86400000).toISOString().slice(0,10);
+ const get=async(path:string,from:string,to:string)=>{const query=new URLSearchParams({from,to}),response=await fetch(`http://127.0.0.1:${cfg.port}${path}?${query}`,{headers:{Authorization:'Bearer '+cfg.token},signal:AbortSignal.timeout(15000)});if(!response.ok)throw new Error('MARKET_DI_UNAVAILABLE');return response.json();};
+ const calendarBody=await get('/v1/calendars/'+input.calendar_code,input.from,end) as {coverage?:string;calendar?:import('./business-252.ts').BusinessCalendar|null};
+ if(calendarBody.coverage!=='declared'||!calendarBody.calendar)return null;
+ const observations:import('./b3-di-accumulation.ts').DiObservation[]=[];
+ for(let from=input.from;from<=end&&from<=input.observed_through;){
+  const chunkEnd=new Date(Math.min(Date.parse(from+'T00:00:00Z')+3650*86400000,Date.parse(end+'T00:00:00Z'),Date.parse(input.observed_through+'T00:00:00Z'))).toISOString().slice(0,10);
+  const body=await get('/v1/indices/cdi',from,chunkEnd) as {indexer?:string;observations?:import('./b3-di-accumulation.ts').DiObservation[]};
+  if(body.indexer!=='CDI'||!Array.isArray(body.observations))throw new Error('MARKET_DI_INVALID_RESPONSE');observations.push(...body.observations);
+  from=new Date(Date.parse(chunkEnd+'T00:00:00Z')+86400000).toISOString().slice(0,10);
+ }
+ return {calendar:calendarBody.calendar,observations,observed_through:input.observed_through,future_assumption:input.assumption};
+}
