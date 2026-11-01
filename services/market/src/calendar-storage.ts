@@ -23,8 +23,16 @@ export async function storeCalendar(db:pg.Pool,raw:unknown){
 }
 export async function listCalendar(db:pg.Pool,code:string,from:string,to:string){
  if(!/^[a-z0-9_-]{1,60}$/.test(code)||!validDate(from)||!validDate(to)||from>to||to>'9998-12-31'||Date.parse(to+'T00:00:00Z')-Date.parse(from+'T00:00:00Z')>18300*86400000)throw new Error('INVALID_CALENDAR_INTERVAL');
- const selected=await db.query(`SELECT id,source_uri,source_revision,content_sha256,coverage_start::text,coverage_end::text FROM market.calendar_imports WHERE calendar_code=$1 AND coverage_start<=$2::date AND coverage_end>=$3::date ORDER BY received_at DESC,id DESC LIMIT 1`,[code,from,to]);
- if(!selected.rowCount)return {calendar:null,coverage:'missing' as const};const item=selected.rows[0];
- const days=await db.query('SELECT civil_date::text AS date,business_day FROM market.calendar_days WHERE import_id=$1 AND civil_date BETWEEN $2::date AND $3::date ORDER BY civil_date',[item.id,from,to]);
- return {calendar:{calendar_code:code,source_uri:item.source_uri,source_revision:item.source_revision,version:item.content_sha256,coverage_start:from,coverage_end:to,days:days.rows},coverage:'declared' as const};
+ const selected=await db.query(`SELECT DISTINCT ON(d.civil_date) d.civil_date::text AS date,d.business_day,i.source_uri,i.source_revision,i.content_sha256,i.id
+   FROM market.calendar_days d JOIN market.calendar_imports i ON i.id=d.import_id
+   WHERE i.calendar_code=$1 AND d.civil_date BETWEEN $2::date AND $3::date
+   ORDER BY d.civil_date,i.received_at DESC,i.id DESC`,[code,from,to]);
+ const rows=selected.rows;let date=from;
+ for(const row of rows){if(row.date!==date)return {calendar:null,coverage:'missing' as const};date=next(date);}
+ if(date!==next(to))return {calendar:null,coverage:'missing' as const};
+ const sources:Array<{source_uri:string;source_revision:string;version:string}>=[];
+ for(const row of rows)if(!sources.some(x=>x.version===row.content_sha256))sources.push({source_uri:row.source_uri,source_revision:row.source_revision,version:row.content_sha256});
+ const days=rows.map(row=>({date:row.date,business_day:row.business_day}));
+ const version=sources.length===1?sources[0].version:createHash('sha256').update(JSON.stringify({code,from,to,days,sources})).digest('hex');
+ return {calendar:{calendar_code:code,source_uri:sources.length===1?sources[0].source_uri:`market:calendar:${code}`,source_revision:sources.length===1?sources[0].source_revision:'composite',version,coverage_start:from,coverage_end:to,days,sources},coverage:'declared' as const};
 }

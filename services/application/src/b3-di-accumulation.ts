@@ -32,5 +32,5 @@ export function accumulateB3Di(input:B3DiInput){
  }
  if(missingCalendar.length)return incomplete('calendar_dates_missing',missingCalendar);
  if(missingRates.length)return incomplete('index_rates_missing',missingRates);
- return {status:'complete' as const,reason:null,missing_dates:[],factor:product.toFixed(8,D.ROUND_HALF_UP),days,version:'b3-di-accumulation-v1',calendar_source:c.source_uri,calendar_version:c.version,interval:'inclusive_start_exclusive_end' as const};
+ return {status:'complete' as const,reason:null,missing_dates:[],factor:product.toFixed(8,D.ROUND_HALF_UP),days,version:'b3-di-accumulation-v1',calendar_source:c.source_uri,calendar_version:c.version,calendar_sources:c.sources??[{source_uri:c.source_uri,source_revision:c.version,version:c.version}],interval:'inclusive_start_exclusive_end' as const};
 }

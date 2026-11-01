@@ -42,3 +42,13 @@ test('DI observations retain annual units and revisions independently of Selic',
  const listed=await listDiObservations(db,'2026-01-02','2026-01-02');assert.equal(listed.observations[0].rate_pct,'14.90');assert.equal(listed.observations[0].unit,'annual_effective_252');assert.equal(listed.coverage,'not_assessed_without_calendar');
  await assert.rejects(()=>storeDiImport(db,{...data,observations:[]}),/B3_DI_EMPTY_IMPORT/);
 });
+
+test('calendar coverage composes adjacent versions and honors the latest correction without inventing gaps',async()=>{
+ const common={calendar_code:'composite-di',source_uri:'https://example.test/b3'};
+ await storeCalendar(db,{...common,source_revision:'first',coverage_start:'2026-01-01',coverage_end:'2026-01-02',days:[{date:'2026-01-01',business_day:false},{date:'2026-01-02',business_day:true}]});
+ await storeCalendar(db,{...common,source_revision:'second',coverage_start:'2026-01-03',coverage_end:'2026-01-04',days:[{date:'2026-01-03',business_day:false},{date:'2026-01-04',business_day:false}]});
+ let result=await listCalendar(db,'composite-di','2026-01-01','2026-01-04');assert.equal(result.coverage,'declared');assert.equal(result.calendar?.sources.length,2);assert.deepEqual(result.calendar?.days.map(d=>d.business_day),[false,true,false,false]);
+ const version=result.calendar?.version;await storeCalendar(db,{...common,source_revision:'correction',coverage_start:'2026-01-02',coverage_end:'2026-01-02',days:[{date:'2026-01-02',business_day:false}]});
+ result=await listCalendar(db,'composite-di','2026-01-01','2026-01-04');assert.equal(result.calendar?.days[1].business_day,false);assert.notEqual(result.calendar?.version,version);assert.equal(result.calendar?.sources.length,3);
+ assert.equal((await listCalendar(db,'composite-di','2026-01-01','2026-01-05')).coverage,'missing');
+});

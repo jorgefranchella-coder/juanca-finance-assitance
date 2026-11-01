@@ -2,7 +2,7 @@ import {Decimal} from 'decimal.js';
 
 /** Explicit, source-versioned calendar: one record for every civil date in its coverage. */
 export type BusinessCalendar = {
-  source_uri:string; version:string; coverage_start:string; coverage_end:string;
+  source_uri:string; version:string; coverage_start:string; coverage_end:string; sources?:Array<{source_uri:string;source_revision:string;version:string}>;
   days:Array<{date:string;business_day:boolean}>;
 };
 export type DailyIndexObservation = {date:string;rate_pct:string;unit:'annual_effective_252'|'daily_percent';source_uri:string;version:string};
