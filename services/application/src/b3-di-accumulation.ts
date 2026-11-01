@@ -18,17 +18,18 @@ export function accumulateB3Di(input:B3DiInput){
  const pct=new D(input.percentage).div(100),calendar=new Map<string,{business_day:boolean;coverage_kind:'confirmed'|'estimated'}>(),observations=new Map<string,DiObservation>();
  for(const day of c.days){if(!dateOk(day.date)||typeof day.business_day!=='boolean'||(day.coverage_kind!==undefined&&!['confirmed','estimated'].includes(day.coverage_kind))||calendar.has(day.date))return incomplete('invalid_calendar');calendar.set(day.date,{business_day:day.business_day,coverage_kind:day.coverage_kind??'confirmed'});}
  for(const row of input.observations){if(!dateOk(row.date)||row.indexer!=='CDI'||row.unit!=='annual_effective_252'||!/^\d{1,3}(?:\.\d{1,2})?$/.test(row.rate_pct)||!row.source_uri?.trim()||!row.version?.trim()||observations.has(row.date))return incomplete('invalid_index_observation');observations.set(row.date,row);}
- let product=new D(1);const estimatedHistorical:string[]=[];let estimatedDays=0;const days:Array<{date:string;kind:'observed'|'projected';rate_pct:string;daily_rate:string;factor:string;source:string;version:string}>=[],missingCalendar:string[]=[],missingRates:string[]=[];
+ const dailyCache=new Map<string,Decimal>();
+ let product=new D(1);const estimatedHistorical:string[]=[];let estimatedDays=0;const days:Array<{date:string;kind:'observed'|'projected';rate_pct:string;daily_rate:string;factor:string;accumulated_factor:string;source:string;version:string}>=[],missingCalendar:string[]=[],missingRates:string[]=[];
  for(let date=input.from;date<input.to;date=next(date)){
   if(!calendar.has(date)){missingCalendar.push(date);continue;}const calendarDay=calendar.get(date)!;if(calendarDay.coverage_kind==='estimated'){estimatedDays++;if(date<=input.observed_through){estimatedHistorical.push(date);continue;}}if(!calendarDay.business_day)continue;
   const observed=date<=input.observed_through?observations.get(date):undefined,scenario=input.future_assumption;
   if(date<=input.observed_through&&!observed){missingRates.push(date);continue;}
   if(date>input.observed_through&&(!scenario||!/^\d{1,3}(?:\.\d{1,2})?$/.test(scenario.annual_rate_pct)||!scenario.source?.trim()||!dateOk(scenario.as_of)||scenario.as_of>input.observed_through)){missingRates.push(date);continue;}
   const rate=observed?.rate_pct??scenario!.annual_rate_pct;
-  const daily=new D(1).plus(new D(rate).div(100)).pow(new D(1).div(252)).minus(1).toDecimalPlaces(8,D.ROUND_HALF_UP);
+  let daily=dailyCache.get(rate);if(!daily){daily=new D(1).plus(new D(rate).div(100)).pow(new D(1).div(252)).minus(1).toDecimalPlaces(8,D.ROUND_HALF_UP);dailyCache.set(rate,daily);}
   const factor=new D(1).plus(daily.mul(pct)).toDecimalPlaces(16,D.ROUND_DOWN);
   product=product.mul(factor).toDecimalPlaces(16,D.ROUND_DOWN);
-  days.push({date,kind:observed?'observed':'projected',rate_pct:rate,daily_rate:daily.toFixed(8),factor:factor.toFixed(16),source:observed?.source_uri??scenario!.source,version:observed?.version??scenario!.as_of});
+  days.push({date,kind:observed?'observed':'projected',rate_pct:rate,daily_rate:daily.toFixed(8),factor:factor.toFixed(16),accumulated_factor:product.toFixed(16),source:observed?.source_uri??scenario!.source,version:observed?.version??scenario!.as_of});
  }
  if(missingCalendar.length)return incomplete('calendar_dates_missing',missingCalendar);
  if(estimatedHistorical.length)return incomplete('historical_calendar_unconfirmed',estimatedHistorical);

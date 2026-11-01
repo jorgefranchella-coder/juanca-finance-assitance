@@ -10,3 +10,11 @@ test('B3 contracts never fall back to the civil-day scenario on missing market d
 test('unsupported cashflows are incomplete rather than silently ignored',()=>{const result=calculateContractProjection({...position,terms:{...terms,payment_schedule:[{date:'2026-01-05',kind:'coupon',amount_per_unit:'1'}]},market});assert.equal(result.status,'incomplete');});
 
 test('a scenario that differs from the documented contract is incomplete',()=>{const result=calculateContractProjection({...position,market:{...market,future_assumption:{annual_rate_pct:'13.00',source:'fixture:scenario',as_of:'2026-01-02'}}});assert.equal(result.status,'incomplete');});
+
+test('each monthly cut equals an independently accumulated B3 interval',async()=>{
+ const {accumulateB3Di}=await import('../src/b3-di-accumulation.ts');const {Decimal}=await import('decimal.js');
+ const days:Array<{date:string;business_day:boolean;coverage_kind:'estimated'}>=[];for(let n=Date.parse('2027-01-01T00:00:00Z');n<Date.parse('2027-05-01T00:00:00Z');n+=86400000){const d=new Date(n);days.push({date:d.toISOString().slice(0,10),business_day:![0,6].includes(d.getUTCDay()),coverage_kind:'estimated'});}
+ const inputs:B3DiMarketData={calendar:{source_uri:'fixture:calendar',version:'v1',coverage_start:'2027-01-01',coverage_end:'2027-04-30',days},observations:[],observed_through:'2026-12-31',future_assumption:{annual_rate_pct:'12.00',source:'fixture',as_of:'2026-12-31'}};
+ const result=calculateContractProjection({...position,as_of:'2027-01-01',maturity_date:'2027-05-01',market:inputs});assert.equal(result.status,'complete');if(result.status!=='complete')return;
+ for(const row of result.calendar){const factor=accumulateB3Di({from:'2027-01-01',to:row.date,percentage:terms.annual_rate_pct,...inputs});assert.equal(factor.status,'complete');const expected=new Decimal(position.current_value_cents).mul(factor.factor!).toDecimalPlaces(0,Decimal.ROUND_HALF_UP).toNumber();assert.equal(row.maturity_cents||row.balance_cents,expected);}
+});

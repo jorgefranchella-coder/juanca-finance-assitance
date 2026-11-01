@@ -17,16 +17,18 @@ export function calculateB3DiContractProjection(input:{current_value_cents:numbe
  const end=new Date(input.maturity_date+'T12:00:00Z'),start=new Date(input.as_of+'T12:00:00Z'),dates=new Set<string>();let year=start.getUTCFullYear(),month=start.getUTCMonth()-1;
  while(true){if(++month>11){month=0;year++;}const value=Date.UTC(year,month+1,0,12);if(value>end.valueOf())break;const date=new Date(value).toISOString().slice(0,10);if(date>input.as_of)dates.add(date);}
  dates.add(input.maturity_date);
- const calendar:Array<{date:string;balance_cents:number;cashflow_cents:number;maturity_cents:number;kind:string}>=[];let gross=0,provenance:unknown=null;
+ const factor=accumulateB3Di({from:input.as_of,to:input.maturity_date,percentage:terms.annual_rate_pct,...market});
+ if(factor.status==='incomplete')return incomplete(`CDI: ${factor.reason}`,factor.missing_dates);
+ const calendar:Array<{date:string;balance_cents:number;cashflow_cents:number;maturity_cents:number;kind:string}>=[];let gross=0,dayIndex=0,accumulated='1';
  for(const date of [...dates].sort()){
-  const factor=accumulateB3Di({from:input.as_of,to:date,percentage:terms.annual_rate_pct,...market});
-  if(factor.status==='incomplete')return incomplete(`CDI: ${factor.reason}`,factor.missing_dates);
-  const cents=new Decimal(input.current_value_cents).mul(factor.factor).toDecimalPlaces(0,Decimal.ROUND_HALF_UP);
+  while(dayIndex<factor.days.length&&factor.days[dayIndex].date<date){accumulated=factor.days[dayIndex].accumulated_factor;dayIndex++;}
+  const cutFactor=new Decimal(accumulated).toDecimalPlaces(8,Decimal.ROUND_HALF_UP);
+  const cents=new Decimal(input.current_value_cents).mul(cutFactor).toDecimalPlaces(0,Decimal.ROUND_HALF_UP);
   if(!cents.isFinite()||cents.gt(Number.MAX_SAFE_INTEGER))return incomplete('importe fuera del rango calculable');
   const amount=cents.toNumber(),maturity=date===input.maturity_date?amount:0;if(maturity)gross=maturity;
   calendar.push({date,balance_cents:maturity?0:amount,cashflow_cents:maturity,maturity_cents:maturity,kind:maturity?'maturity':'projection'});
-  provenance={calendar_source:factor.calendar_source,calendar_version:factor.calendar_version,calendar_sources:factor.calendar_sources,estimated_calendar_days:factor.estimated_calendar_days,observed_through:market.observed_through,observed_days:factor.days.filter(d=>d.kind==='observed').length,projected_days:factor.days.filter(d=>d.kind==='projected').length,index_versions:[...new Set(factor.days.filter(d=>d.kind==='observed').map(d=>d.version))],assumption:market.future_assumption};
  }
+ const provenance={calendar_source:factor.calendar_source,calendar_version:factor.calendar_version,calendar_sources:factor.calendar_sources,estimated_calendar_days:factor.estimated_calendar_days,observed_through:market.observed_through,observed_days:factor.days.filter(d=>d.kind==='observed').length,projected_days:factor.days.filter(d=>d.kind==='projected').length,index_versions:[...new Set(factor.days.filter(d=>d.kind==='observed').map(d=>d.version))],assumption:market.future_assumption};
  const tax=terms.tax_rate_pct===null?null:new Decimal(terms.tax_rate_pct).div(100),net=tax===null?null:new Decimal(gross).minus(Decimal.max(0,new Decimal(gross).minus(input.current_value_cents)).mul(tax)).toDecimalPlaces(0,Decimal.ROUND_HALF_UP).toNumber();
  return {status:'complete' as const,missing:[],version:'contract-b3-di-v1',calendar,gross_maturity_cents:gross,net_maturity_cents:net,gross_cashflows_cents:0,net_cashflows_cents:tax===null?null:0,tax_status:tax===null?'not_modelled':'explicit_assumption',rate_pct:null,indexer:'CDI',indexer_relation:'multiplier',indexer_assumption_pct:market.future_assumption?.annual_rate_pct??null,interest_treatment:'capitalize',cashflow_note:'El supuesto futuro y el calendario se identifican por separado; no hay pagos intermedios.',market_provenance:provenance};
 }
