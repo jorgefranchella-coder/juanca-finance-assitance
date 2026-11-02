@@ -1,6 +1,6 @@
 # Juanca — especificación de experiencia de usuario
 
-> **En desarrollo, issue #6:** en Revisiones, las posiciones de previsión muestran plan, fondo y CNPJ; el usuario puede confirmar o corregir su identidad indicando la ubicación de la evidencia. Guardar la decisión no publica el snapshot. Una fila antigua con varios planes requiere una nueva evidencia por plan. Cuando hay un saldo anterior agrupado por fondo, se muestra junto a los planes del nuevo extracto y se pide una aprobación explícita para sustituirlo al publicar. No desplegado.
+> **Issue #6, desplegado el 02/11/2026:** en Revisiones, las posiciones de previsión muestran plan, fondo y CNPJ; el usuario puede confirmar o corregir su identidad indicando la ubicación de la evidencia. Guardar la decisión no publica el snapshot. Una fila antigua con varios planes requiere una nueva evidencia por plan. Cuando hay un saldo anterior agrupado por fondo, se muestra junto a los planes del nuevo extracto y se pide una aprobación explícita para sustituirlo al publicar.
 
 > Cuando se detecta un saldo anterior bajo una cuenta identificada por el CNPJ, Revisiones muestra instrumento, cantidad, valor disponible y fecha inicial. El usuario debe comprobar que el extracto contiene todos los planes antes de aprobar la sustitución. La operación conserva la versión histórica y puede bloquearse si hay movimientos posteriores o evidencia incompatible.
 

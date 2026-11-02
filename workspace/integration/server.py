@@ -134,6 +134,7 @@ SHADOW_ROUTES = {
     '/api/shadow/reconciliation/b3/candidates': {'GET'},
     '/api/shadow/reconciliation/b3/snapshots': {'GET'},
     '/api/shadow/reconciliation/external/snapshots': {'GET'},
+    '/api/shadow/reconciliation/external/manual-snapshots': {'POST'},
     '/api/shadow/reconciliation/pension/identities/decisions': {'POST'},
     '/api/shadow/reconciliation/b3/decisions': {'POST'},
     '/api/shadow/position-identities/acquisition-reconciliation': {'GET'},
@@ -284,6 +285,7 @@ class Gateway(BaseHTTPRequestHandler):
             if (path in {'/api/shadow/reconciliation/manual-b3/decisions', '/api/shadow/reconciliation/b3/decisions', '/api/shadow/reconciliation/pension/identities/decisions'} or
                     SHADOW_B3_PUBLISH.fullmatch(path) or
                     SHADOW_EXTERNAL_PUBLISH.fullmatch(path) or
+                    path == '/api/shadow/reconciliation/external/manual-snapshots' or
                     SHADOW_POSITION_ACQUISITIONS.fullmatch(path) or
                     path == '/api/shadow/confirmations' and self.command == 'POST' or
                     path == '/api/shadow/fixed-income-terms' and self.command == 'POST' or
