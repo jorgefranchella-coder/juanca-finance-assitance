@@ -211,6 +211,17 @@ class PostgresMCPTest(unittest.TestCase):
         self.assertEqual(body['evidence_refs'][0]['tipo'], 'captura')
         self.assertTrue(body['request_key'].startswith('telegram-pension-'))
 
+    def test_pension_partial_update_keeps_prior_identity_pending(self):
+        plan = {'numero':'244090','produto':'PGBL','fondo':'Fundo A','cnpj':'12345678000199',
+                'saldo_bruto':'237000.25','saldo_liquido':'182798.00','regime_tributario':'Regressivo'}
+        with patch.object(mcp_server, 'urlopen', self.fake_urlopen):
+            result = mcp_server.registrar_snapshot_previdencia('Jorge','BTG Pactual','2026-11-02','bruto',
+                json.dumps([plan]),'[]',alcance='parcial',identidade_pendente=True)
+        body=json.loads(self.requests[-1].data)
+        self.assertEqual(body['update_scope'],'plans')
+        self.assertTrue(body['identity_unverified'])
+        self.assertFalse(result['portfolio_changed'])
+
     def test_approval_uses_postgres_revision_and_proposal_route(self):
         def urlopen(request, timeout=0):
             self.requests.append(request)

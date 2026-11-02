@@ -234,8 +234,9 @@ def registrar_evidencia_foto(propietario: str, ruta: str) -> dict:
 
 @mcp.tool()
 def registrar_snapshot_previdencia(propietario: str, instituicao: str, data_referencia: str,
-                                   base_valor: str, planos_json: str, evidencias_json: str = '[]') -> dict:
-    """Envia em uma única chamada o snapshot completo de previdência compilado durante a conversa. Cria evidência pendente sem alterar a carteira; exige titular, instituição, data e base gross/net (também aceita bruto/líquido), além de todos os planos. Os campos numero/produto/cnpj/saldo_bruto/saldo_liquido/regime_tributario são normalizados; aceita também os nomes canônicos plan_number/product_name/fund_cnpj/gross_balance/net_balance/tax_regime. Cada plano é uma posição separada, mesmo que compartilhe o fundo/CNPJ."""
+                                   base_valor: str, planos_json: str, evidencias_json: str = '[]',
+                                   alcance: str = 'complete', identidade_pendente: bool = False) -> dict:
+    """Prepara saldos de previdência para revisão sem publicar carteira. Para atualizar apenas os planos informados, use alcance='plans': os outros são conservados com a última data publicada e a mesma base bruta/líquida. Use identidade_pendente=true se o fundo/CNPJ vier apenas de evidência anterior e a nova foto não o confirmar. Exige titular, instituição, data, base gross/net e para cada plano número, produto, fundo, CNPJ, saldo bruto, saldo líquido e regime tributário. Cada plano mantém identidade separada."""
     if propietario not in {'Jorge', 'Julia'}:
         raise ValueError('Titular inválido')
     if authority_mode() != 'postgres':
@@ -251,6 +252,10 @@ def registrar_snapshot_previdencia(propietario: str, instituicao: str, data_refe
     basis = basis_aliases.get(base_valor.strip().lower())
     if not basis:
         raise ValueError('Escolha uma única base de valorização: bruto ou líquido')
+    scope_aliases = {'complete': 'complete', 'completo': 'complete', 'plans': 'plans', 'planos': 'plans', 'parcial': 'plans'}
+    scope = scope_aliases.get(alcance.strip().lower())
+    if not scope or not isinstance(identidade_pendente, bool) or identidade_pendente and scope != 'plans':
+        raise ValueError('Indique alcance completo ou por planos; identidade pendente exige atualização por planos')
     plan_aliases = {'numero': 'plan_number', 'produto': 'product_name', 'cnpj': 'fund_cnpj', 'fund_name': 'fund', 'fondo': 'fund',
                     'saldo_bruto': 'gross_balance', 'saldo_liquido': 'net_balance',
                     'regime_tributario': 'tax_regime', 'codigo_anbima': 'anbima_code'}
@@ -282,12 +287,16 @@ def registrar_snapshot_previdencia(propietario: str, instituicao: str, data_refe
             raise ValueError('Faltan campos del plan: ' + ', '.join(missing))
     body = {'owner': propietario, 'institution': instituicao, 'reference_date': data_referencia,
             'valuation_basis': basis, 'plans': normalized_plans, 'evidence_refs': evidence_refs}
+    if scope == 'plans':
+        body['update_scope'] = 'plans'
+    if identidade_pendente:
+        body['identity_unverified'] = True
     canonical = json.dumps(body, ensure_ascii=False, sort_keys=True, separators=(',', ':')).encode()
     request_key = stable_request_id(propietario, canonical, prefix='telegram-pension')
     result = api('/api/shadow/reconciliation/external/manual-snapshots',
                  {'request_key': request_key, **body}, method='POST')
     return {'snapshot': result, 'portfolio_changed': False,
-            'next_step': 'Snapshot completo enviado para a fila de revisão PostgreSQL. O patrimônio só muda depois da publicação explícita na web.'}
+            'next_step': 'Atualização enviada para a fila de revisão PostgreSQL. Confira os planos conservados e a identidade; o patrimônio só muda após aprovação explícita na web.'}
 
 @mcp.tool()
 def decidir_transaccion(propuesta_id: str, accion: str) -> dict:
