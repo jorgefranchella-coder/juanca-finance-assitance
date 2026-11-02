@@ -2,6 +2,8 @@
 
 > **En desarrollo, issue #6:** en Revisiones, las posiciones de previsión muestran plan, fondo y CNPJ; el usuario puede confirmar o corregir su identidad indicando la ubicación de la evidencia. Guardar la decisión no publica el snapshot. Una fila antigua con varios planes requiere una nueva evidencia por plan; un saldo antiguo agrupado por fondo bloquea la publicación hasta su conciliación. No desplegado.
 
+> Cuando se detecta un saldo anterior bajo una cuenta identificada por el CNPJ, Revisiones muestra el instrumento, cantidad, moneda y fecha inicial y deshabilita la publicación. La vista no autoriza ni ejecuta el traslado.
+
 **Estado de referencia:** 24 de octubre de 2026. PostgreSQL es la autoridad activa. Esta especificación describe la interfaz productiva y marca como **objetivo** las funciones aún no implementadas. Ver [reglas funcionales](ESPECIFICACION_FUNCIONAL.md) y [arquitectura técnica](ESPECIFICACION_TECNICA.md).
 
 ## 1. Principios de interfaz

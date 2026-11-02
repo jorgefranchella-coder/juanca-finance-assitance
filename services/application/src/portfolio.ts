@@ -1,7 +1,7 @@
 import { D, exact, integer, localized, minor } from './money.ts';
 export type Row=Record<string,unknown>;
 export type SourceRow={id:string;import_id:string;file_type:string;owner:string;reference_date:string|null;created_at:string;payload:string};
-export type Inputs={snapshots:SourceRow[];trades:SourceRow[];quotes:Row[];fx:Row|null;facts_revision:string};
+export type Inputs={snapshots:SourceRow[];trades:SourceRow[];quotes:Row[];fx:Row|null;facts_revision:string;selection_issues?:Issue[]};
 export type PositionAccountResolution={custody_account_id:string;institution_id:string;assertion_id:string|null};
 export type Position={owner:string;account_id:string;identity_status:string;instrument_code:string;currency:string;quantity:string;current_unit_price:string;market_value_minor:string;market_value_cents:string|null;asset_class:string;product_name:string;institution:string;base_reference_date:string;reference_date:string;price_as_of:string;source:string};
 export type Issue={code:string;record_id?:string;owner?:string;instrument_code?:string};
@@ -16,7 +16,7 @@ function documentValue(item:Row){
 }
 export function accountScope(owner:string,type:string,item:Row){return JSON.stringify([owner,item.account?'account:'+String(item.account):'unresolved:'+type+':'+String(item.institution??'unknown')]);}
 export function buildPortfolio(input:Inputs,resolutions:Map<string,string>=new Map(),accountAliases:Map<string,string>=new Map(),tradeAttributions:Map<string,{owner:string;source_scope:string}>=new Map(),positionAccountResolutions:Map<string,PositionAccountResolution>=new Map()){
- const positions:Position[]=[];const issues:Issue[]=[];const bases=new Map<string,string>();const legacyBases=new Map<string,string>();
+ const positions:Position[]=[];const issues:Issue[]=[...(input.selection_issues??[])];const bases=new Map<string,string>();const legacyBases=new Map<string,string>();
  const quotes=new Map(input.quotes.map(q=>[String(q.market)+'\0'+codeOf(q.symbol),q]));
  const fx=input.fx?exact(input.fx.rate):null;
  for(const row of input.snapshots){try{
@@ -57,11 +57,18 @@ export function buildPortfolio(input:Inputs,resolutions:Map<string,string>=new M
 }
 export function selectInputs(tables:Record<string,Row[]>,household:string,effectiveAsOf:string,knownAt:string,valuationAsOf=effectiveAsOf):Inputs{
  const imports=tables.imports.filter(i=>i.user_id===household&&i.status==='processed'&&String(i.reference_date??'')<=effectiveAsOf&&new Date(String(i.created_at)+'Z').toISOString()<=knownAt);
+ // Pension statements are complete cuts for one provider, not for every
+ // pension provider belonging to the owner. Prefer the institution actually
+ // observed in their position rows; mixed or unknown statements retain a
+ // separate legacy scope until their identities are reviewed.
+ const pensionProviders=new Map<string,Set<string>>();
+ for(const r of tables.import_records){if(r.record_kind!=='position')continue;try{const value=JSON.parse(String(r.payload)) as Row;const institution=String(value.institution??'').trim();if(institution){const id=String(r.import_id),providers=pensionProviders.get(id)??new Set<string>();providers.add(institution);pensionProviders.set(id,providers);}}catch{/* Invalid rows remain subject to normal validation. */}}
+ const scope=(i:Row)=>{const base=String(i.owner)+'\0'+String(i.file_type);if(i.file_type!=='pension_statement')return base;const providers=pensionProviders.get(String(i.id));return base+'\0'+(providers?.size===1?[...providers][0]:'__legacy_unresolved__');};
  const latest=new Map<string,Row>();
- for(const i of imports){const key=String(i.owner)+'\0'+String(i.file_type);const old=latest.get(key);if(!old||String(i.reference_date??'')>String(old.reference_date??'')||i.reference_date===old.reference_date&&String(i.created_at)>=String(old.created_at))latest.set(key,i);}
+ for(const i of imports){const key=scope(i);const old=latest.get(key);if(!old||String(i.reference_date??'')>String(old.reference_date??'')||i.reference_date===old.reference_date&&String(i.created_at)>=String(old.created_at))latest.set(key,i);}
  const byId=new Map(imports.map(i=>[String(i.id),i]));const snapshots:SourceRow[]=[];const trades:SourceRow[]=[];
  for(const r of tables.import_records){const i=byId.get(String(r.import_id));if(!i)continue;const row={id:String(r.id),import_id:String(i.id),file_type:String(i.file_type),owner:String(i.owner),reference_date:i.reference_date as string|null,created_at:String(i.created_at),payload:String(r.payload)};
-  if(r.record_kind==='position'&&['positions','avenue_statement','pension_statement'].includes(row.file_type)&&latest.get(row.owner+'\0'+row.file_type)===i)snapshots.push(row);
+  if(r.record_kind==='position'&&['positions','avenue_statement','pension_statement'].includes(row.file_type)&&latest.get(scope(i))===i)snapshots.push(row);
   if(r.record_kind==='trade'&&['chat_transaction','avenue_confirmation'].includes(row.file_type)){const p=JSON.parse(row.payload) as Row;if(String(p.trade_date??'')<=effectiveAsOf)trades.push(row);}
  }
  snapshots.sort((a,b)=>a.owner.localeCompare(b.owner)||a.file_type.localeCompare(b.file_type)||Number(a.id)-Number(b.id));
@@ -73,5 +80,6 @@ export function selectInputs(tables:Record<string,Row[]>,household:string,effect
  const latestFx=tables.fx_observations.filter(q=>q.user_id===household&&String(q.quoted_at).slice(0,10)<=valuationAsOf&&instant(q.recorded_at)<=knownAt).sort((a,b)=>instant(b.quoted_at).localeCompare(instant(a.quoted_at))||instant(b.recorded_at).localeCompare(instant(a.recorded_at)));
  const fx=latestFx[0]??null;
  const quotes=[...latestQuotes.values()];
- return {snapshots,trades,quotes,fx,facts_revision:String(tables.portfolio_revisions.find(r=>r.user_id===household)?.revision??'0')};
+ const selection_issues:Issue[]=[...latest.values()].filter(i=>i.file_type==='pension_statement'&&(pensionProviders.get(String(i.id))?.size??0)!==1).map(i=>({code:'pension_provider_scope_unresolved',record_id:String(i.id),owner:String(i.owner)}));
+ return {snapshots,trades,quotes,fx,facts_revision:String(tables.portfolio_revisions.find(r=>r.user_id===household)?.revision??'0'),selection_issues};
 }

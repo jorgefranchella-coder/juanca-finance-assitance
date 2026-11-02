@@ -2,6 +2,20 @@ import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {D,exact,minor,integer} from '../src/money.ts';
 import {buildPortfolio,selectInputs,type Inputs,type Row} from '../src/portfolio.ts';
+
+test('pension snapshots retain the latest complete cut per provider and owner',()=>{
+ const makeImport=(id:string,owner:string,date:string)=>({id,user_id:'fixture',owner,status:'processed',file_type:'pension_statement',reference_date:date,created_at:date+' 00:00:00'});
+ const imports=[makeImport('a-old','Jorge','2026-08-01'),makeImport('b','Jorge','2026-08-02'),makeImport('a-new','Jorge','2026-08-03'),makeImport('julia-a','Julia','2026-08-01')];
+ const record=(id:string,institution:string)=>({id,import_id:id,record_kind:'position',payload:JSON.stringify({institution})});
+ const tables:Record<string,Row[]>={imports,import_records:[record('a-old','Proveedor A'),record('b','Proveedor B'),record('a-new','Proveedor A'),record('julia-a','Proveedor A')],market_quotes:[],fx_observations:[],portfolio_revisions:[]};
+ const result=selectInputs(tables,'fixture','2026-08-04','2026-08-05T00:00:00.000Z');
+ assert.deepEqual(result.snapshots.map(row=>row.import_id).sort(),['a-new','b','julia-a']);
+});
+test('a mixed historical pension statement keeps its unresolved provider scope visible',()=>{
+ const tables:Record<string,Row[]>={imports:[{id:'mixed',user_id:'fixture',owner:'Jorge',status:'processed',file_type:'pension_statement',reference_date:'2026-08-01',created_at:'2026-08-01 00:00:00'}],import_records:[{id:'one',import_id:'mixed',record_kind:'position',payload:JSON.stringify({institution:'A'})},{id:'two',import_id:'mixed',record_kind:'position',payload:JSON.stringify({institution:'B'})}],market_quotes:[],fx_observations:[],portfolio_revisions:[]};
+ const result=selectInputs(tables,'fixture','2026-08-02','2026-08-03T00:00:00.000Z');
+ assert.equal(result.snapshots.length,2);assert.equal(result.selection_issues?.[0].code,'pension_provider_scope_unresolved');assert.equal(buildPortfolio(result).valuation_complete,false);
+});
 import {effectiveAcquisitionLots,summarizeAcquisitionQuantity} from '../src/acquisition-lots.ts';
 const input=():Inputs=>({snapshots:[],trades:[],quotes:[],fx:null,facts_revision:'0'});
 function source(payload:Row,id='1'){return {id,import_id:'i1',file_type:'positions',owner:'Fixture',reference_date:'2026-08-01',created_at:'2026-08-02 00:00:00',payload:JSON.stringify(payload)};}

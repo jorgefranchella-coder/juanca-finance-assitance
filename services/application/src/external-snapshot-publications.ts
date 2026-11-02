@@ -33,6 +33,21 @@ export async function listExternalPositionSnapshots(db:pg.Pool,household:string)
    ORDER BY d.effective_as_of DESC,d.registered_at DESC LIMIT 50`,[household]);
  const current=await db.query(`SELECT v.effective_as_of::text AS portfolio_effective_as_of FROM app.household_state s
    JOIN app.portfolio_versions v ON v.household_id=s.household_id AND v.id=s.latest_version WHERE s.household_id=$1`,[household]);
+ // Read-only preview of the exact historical balances that would otherwise
+ // collide with a plan-level publication. It never alters these balances.
+ for(const snapshot of result.rows){
+  snapshot.legacy_positions=[];
+  if(snapshot.source_system==='Avenue'||snapshot.published)continue;
+  const providerId='pension-provider-'+sha(String(snapshot.source_system).normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase()).slice(0,24);
+  const codes=[...new Set((snapshot.position_details as Raw[]).map(row=>String(row.instrument_code??'')).filter(code=>/^PREV-\d{14}$/.test(code)))];
+  for(const code of codes){
+   const accounts=await db.query('SELECT id FROM app.custody_accounts WHERE household_id=$1 AND owner_id=$2 AND institution_id=$3 AND external_reference=$4',[household,snapshot.owner_id,providerId,code.slice(5)]);
+   if(!accounts.rowCount)continue;
+   const ids=accounts.rows.map(item=>accountId(JSON.stringify([snapshot.owner,'custody:'+String(item.id)])));
+   const balances=await db.query(`SELECT account_id,instrument_code,currency,quantity::text,opening_as_of::text FROM app.holdings WHERE household_id=$1 AND account_id=ANY($2::text[]) AND instrument_code=$3 AND quantity<>0 ORDER BY account_id,currency`,[household,ids,code]);
+   snapshot.legacy_positions.push(...balances.rows);
+  }
+ }
  return{snapshots:result.rows,portfolio_effective_as_of:current.rows[0]?.portfolio_effective_as_of??null,mode:'shadow',authoritative:false};
 }
 

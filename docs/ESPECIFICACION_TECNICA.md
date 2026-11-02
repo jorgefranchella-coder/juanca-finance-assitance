@@ -2,6 +2,8 @@
 
 > **En desarrollo, issue #6:** el parser de previsión v2 guarda los localizadores de plan, fondo y CNPJ y marca como pendiente la identidad ambigua; los trabajos v1 siguen siendo importables como pendientes. La cuenta por plan deriva de titular, proveedor y número de plan, mientras el CNPJ identifica el instrumento. Las decisiones se versionan en PostgreSQL sin sobrescribir assertions; la publicación es una acción separada y bloquea posiciones antiguas agrupadas con saldo. Falta un procedimiento de traslado revisado de esos saldos. No desplegado.
 
+> La selección de fotografías de previsión usa titular y proveedor observado en las posiciones. Las fotografías históricas con proveedor ausente o mezclado se conservan en un ámbito pendiente y generan `pension_provider_scope_unresolved`. La vista previa de conflictos detecta saldos cuyo identificador de cuenta anterior es el CNPJ del fondo; no es un inventario exhaustivo de otras identidades heredadas.
+
 **Estado de referencia:** 24 de octubre de 2026. PostgreSQL es la autoridad productiva activa mediante el gateway; D1/R2 se mantiene como recuperación y sus rutas de escritura financiera están bloqueadas. La [especificación funcional](ESPECIFICACION_FUNCIONAL.md) describe reglas de negocio y la [especificación UX](ESPECIFICACION_UX.md), el comportamiento visible.
 
 ## 1. Componentes y autoridad
