@@ -4,6 +4,8 @@
 
 > Cuando se detecta un saldo anterior bajo una cuenta identificada por el CNPJ, Revisiones muestra instrumento, cantidad, valor disponible y fecha inicial. El usuario debe comprobar que el extracto contiene todos los planes antes de aprobar la sustitución. La operación conserva la versión histórica y puede bloquearse si hay movimientos posteriores o evidencia incompatible.
 
+> Cambio de saldo por foto desplegado el 02/11/2026: la bandeja identifica capturas de previdencia y ofrece un formulario de saldos por plan, con foto, fecha y validación explícita de que se incluyeron todos los planes de la institución. Una opción secundaria permite tratar la imagen como operación si corresponde. Los campos leídos por OCR son sugerencias que el usuario comprueba.
+
 **Estado de referencia:** 24 de octubre de 2026. PostgreSQL es la autoridad activa. Esta especificación describe la interfaz productiva y marca como **objetivo** las funciones aún no implementadas. Ver [reglas funcionales](ESPECIFICACION_FUNCIONAL.md) y [arquitectura técnica](ESPECIFICACION_TECNICA.md).
 
 ## 1. Principios de interfaz

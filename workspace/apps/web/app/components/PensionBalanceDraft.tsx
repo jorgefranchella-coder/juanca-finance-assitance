@@ -1,0 +1,23 @@
+"use client";
+import {useRef,useState,type FormEvent} from 'react';
+import type {PhotoEvidence} from '../../lib/review-inbox';
+
+type Plan={plan_number:string;product_name:string;fund:string;fund_cnpj:string;gross_balance:string;net_balance:string;tax_regime:string};
+const empty=():Plan=>({plan_number:'',product_name:'',fund:'',fund_cnpj:'',gross_balance:'',net_balance:'',tax_regime:''});
+function valueFromPhoto(text:string,label:string){const match=text.match(new RegExp(label+'[^\\d]{0,25}(\\d[\\d.,]*)','i'));return match?.[1]??'';}
+function decimal(value:string){const s=value.trim().replace(/\s/g,'');if(/^\d{1,3}(?:\.\d{3})*,\d{1,2}$/.test(s))return s.replaceAll('.','').replace(',','.');if(/^\d+(?:[.,]\d{1,2})?$/.test(s))return s.replace(',','.');throw new Error('Revisa los importes: usa, por ejemplo, 1234,56 o 1.234,56.');}
+export default function PensionBalanceDraft({photo,onSaved}:{photo:PhotoEvidence;onSaved:()=>Promise<void>}){
+ const text=photo.ocr_text??'',initial=empty();initial.plan_number=text.match(/\bplan[ou]?\s*[:#]?\s*(\d{3,})/i)?.[1]??'';initial.product_name=text.match(/\b(?:PGBL|VGBL)\b/i)?.[0]?.toUpperCase()??'';initial.gross_balance=valueFromPhoto(text,'saldo\\s+bruto');initial.net_balance=valueFromPhoto(text,'saldo\\s+l[ií]quido');initial.tax_regime=/regressiv[oa]/i.test(text)?'Regressivo':'';
+ const [institution,setInstitution]=useState(''),[date,setDate]=useState(''),[basis,setBasis]=useState(''),[plans,setPlans]=useState<Plan[]>([initial]),[complete,setComplete]=useState(false),[saving,setSaving]=useState(false),[error,setError]=useState('');
+ const pending=useRef<{body:string;key:string}|null>(null);
+ const update=(i:number,key:keyof Plan,value:string)=>setPlans(current=>current.map((p,n)=>n===i?{...p,[key]:value}:p));
+ async function submit(event:FormEvent){event.preventDefault();setError('');try{
+  if(!complete)throw new Error('Confirma que incluiste todos los planes de esta institución.');
+  const payload={owner:photo.owner,institution:institution.trim(),reference_date:date,valuation_basis:basis,plans:plans.map(p=>({...p,gross_balance:decimal(p.gross_balance),net_balance:decimal(p.net_balance)})),evidence_refs:[{kind:'manual_photo',upload_id:photo.upload_id}]};
+  const body=JSON.stringify(payload);if(pending.current?.body!==body)pending.current={body,key:`pension-photo-${crypto.randomUUID()}`};setSaving(true);
+  const response=await fetch('/api/shadow/reconciliation/external/manual-snapshots',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...payload,request_key:pending.current.key})});const result=await response.json() as {code?:string};if(!response.ok)throw new Error(result.code??'No se pudo preparar la actualización.');pending.current=null;await onSaved();
+ }catch(e){setError(e instanceof Error?e.message:'No se pudo preparar la actualización.');}finally{setSaving(false);}}
+ return <form className="review-photo-draft" onSubmit={event=>void submit(event)}><strong>Preparar actualización de saldo</strong><p>Comprueba los datos con la foto. La actualización queda pendiente de aprobación y no registra una compra ni una venta.</p><div className="review-photo-draft-grid"><label>Institución<input required value={institution} onChange={e=>setInstitution(e.target.value)}/></label><label>Fecha de referencia<input required type="date" value={date} onChange={e=>setDate(e.target.value)}/></label><label>Valor a mostrar<select required value={basis} onChange={e=>setBasis(e.target.value)}><option value="">Elegir</option><option value="gross">Bruto</option><option value="net">Líquido</option></select></label></div>
+ {plans.map((plan,i)=><fieldset key={i}><legend>Plan {i+1}</legend><div className="review-photo-draft-grid">{([['plan_number','Número de plan'],['product_name','Producto'],['fund','Fondo'],['fund_cnpj','CNPJ del fondo'],['gross_balance','Saldo bruto (BRL)'],['net_balance','Saldo líquido (BRL)'],['tax_regime','Régimen tributario']] as [keyof Plan,string][]).map(([key,label])=><label key={key}>{label}<input required value={plan[key]} onChange={e=>update(i,key,e.target.value)}/></label>)}</div>{plans.length>1&&<button type="button" onClick={()=>setPlans(current=>current.filter((_,n)=>n!==i))}>Quitar plan</button>}</fieldset>)}
+ <button type="button" onClick={()=>setPlans(current=>[...current,empty()])}>Agregar otro plan</button><label><input type="checkbox" checked={complete} onChange={e=>setComplete(e.target.checked)}/> Confirmo que incluí todos los planes vigentes de esta institución para esta fecha</label>{error&&<p role="alert">{error}</p>}<button type="submit" disabled={saving||!complete}>{saving?'Guardando…':'Preparar para revisión'}</button></form>;
+}

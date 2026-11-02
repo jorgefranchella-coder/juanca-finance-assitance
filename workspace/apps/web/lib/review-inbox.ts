@@ -1,4 +1,4 @@
-export type PensionPosition={assertion_id:string;identity_decision_id:string|null;identity_decision_revision:number|null;identity_status:string|null;identity_review_reasons?:string[];plan_number:string|null;fund:string|null;fund_cnpj:string|null;quantity?:string|null;market_value?:string|null;gross_balance?:string|null;net_balance?:string|null;plans?:{plan_number:string}[]};
+export type PensionPosition={assertion_id:string;identity_decision_id:string|null;identity_decision_revision:number|null;identity_status:string|null;identity_review_reasons?:string[];plan_number:string|null;fund:string|null;fund_cnpj:string|null;quantity?:string|null;market_value?:string|null;gross_balance?:string|null;net_balance?:string|null;evidence_refs?:Array<string|{kind?:string;upload_id?:string}>;plans?:{plan_number:string}[]};
 export type ReviewKind = "proposal" | "confirmation" | "b3_snapshot" | "external_snapshot" | "text" | "photo";
 export type ReviewLane = "decision" | "evidence" | "follow_up" | "history";
 export type Proposal = { id:string; owner:string; owner_id:string; account_id:string; account_scope:string; instrument_code:string; currency:string; side:"buy"|"sell"; quantity:string; unit_price:string; fees_minor:string; effective_date:string; version:number; summary_hash:string; status:string; source_evidence_kind?:string|null; source_evidence_id?:string|null; source_evidence_text?:string|null; source_evidence_received_at?:string|null };
@@ -9,6 +9,12 @@ export type Snapshot = { document_id:string; owner:string; source_system?:string
 export type Position = { owner:string; account_id:string; institution:string; instrument_code:string; currency:string; base_reference_date?:string };
 export type ReviewCard = { id:string; kind:ReviewKind; lane:ReviewLane; owner:string; title:string; source:string; custodian:string; account_id:string|null; event_date:string|null; received_at:string; status:string; related_texts:TextEvidence[]; related_photos:PhotoEvidence[]; data:Proposal|Confirmation|TextEvidence|PhotoEvidence|Snapshot };
 export type ReviewInput = { proposals:Proposal[]; confirmations:Confirmation[]; texts:TextEvidence[]; photos:PhotoEvidence[]; b3:Snapshot[]; external:Snapshot[]; positions:Position[] };
+
+/** A balance screenshot is not evidence that any buy or sell was executed. */
+export function isPensionBalanceEvidence(photo:PhotoEvidence){
+ const text=(photo.ocr_text??'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
+ return /\b(pgbl|vgbl|previdencia)\b/.test(text)||(/\bsaldo\b/.test(text)&&/investimentos?\s+(?:da\s+)?empresa/.test(text));
+}
 
 function signature(owner:string,side:unknown,ticker:unknown,quantity:unknown,date:unknown){
  if(!owner||!side||!ticker||!quantity||!date)return null;
@@ -54,7 +60,7 @@ export function buildReviewCards(input:ReviewInput):ReviewCard[]{
   }
  }
  for(const item of input.texts)if(!assignedTexts.has(item.id)&&item.status==='awaiting_review')cards.push({id:`text:${item.id}`,kind:'text',lane:'evidence',owner:item.owner,title:item.fields?.instrument_code&&item.fields.instrument_code!=='VENDA'?`Texto sobre ${item.fields.instrument_code}`:'Movimiento escrito por identificar',source:'Texto',custodian:'',account_id:null,event_date:item.fields?.trade_date??item.occurred_on??null,received_at:item.received_at,status:item.interpretation_status??item.status,related_texts:[],related_photos:[],data:item});
- for(const photo of input.photos)if(!assignedPhotos.has(photo.upload_id)&&photo.proposal_evidence_status==='awaiting_review')cards.push({id:`photo:${photo.upload_id}`,kind:'photo',lane:'evidence',owner:photo.owner,title:photo.ocr_trade_interpretation?.fields?.instrument_code?`Foto sobre ${photo.ocr_trade_interpretation.fields.instrument_code}`:`Foto recibida · ${photo.file_name}`,source:'Foto',custodian:'',account_id:null,event_date:photo.ocr_trade_interpretation?.fields?.trade_date??null,received_at:photo.created_at,status:photo.ocr_trade_interpretation?.status??photo.ocr_status??photo.status,related_texts:[],related_photos:[],data:photo});
+ for(const photo of input.photos)if(!assignedPhotos.has(photo.upload_id)&&photo.proposal_evidence_status==='awaiting_review'){const pension=isPensionBalanceEvidence(photo);cards.push({id:`photo:${photo.upload_id}`,kind:'photo',lane:'evidence',owner:photo.owner,title:pension?'Saldo de previdencia por revisar':photo.ocr_trade_interpretation?.fields?.instrument_code?`Foto sobre ${photo.ocr_trade_interpretation.fields.instrument_code}`:`Foto recibida · ${photo.file_name}`,source:'Foto',custodian:'',account_id:null,event_date:pension?null:photo.ocr_trade_interpretation?.fields?.trade_date??null,received_at:photo.created_at,status:photo.ocr_trade_interpretation?.status??photo.ocr_status??photo.status,related_texts:[],related_photos:[],data:photo});}
  const lanes:Record<ReviewLane,number>={decision:0,evidence:1,follow_up:2,history:3};
  return cards.sort((a,b)=>lanes[a.lane]-lanes[b.lane]||Date.parse(b.received_at)-Date.parse(a.received_at)||a.id.localeCompare(b.id));
 }

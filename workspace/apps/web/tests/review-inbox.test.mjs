@@ -31,3 +31,10 @@ test('a recorded keep-open answer moves to follow-up rather than asking again',(
  const card=buildReviewCards(input({confirmations:[confirmation]}))[0];assert.equal(card.lane,'follow_up');assert.equal(card.status,'in_follow_up');
  const resolved=buildReviewCards(input({confirmations:[{...confirmation,status:'resolved'}]}))[0];assert.equal(resolved.lane,'history');
 });
+
+test('pension balance photos are not labelled as trades',()=>{
+ const base={upload_id:'pension-photo',owner:'Jorge',file_name:'pension.jpg',created_at:'2026-11-02T13:28:00Z',status:'stored',proposal_evidence_status:'awaiting_review',ocr_trade_interpretation:{fields:{instrument_code:'PGBL',side:null}}};
+ for(const ocr_text of ['Plano 244090\nSaldo bruto R$ 237.000,25\nPGBL\nFundos de previdência','Santander\nSaldo meus investimentos R$ 225.197,69\nSaldo investimentos empresa R$ 225.197,69']){
+  const card=buildReviewCards(input({photos:[{...base,ocr_text}]}))[0];assert.equal(card.title,'Saldo de previdencia por revisar');assert.equal(card.event_date,null);
+ }
+});

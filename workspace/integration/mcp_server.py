@@ -235,7 +235,7 @@ def registrar_evidencia_foto(propietario: str, ruta: str) -> dict:
 @mcp.tool()
 def registrar_snapshot_previdencia(propietario: str, instituicao: str, data_referencia: str,
                                    base_valor: str, planos_json: str, evidencias_json: str = '[]') -> dict:
-    """Envia em uma única chamada o snapshot completo de previdência compilado durante a conversa. Cria evidência pendente sem alterar a carteira; exige titular, instituição, data e base gross/net (também aceita bruto/líquido), além de todos os planos. Os campos numero/produto/cnpj/saldo_bruto/saldo_liquido/regime_tributario são normalizados; aceita também os nomes canônicos plan_number/product_name/fund_cnpj/gross_balance/net_balance/tax_regime. Planos do mesmo fundo/CNPJ ficam detalhados na evidência e consolidados numa posição."""
+    """Envia em uma única chamada o snapshot completo de previdência compilado durante a conversa. Cria evidência pendente sem alterar a carteira; exige titular, instituição, data e base gross/net (também aceita bruto/líquido), além de todos os planos. Os campos numero/produto/cnpj/saldo_bruto/saldo_liquido/regime_tributario são normalizados; aceita também os nomes canônicos plan_number/product_name/fund_cnpj/gross_balance/net_balance/tax_regime. Cada plano é uma posição separada, mesmo que compartilhe o fundo/CNPJ."""
     if propietario not in {'Jorge', 'Julia'}:
         raise ValueError('Titular inválido')
     if authority_mode() != 'postgres':

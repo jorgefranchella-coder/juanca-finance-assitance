@@ -8,6 +8,8 @@
 
 > La comprobación de respaldos selecciona el más reciente por la fecha incluida en el nombre, en lugar del orden alfabético: así, un respaldo especial de corte no oculta los respaldos diarios posteriores. Se verifican integridad, restauración, antigüedad y espacio disponible; una copia reciente incompleta no puede ocultarse detrás de otra más antigua. El 02/11/2026 se verificaron y copiaron a pCloud los respaldos cifrados de D1 y PostgreSQL, con lectura y verificación posterior de los objetos remotos.
 
+> Cambio de saldo por foto desplegado el 02/11/2026: el OCR sugiere campos sin aprobarlos, la creación del snapshot valida titular y disponibilidad de la foto y la enlaza de forma transaccional. La publicación verifica que los planes de una posición histórica agrupada estén presentes antes de retirarla. Una actualización individual que preserve para los demás planes su fecha previa todavía requiere implementación.
+
 **Estado de referencia:** 24 de octubre de 2026. PostgreSQL es la autoridad productiva activa mediante el gateway; D1/R2 se mantiene como recuperación y sus rutas de escritura financiera están bloqueadas. La [especificación funcional](ESPECIFICACION_FUNCIONAL.md) describe reglas de negocio y la [especificación UX](ESPECIFICACION_UX.md), el comportamiento visible.
 
 ## 1. Componentes y autoridad

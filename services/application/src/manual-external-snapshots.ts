@@ -21,6 +21,8 @@ export async function createManualExternalPositionSnapshot(db:pg.Pool,household:
  if(input.valuation_basis!=='gross'&&input.valuation_basis!=='net')throw new Conflict('VALIDATION',422);
  if(!Array.isArray(input.plans)||input.plans.length<1||input.plans.length>100)throw new Conflict('VALIDATION',422);
  const evidenceRefs=input.evidence_refs??[];if(!Array.isArray(evidenceRefs)||evidenceRefs.length>20||evidenceRefs.some(v=>typeof v==='string'?v.length>240:!v||typeof v!=='object'||Array.isArray(v)||JSON.stringify(v).length>1000))throw new Conflict('VALIDATION',422);
+ const photoIds=evidenceRefs.filter(v=>v&&typeof v==='object'&&!Array.isArray(v)&&(v as Obj).kind==='manual_photo').map(v=>(v as Obj).upload_id);
+ if(photoIds.some(id=>typeof id!=='string'||!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id))||new Set(photoIds).size!==photoIds.length)throw new Conflict('VALIDATION',422);
  const plans=input.plans.map((value,index)=>{
   const p=object(value);if(Object.keys(p).some(k=>!['plan_number','product_name','fund','fund_cnpj','gross_balance','net_balance','tax_regime','isin','anbima_code'].includes(k)))throw new Conflict('VALIDATION',422);
   const cnpj=text(p.fund_cnpj,32).replace(/\D/g,'');if(!/^\d{14}$/.test(cnpj))throw new Conflict('FUND_CNPJ_REQUIRED',422);
@@ -43,14 +45,17 @@ export async function createManualExternalPositionSnapshot(db:pg.Pool,household:
   await c.query('SELECT pg_advisory_xact_lock(hashtextextended($1,0))',[`${household}:manual-external-snapshot:${input.request_key}`]);
   const prior=await c.query('SELECT id,content_sha256 FROM app.source_documents WHERE household_id=$1 AND id=$2',[household,documentId]);
   if(prior.rowCount){if(prior.rows[0].content_sha256!==contentHash)throw new Conflict('IDEMPOTENCY_MISMATCH',409);await c.query('COMMIT');return{document_id:documentId,content_sha256:contentHash,source_system:institution,reference_date:cut,plans:plans.length,status:'evidence_only',portfolio_published:false,replayed:true};}
+  if(photoIds.length){const photos=await c.query('SELECT upload_id,owner_id,status FROM app.manual_photo_evidence WHERE household_id=$1 AND upload_id=ANY($2::uuid[]) FOR UPDATE',[household,photoIds]);if(photos.rowCount!==photoIds.length||photos.rows.some(p=>p.owner_id!==owner.rows[0].id||p.status!=='awaiting_review'))throw new Conflict('PHOTO_EVIDENCE_UNAVAILABLE',409);}
+  const sourceLabel=photoIds.length?'Foto':'Telegram';
   await c.query(`INSERT INTO app.source_documents(household_id,id,owner_id,source_system,report_kind,original_name,content_sha256,storage_key,effective_as_of,date_basis,status)
-    VALUES($1,$2,$3,$4,'position',$5,$6,$7,$8,'user_reported','evidence_only')`,[household,documentId,owner.rows[0].id,institution,`Telegram - snapshot previdencia ${cut}`,contentHash,`manual:telegram:${documentId}`,cut]);
+    VALUES($1,$2,$3,$4,'position',$5,$6,$7,$8,'user_reported','evidence_only')`,[household,documentId,owner.rows[0].id,institution,`${sourceLabel} - snapshot previdencia ${cut}`,contentHash,`manual:telegram:${documentId}`,cut]);
   for(const [index,p] of positions.entries()){
    const {index:_planIndex,...plan}=p;
-   const raw={institution,instrument_code:`PREV-${p.fund_cnpj}`,plan_number:p.plan_number,plans:[plan],product_name:p.product_name,fund:p.fund,fund_cnpj:p.fund_cnpj,gross_balance:p.gross_balance,net_balance:p.net_balance,tax_regime:p.tax_regime,isin:p.isin,anbima_code:p.anbima_code,valuation_basis:input.valuation_basis,currency:'BRL',market_value:p.market_value,unit_price:p.unit_price,identity_status:'observed',identity_evidence_kind:'user_reported',identity_evidence:{plan:[{value:p.plan_number,locator:`Telegram:plan:${index+1}`}],fund:[{value:p.fund,locator:`Telegram:plan:${index+1}`}],fund_cnpj:[{value:p.fund_cnpj,locator:`Telegram:plan:${index+1}`}]},evidence_refs:evidenceRefs};
+   const locator=`${sourceLabel}:usuario:plan:${index+1}`;const raw={institution,instrument_code:`PREV-${p.fund_cnpj}`,plan_number:p.plan_number,plans:[plan],product_name:p.product_name,fund:p.fund,fund_cnpj:p.fund_cnpj,gross_balance:p.gross_balance,net_balance:p.net_balance,tax_regime:p.tax_regime,isin:p.isin,anbima_code:p.anbima_code,valuation_basis:input.valuation_basis,currency:'BRL',market_value:p.market_value,unit_price:p.unit_price,identity_status:'observed',identity_evidence_kind:'user_reported',identity_evidence:{plan:[{value:p.plan_number,locator}],fund:[{value:p.fund,locator}],fund_cnpj:[{value:p.fund_cnpj,locator}]},evidence_refs:evidenceRefs};
    await c.query(`INSERT INTO app.source_assertions(household_id,id,document_id,owner_id,source_sheet,source_row,assertion_kind,instrument_code,asserted_on,quantity,raw_row,interpretation_status)
-     VALUES($1,$2,$3,$4,'Telegram',$5,'position',$6,$7,'1',$8,'observed')`,[household,`${documentId}:plan:${index+1}`,documentId,owner.rows[0].id,index+2,`PREV-${p.fund_cnpj}`,cut,JSON.stringify(raw)]);
+     VALUES($1,$2,$3,$4,$5,$6,'position',$7,$8,'1',$9,'observed')`,[household,`${documentId}:plan:${index+1}`,documentId,owner.rows[0].id,sourceLabel,index+2,`PREV-${p.fund_cnpj}`,cut,JSON.stringify(raw)]);
   }
+  if(photoIds.length)await c.query("UPDATE app.manual_photo_evidence SET status='linked' WHERE household_id=$1 AND upload_id=ANY($2::uuid[])",[household,photoIds]);
   await c.query("INSERT INTO app.audit_log(household_id,actor_id,action,resource_id,details) VALUES($1,$2,'manual_external_snapshot_staged',$3,$4)",[household,actor,documentId,{source_system:institution,reference_date:cut,plans:plans.length,positions:positions.length,valuation_basis:input.valuation_basis,content_sha256:contentHash,evidence_refs:evidenceRefs,portfolio_changed:false}]);
   await c.query('COMMIT');
   return{document_id:documentId,content_sha256:contentHash,source_system:institution,reference_date:cut,plans:plans.length,positions:positions.length,status:'evidence_only',portfolio_published:false,replayed:false,mode:'shadow',authoritative:false};
