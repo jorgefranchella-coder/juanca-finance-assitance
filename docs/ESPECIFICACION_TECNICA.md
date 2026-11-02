@@ -6,6 +6,8 @@
 
 > Ensayo en copia aislada de PostgreSQL (02/11/2026): tras aplicar las migraciones y reconstruir con la misma fecha y conocimiento de la versión vigente, coincidieron las 197 posiciones, sus campos y el total. Un primer ensayo sin el ámbito histórico recuperaba automáticamente un extracto antiguo de Zurich Santander; el flujo final preserva la selección anterior hasta una publicación revisada. El ensayo no modifica producción ni confirma la vigencia del extracto antiguo.
 
+> La comprobación de respaldos selecciona el más reciente por la fecha incluida en el nombre, en lugar del orden alfabético: así, un respaldo especial de corte no oculta los respaldos diarios posteriores. Se verifican integridad, restauración, antigüedad y espacio disponible; una copia reciente incompleta no puede ocultarse detrás de otra más antigua.
+
 **Estado de referencia:** 24 de octubre de 2026. PostgreSQL es la autoridad productiva activa mediante el gateway; D1/R2 se mantiene como recuperación y sus rutas de escritura financiera están bloqueadas. La [especificación funcional](ESPECIFICACION_FUNCIONAL.md) describe reglas de negocio y la [especificación UX](ESPECIFICACION_UX.md), el comportamiento visible.
 
 ## 1. Componentes y autoridad

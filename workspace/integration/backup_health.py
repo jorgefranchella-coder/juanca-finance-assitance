@@ -1,6 +1,7 @@
 """Check that the newest daily authority and shadow backups are fresh and valid."""
 import json
 import os
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 import shutil
@@ -25,8 +26,19 @@ def verify_shadow(path):
 
 def latest_check(root, prefix, verifier, now=None, max_age_hours=MAX_AGE_HOURS):
     now = now or datetime.now(timezone.utc)
+    def backup_time(path):
+        # Both daily and cutover names contain a creation timestamp, but a
+        # cutover suffix sorts after all daily dates in lexical order.
+        stamp = re.search(r'\d{8}T\d{6}Z|\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}(?:-\d+)?Z', path.name)
+        if stamp:
+            raw = stamp.group()
+            if '-' not in raw:
+                return datetime.strptime(raw, '%Y%m%dT%H%M%SZ').replace(tzinfo=timezone.utc)
+            return datetime.strptime(raw[:19], '%Y-%m-%dT%H-%M-%S').replace(tzinfo=timezone.utc)
+        # An unexpected name must not silently hide a newer incomplete backup.
+        return datetime.fromtimestamp(path.stat().st_mtime, timezone.utc)
     candidates = sorted((path for path in root.glob(prefix + '*') if path.is_dir()),
-                        key=lambda path: path.name)
+                        key=lambda path: (backup_time(path), path.name))
     if not candidates:
         raise ValueError(f'No backup found under {root}')
     latest = candidates[-1]

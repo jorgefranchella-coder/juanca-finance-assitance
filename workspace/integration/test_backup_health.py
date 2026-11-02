@@ -35,6 +35,19 @@ class BackupHealthTests(unittest.TestCase):
         self.assertTrue(result['verified'])
         self.assertEqual(result['age_hours'], 0.5)
 
+    def test_old_cutover_name_does_not_hide_a_newer_daily_backup(self):
+        self.backup('backup-cutover-20261020T080000Z', self.now - timedelta(days=2))
+        daily = self.backup('backup-20261022T073000Z', self.now - timedelta(minutes=30))
+        verified = []
+        self.assertEqual(latest_check(self.root, 'backup-', verified.append, self.now, 32)['path'], str(daily))
+        self.assertEqual(verified, [daily])
+
+    def test_newest_incomplete_backup_cannot_be_hidden_by_older_valid_one(self):
+        self.backup('backup-cutover-20261020T080000Z', self.now - timedelta(days=2))
+        (self.root / 'backup-20261022T073000Z').mkdir()
+        with self.assertRaises(FileNotFoundError):
+            latest_check(self.root, 'backup-', lambda _: None, self.now, 32)
+
     def test_rejects_stale_latest_even_if_older_backup_exists(self):
         old = self.backup('backup-20261020T080000Z', self.now - timedelta(days=2))
         newest = self.backup('backup-20261020T090000Z', self.now - timedelta(days=2) + timedelta(hours=1))
