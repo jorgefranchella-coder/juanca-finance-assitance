@@ -3,6 +3,7 @@ import type pg from 'pg';
 import {accountId,hash,ownerId,publishInTransaction} from './migration.ts';
 import {Conflict} from './commands.ts';
 import {exact,minor} from './money.ts';
+import {pensionIdentity,pensionCustodyId} from './pension-identity.ts';
 
 const KEY=/^[A-Za-z0-9._:-]{8,128}$/;
 type Raw=Record<string,unknown>;
@@ -12,16 +13,17 @@ const sha=(value:string)=>createHash('sha256').update(value).digest('hex');
 export async function listExternalPositionSnapshots(db:pg.Pool,household:string){
  const result=await db.query(`SELECT d.id AS document_id,d.owner_id,o.display_name AS owner,d.source_system,d.original_name,d.content_sha256,d.registered_at,
    d.effective_as_of::text AS effective_as_of,d.status,count(a.id)::int AS rows,
-   jsonb_agg(jsonb_build_object('instrument_code',a.instrument_code,'product_name',a.raw_row->>'product_name','fund',a.raw_row->>'fund',
-     'fund_cnpj',a.raw_row->>'fund_cnpj','gross_balance',a.raw_row->>'gross_balance','net_balance',a.raw_row->>'net_balance',
+   jsonb_agg(jsonb_build_object('assertion_id',a.id,'identity_decision_id',pd.id,'identity_decision_revision',pd.revision,'identity_decision_locator',pd.source_locator,'instrument_code',COALESCE('PREV-'||pd.fund_cnpj,a.instrument_code),'product_name',a.raw_row->>'product_name','fund',COALESCE(pd.fund_name,a.raw_row->>'fund'),
+     'fund_cnpj',COALESCE(pd.fund_cnpj,a.raw_row->>'fund_cnpj'),'plan_number',COALESCE(pd.plan_number,a.raw_row->>'plan_number'),'identity_status',a.raw_row->>'identity_status','identity_review_reasons',a.raw_row->'identity_review_reasons','identity_evidence',a.raw_row->'identity_evidence','gross_balance',a.raw_row->>'gross_balance','net_balance',a.raw_row->>'net_balance',
      'valuation_basis',a.raw_row->>'valuation_basis','plans',COALESCE(a.raw_row->'plans','[]'::jsonb)) ORDER BY a.source_sheet,a.source_row) AS position_details,
-   count(*) FILTER(WHERE a.owner_id<>d.owner_id OR a.instrument_code IS NULL OR a.quantity IS NULL OR a.quantity<=0 OR ca.identity_basis='pending' OR
+   count(*) FILTER(WHERE a.owner_id<>d.owner_id OR (a.instrument_code IS NULL AND pd.id IS NULL) OR a.quantity IS NULL OR a.quantity<=0 OR (ca.identity_basis='pending' AND pd.id IS NULL) OR
     (d.source_system='Avenue' AND (ca.id IS NULL OR ca.external_reference IS DISTINCT FROM NULLIF(btrim(a.raw_row->>'account'),''))) OR
-    (a.custody_account_id IS NULL AND NOT (d.source_system<>'Avenue' AND a.raw_row->>'institution'=d.source_system AND regexp_replace(COALESCE(a.raw_row->>'fund_cnpj',''),'[^0-9]','','g') ~ '^[0-9]{14}$' AND a.instrument_code='PREV-'||regexp_replace(COALESCE(a.raw_row->>'fund_cnpj',''),'[^0-9]','','g'))))::int AS invalid_rows,
+    (d.source_system<>'Avenue' AND ((CASE WHEN jsonb_typeof(a.raw_row->'plans')='array' THEN jsonb_array_length(a.raw_row->'plans') ELSE 1 END)>1 OR pd.id IS NULL AND (a.interpretation_status<>'observed' OR COALESCE(a.raw_row->>'identity_status','')<>'observed' OR NULLIF(btrim(a.raw_row->>'plan_number'),'') IS NULL OR NULLIF(btrim(a.raw_row->>'fund'),'') IS NULL OR jsonb_typeof(a.raw_row->'identity_evidence') IS DISTINCT FROM 'object' OR NOT (regexp_replace(COALESCE(a.raw_row->>'fund_cnpj',''),'[^0-9]','','g') ~ '^[0-9]{14}$') OR a.instrument_code IS DISTINCT FROM 'PREV-'||regexp_replace(COALESCE(a.raw_row->>'fund_cnpj',''),'[^0-9]','','g') OR (ca.id IS NOT NULL AND ca.external_reference IS DISTINCT FROM btrim(a.raw_row->>'plan_number'))))))::int AS invalid_rows,
    bool_or(p.document_id IS NOT NULL) AS published,bool_or(d.id=latest.id) AS latest
    FROM app.source_documents d JOIN app.owners o ON o.household_id=d.household_id AND o.id=d.owner_id
    JOIN app.source_assertions a ON a.household_id=d.household_id AND a.document_id=d.id AND a.assertion_kind='position'
    LEFT JOIN app.custody_accounts ca ON ca.household_id=a.household_id AND ca.id=a.custody_account_id
+   LEFT JOIN LATERAL (SELECT * FROM app.pension_identity_decisions z WHERE z.household_id=a.household_id AND z.assertion_id=a.id ORDER BY z.revision DESC LIMIT 1) pd ON d.source_system<>'Avenue'
    LEFT JOIN app.external_position_snapshot_publications p ON p.household_id=d.household_id AND p.document_id=d.id
    LEFT JOIN LATERAL (SELECT d2.id FROM app.source_documents d2 WHERE d2.household_id=d.household_id AND d2.owner_id=d.owner_id AND d2.source_system=d.source_system AND d2.report_kind='position' AND d2.status<>'superseded'
      AND EXISTS(SELECT 1 FROM app.source_assertions a2 WHERE a2.household_id=d2.household_id AND a2.document_id=d2.id AND a2.assertion_kind='position')
@@ -64,29 +66,30 @@ export async function publishExternalPositionSnapshot(db:pg.Pool,household:strin
     JOIN app.source_documents d ON d.household_id=p.household_id AND d.id=p.document_id WHERE p.household_id=$1 AND d.owner_id=$2 AND d.source_system=$3`,[household,owner,sourceSystem]);
   if(String(latestSource.rows[0]?.id??'')!==documentId||cut<String(priorPublished.rows[0]?.effective_as_of??''))throw new Conflict('HISTORICAL_SNAPSHOT_REQUIRES_CORRECTION_FLOW',409);
   const publicationAsOf=cut>String(state.rows[0].effective_as_of)?cut:String(state.rows[0].effective_as_of);
-  const source=await c.query(`SELECT a.id,a.owner_id AS assertion_owner_id,a.source_sheet,a.source_row,a.custody_account_id,a.instrument_code,a.quantity::text,a.asserted_on::text,a.raw_row,
+  const source=await c.query(`SELECT a.id,a.interpretation_status,a.owner_id AS assertion_owner_id,a.source_sheet,a.source_row,a.custody_account_id,a.instrument_code,a.quantity::text,a.asserted_on::text,a.raw_row,pd.id AS pension_decision_id,pd.plan_number AS decided_plan,pd.fund_name AS decided_fund,pd.fund_cnpj AS decided_cnpj,pd.source_locator AS decided_locator,
       ca.owner_id,ca.institution_id,ca.external_reference,ca.identity_basis,ci.kind AS institution_kind
-    FROM app.source_assertions a LEFT JOIN app.custody_accounts ca ON ca.household_id=a.household_id AND ca.id=a.custody_account_id
+    FROM app.source_assertions a LEFT JOIN LATERAL (SELECT * FROM app.pension_identity_decisions z WHERE z.household_id=a.household_id AND z.assertion_id=a.id ORDER BY z.revision DESC LIMIT 1) pd ON true LEFT JOIN app.custody_accounts ca ON ca.household_id=a.household_id AND ca.id=a.custody_account_id
     LEFT JOIN app.custody_institutions ci ON ci.id=ca.institution_id
     WHERE a.household_id=$1 AND a.document_id=$2 AND a.assertion_kind='position' ORDER BY a.source_sheet,a.source_row`,[household,documentId]);
   if(!source.rowCount)throw new Conflict('EMPTY_POSITION_SNAPSHOT',422);
   const seen=new Set<string>(),rows=[] as Array<{id:string;assertion:string;account:string;custody:string;code:string;currency:string;quantity:string;unitPrice:string;marketMinor:string;assetClass:string;payload:Raw}>;
   for(const row of source.rows){
-   const raw=row.raw_row as Raw;if(String(row.asserted_on??'')!==cut)throw new Conflict('POSITION_REFERENCE_DATE_MISMATCH',422);
-   let custody=String(row.custody_account_id??''),institution=String(row.institution_id??''),custodyOwner=String(row.owner_id??''),identityBasis=String(row.identity_basis??'');
+   let raw=row.raw_row as Raw;if(row.pension_decision_id){if(Array.isArray(raw.plans)&&raw.plans.length>1)throw new Conflict('PENSION_AGGREGATED_PLANS_REQUIRES_SPLIT',422);const locator=String(row.decided_locator),plan=String(row.decided_plan),fund=String(row.decided_fund),cnpj=String(row.decided_cnpj);raw={...raw,institution:sourceSystem,plan_number:plan,fund,fund_cnpj:cnpj,instrument_code:`PREV-${cnpj}`,identity_status:'observed',identity_evidence:{plan:[{value:plan,locator}],fund:[{value:fund,locator}],fund_cnpj:[{value:cnpj,locator}]}};}if(String(row.asserted_on??'')!==cut)throw new Conflict('POSITION_REFERENCE_DATE_MISMATCH',422);
+   let custody=row.pension_decision_id?'':String(row.custody_account_id??''),institution=row.pension_decision_id?'':String(row.institution_id??''),custodyOwner=row.pension_decision_id?'':String(row.owner_id??''),identityBasis=row.pension_decision_id?'':String(row.identity_basis??'');
    if(sourceSystem==='Avenue'&&(institution!=='avenue-securities'||String(row.external_reference??'')!==clean(raw.account)))throw new Conflict('CUSTODY_INSTITUTION_OR_ACCOUNT_MISMATCH',422);
-   if(sourceSystem!=='Avenue'&&!custody){
-    const provider=clean(raw.institution),cnpj=String(raw.fund_cnpj??'').replace(/\D/g,'');if(provider!==sourceSystem||!/^\d{14}$/.test(cnpj)||String(row.instrument_code)!==`PREV-${cnpj}`)throw new Conflict('PENSION_PROVIDER_OR_FUND_UNRESOLVED',422);
-    institution='pension-provider-'+sha(provider.normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase()).slice(0,24);
-    await c.query("INSERT INTO app.custody_institutions(id,canonical_name,kind) VALUES($1,$2,'pension_provider') ON CONFLICT(id) DO NOTHING",[institution,provider]);
-    const providerCheck=await c.query('SELECT canonical_name,kind FROM app.custody_institutions WHERE id=$1',[institution]);if(providerCheck.rows[0]?.canonical_name!==provider||providerCheck.rows[0]?.kind!=='pension_provider')throw new Conflict('PENSION_PROVIDER_ID_CONFLICT');
-    custody='custody-'+sha([household,owner,institution,cnpj].join('|')).slice(0,32);
-    await c.query(`INSERT INTO app.custody_accounts(household_id,id,owner_id,institution_id,external_reference,identity_basis) VALUES($1,$2,$3,$4,$5,'observed_reference') ON CONFLICT(household_id,id) DO NOTHING`,[household,custody,owner,institution,cnpj]);
-    custodyOwner=owner;identityBasis='observed_reference';
+   if(sourceSystem!=='Avenue'){
+    const identity=pensionIdentity(raw,sourceSystem);if(!identity||(!row.pension_decision_id&&row.interpretation_status!=='observed')||String(raw.instrument_code??'')!==`PREV-${identity.cnpj}`)throw new Conflict('PENSION_IDENTITY_REVIEW_REQUIRED',422);
+    const provider=sourceSystem,providerId=identity.institutionId;
+    const legacy=await c.query('SELECT id FROM app.custody_accounts WHERE household_id=$1 AND owner_id=$2 AND institution_id=$3 AND external_reference=$4',[household,owner,providerId,identity.cnpj]);
+    if(legacy.rowCount){const ids=legacy.rows.map(item=>accountId(JSON.stringify([ownerName,'custody:'+String(item.id)])));const existing=await c.query("SELECT 1 FROM app.holdings WHERE household_id=$1 AND account_id=ANY($2::text[]) AND instrument_code=$3 AND quantity<>0 LIMIT 1",[household,ids,`PREV-${identity.cnpj}`]);if(existing.rowCount)throw new Conflict('PENSION_LEGACY_POSITION_REVIEW_REQUIRED',409);}
+    await c.query("INSERT INTO app.custody_institutions(id,canonical_name,kind) VALUES($1,$2,'pension_provider') ON CONFLICT(id) DO NOTHING",[providerId,provider]);
+    const providerCheck=await c.query('SELECT canonical_name,kind FROM app.custody_institutions WHERE id=$1',[providerId]);if(providerCheck.rows[0]?.canonical_name!==provider||providerCheck.rows[0]?.kind!=='pension_provider')throw new Conflict('PENSION_PROVIDER_ID_CONFLICT');
+    if(!custody){custody=pensionCustodyId(household,owner,providerId,identity.plan);await c.query(`INSERT INTO app.custody_accounts(household_id,id,owner_id,institution_id,external_reference,identity_basis) VALUES($1,$2,$3,$4,$5,'observed_reference') ON CONFLICT(household_id,id) DO NOTHING`,[household,custody,owner,providerId,identity.plan]);const account=await c.query('SELECT owner_id,institution_id,external_reference,identity_basis FROM app.custody_accounts WHERE household_id=$1 AND id=$2',[household,custody]);if(account.rows[0]?.owner_id!==owner||account.rows[0]?.institution_id!==providerId||account.rows[0]?.external_reference!==identity.plan||account.rows[0]?.identity_basis!=='observed_reference')throw new Conflict('PENSION_CUSTODY_ACCOUNT_CONFLICT');custodyOwner=owner;identityBasis='observed_reference';institution=providerId;}
+    else if(institution!==providerId||String(row.external_reference??'')!==identity.plan)throw new Conflict('PENSION_CUSTODY_ACCOUNT_CONFLICT',422);
    }
    if(!custody||custodyOwner!==owner||row.assertion_owner_id!==owner||identityBasis==='pending')throw new Conflict('CUSTODY_ACCOUNT_UNRESOLVED',422);
    if(sourceSystem!=='Avenue'&&String(row.institution_kind??'pension_provider')!=='pension_provider')throw new Conflict('PENSION_PROVIDER_UNRESOLVED',422);
-   const code=String(row.instrument_code??'').trim(),quantity=exact(String(row.quantity??'0'));if(!code||!quantity.gt(0))throw new Conflict('POSITION_IDENTITY_OR_QUANTITY_INVALID',422);
+   const code=String(sourceSystem==='Avenue'?row.instrument_code:raw.instrument_code??'').trim(),quantity=exact(String(row.quantity??'0'));if(!code||!quantity.gt(0))throw new Conflict('POSITION_IDENTITY_OR_QUANTITY_INVALID',422);
    const currency=String(raw.currency??(sourceSystem==='Avenue'?'USD':'BRL'));if(!['BRL','USD'].includes(currency))throw new Conflict('UNSUPPORTED_CURRENCY',422);
    if(sourceSystem==='Avenue'&&raw.asset_class==='cash')continue;
    const market=sourceSystem==='Avenue'?exact(String(raw.market_value_minor??'0')):exact(String(raw.market_value??'0')).mul(100);
@@ -94,7 +97,7 @@ export async function publishExternalPositionSnapshot(db:pg.Pool,household:strin
    const account=accountId(JSON.stringify([ownerName,'custody:'+custody])),key=`${account}\0${code}\0${currency}`;if(seen.has(key))throw new Conflict('DUPLICATE_ACCOUNT_INSTRUMENT',422);seen.add(key);
    const assetClass=sourceSystem==='Avenue'?String(raw.asset_class??'international_equity'):'private_pension';
    if(sourceSystem==='Avenue'&&!['international_equity','international_fixed_income','money_market'].includes(assetClass))throw new Conflict('UNSUPPORTED_AVENUE_ASSET_CLASS',422);
-   const payload={kind:'position',owner:ownerName,asset_class:assetClass,product_name:clean(raw.product_name)||code,institution:sourceSystem==='Avenue'?'Avenue':clean(raw.institution)||sourceSystem,account:clean(raw.account)||String(row.external_reference??''),instrument_code:code,quantity:quantity.toFixed(),unit_price:unitPrice.toFixed(),market_value_minor:minor(market),currency,reference_date:cut,source:sourceSystem==='Avenue'?'avenue_statement':'pension_statement',issuer:clean(raw.fund)||null};
+   const payload={kind:'position',owner:ownerName,asset_class:assetClass,product_name:clean(raw.product_name)||code,institution:sourceSystem==='Avenue'?'Avenue':clean(raw.institution)||sourceSystem,account:sourceSystem==='Avenue'?clean(raw.account):clean(raw.plan_number),instrument_code:code,quantity:quantity.toFixed(),unit_price:unitPrice.toFixed(),market_value_minor:minor(market),currency,reference_date:cut,source:sourceSystem==='Avenue'?'avenue_statement':'pension_statement',issuer:clean(raw.fund)||null};
    rows.push({id:`${documentId}:${row.source_sheet}:${row.source_row}`,assertion:String(row.id),account,custody,code,currency,quantity:quantity.toFixed(),unitPrice:unitPrice.toFixed(),marketMinor:minor(market),assetClass,payload});
   }
   if(!rows.length)throw new Conflict('EMPTY_INVESTED_POSITION_SNAPSHOT',422);

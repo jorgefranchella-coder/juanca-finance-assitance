@@ -14,6 +14,7 @@ import {listAcquisitionLots,listAcquisitionReconciliation,listPositionAccountCan
 import {authorityReadiness} from './authority-readiness.ts';
 import {listB3PositionSnapshots,publishB3PositionSnapshot} from './b3-snapshot-publications.ts';
 import {listExternalPositionSnapshots,publishExternalPositionSnapshot} from './external-snapshot-publications.ts';
+import {recordPensionIdentityDecision} from './pension-identity-decisions.ts';
 import {createManualExternalPositionSnapshot} from './manual-external-snapshots.ts';
 import {fixedIncomeProjection} from './fixed-income.ts';
 import {listFixedIncomeContractTerms,recordFixedIncomeContractTerms} from './fixed-income-contract.ts';
@@ -101,6 +102,7 @@ const server=createServer(async(req,res)=>{
   if(url.pathname==='/v1/reconciliation/external/manual-snapshots'&&req.method==='POST'){
    const actor=String(req.headers['x-juanca-actor']??'');reply(201,await createManualExternalPositionSnapshot(db,config.household_id,actor,await readJson(req,100000)));return;
   }
+  if(url.pathname==='/v1/reconciliation/pension/identities/decisions'&&req.method==='POST'){reply(201,await recordPensionIdentityDecision(db,config.household_id,String(req.headers['x-juanca-actor']??''),await readJson(req)));return;}
   const externalPublish=url.pathname.match(/^\/v1\/reconciliation\/external\/snapshots\/([^/]+)\/publish$/);
   if(externalPublish&&req.method==='POST'){
    const actor=String(req.headers['x-juanca-actor']??'');reply(201,await publishExternalPositionSnapshot(db,config.household_id,actor,externalPublish[1],await readJson(req)));return;

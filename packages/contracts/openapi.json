@@ -511,6 +511,15 @@
         }
       }
     },
+    "/v1/reconciliation/pension/identities/decisions": {
+      "post": {
+        "security": [{"bearerAuth": []}],
+        "summary": "Record a reviewed pension plan and fund identity without publishing positions",
+        "parameters": [{"name":"X-Juanca-Actor","in":"header","required":true,"schema":{"type":"string"}}],
+        "requestBody": {"required":true,"content":{"application/json":{"schema":{"type":"object","additionalProperties":false,"required":["request_key","assertion_id","plan_number","fund_name","fund_cnpj","source_locator"],"properties":{"request_key":{"type":"string","minLength":8,"maxLength":128},"assertion_id":{"type":"string","maxLength":240},"plan_number":{"type":"string","maxLength":100},"fund_name":{"type":"string","maxLength":180},"fund_cnpj":{"type":"string"},"source_locator":{"type":"string","maxLength":240}}}}}},
+        "responses":{"201":{"description":"Immutable audited decision; portfolio unchanged"},"403":{"description":"Approver required"},"404":{"description":"Pension assertion not found"},"409":{"description":"Idempotency conflict"},"422":{"description":"Invalid identity or aggregated plans require separate evidence"}}
+      }
+    },
     "/v1/reconciliation/b3/decisions": {
       "post": {
         "security": [{"bearerAuth": []}],

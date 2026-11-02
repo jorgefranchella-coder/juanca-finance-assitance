@@ -134,6 +134,7 @@ SHADOW_ROUTES = {
     '/api/shadow/reconciliation/b3/candidates': {'GET'},
     '/api/shadow/reconciliation/b3/snapshots': {'GET'},
     '/api/shadow/reconciliation/external/snapshots': {'GET'},
+    '/api/shadow/reconciliation/pension/identities/decisions': {'POST'},
     '/api/shadow/reconciliation/b3/decisions': {'POST'},
     '/api/shadow/position-identities/acquisition-reconciliation': {'GET'},
     '/api/shadow/position-identities': {'GET'},
@@ -280,7 +281,7 @@ class Gateway(BaseHTTPRequestHandler):
             if query:
                 target += '?' + query
             headers = {'Authorization': 'Bearer ' + shadow['token'], 'Accept-Encoding': 'identity'}
-            if (path in {'/api/shadow/reconciliation/manual-b3/decisions', '/api/shadow/reconciliation/b3/decisions'} or
+            if (path in {'/api/shadow/reconciliation/manual-b3/decisions', '/api/shadow/reconciliation/b3/decisions', '/api/shadow/reconciliation/pension/identities/decisions'} or
                     SHADOW_B3_PUBLISH.fullmatch(path) or
                     SHADOW_EXTERNAL_PUBLISH.fullmatch(path) or
                     SHADOW_POSITION_ACQUISITIONS.fullmatch(path) or

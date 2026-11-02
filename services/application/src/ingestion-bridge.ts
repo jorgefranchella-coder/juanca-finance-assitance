@@ -1,3 +1,4 @@
+import {pensionIdentity,pensionCustodyId} from './pension-identity.ts';
 import {createHash} from 'node:crypto';
 import type pg from 'pg';
 import {exact} from './money.ts';
@@ -98,7 +99,7 @@ export async function ingestAvenueConfirmationBatch(db:pg.Pool,household:string,
 export async function ingestPensionBatch(db:pg.Pool,household:string,id:string){
  if(!UUID.test(id))throw new Conflict('NOT_FOUND',404);
  const value=await ingestionCall(`/v1/import-jobs/${id}/records`,'GET',undefined,{'X-Household-Ref':household});const job=value.job as IngestJob,records=value.records as IngestRecord[];
- if(!job||job.id!==id||!UUID.test(job.document_id)||job.file_type!=='pension_statement'||!Array.isArray(records)||records.length!==job.result?.record_count||!/^[0-9a-f]{64}$/.test(job.content_sha256)||job.parser_version!==PENSION_PARSER_VERSION)throw new Conflict('INVALID_INGESTION_BATCH',422);
+ if(!job||job.id!==id||!UUID.test(job.document_id)||job.file_type!=='pension_statement'||!Array.isArray(records)||records.length!==job.result?.record_count||!/^[0-9a-f]{64}$/.test(job.content_sha256)||![PENSION_PARSER_VERSION,'pension-statement-v1-2026-10-22'].includes(job.parser_version))throw new Conflict('INVALID_INGESTION_BATCH',422);
  const owner=await db.query('SELECT display_name FROM app.owners WHERE household_id=$1 AND id=$2',[household,job.owner_ref]);if(!owner.rowCount)throw new Conflict('UNKNOWN_OWNER',422);
  const provider=String(records[0]?.original.institution??''),referenceDate=String(job.result.reference_date??'');
  if(!provider||!/^\d{4}-\d{2}-\d{2}$/.test(referenceDate)||records.some(row=>row.original.owner_ref!==job.owner_ref||row.original.institution!==provider||row.original.reference_date!==referenceDate&&row.record_kind==='position'))throw new Conflict('PENSION_OWNER_OR_DATE_MISMATCH',422);
@@ -114,24 +115,24 @@ export async function ingestPensionBatch(db:pg.Pool,household:string,id:string){
   if(providerExists.rowCount&&(providerExists.rows[0].canonical_name!==provider||providerExists.rows[0].kind!=='pension_provider'))throw new Conflict('PENSION_PROVIDER_ID_CONFLICT');
   await c.query("INSERT INTO app.custody_institutions(id,canonical_name,kind) VALUES($1,$2,'pension_provider') ON CONFLICT(id) DO NOTHING",[providerId,provider]);
   const pensionAccounts=new Map<string,string>();
-  for(const row of records.filter(item=>item.record_kind==='position')){
-   const cnpj=String(row.original.fund_cnpj??'').replace(/\D/g,'');if(!/^\d{14}$/.test(cnpj))throw new Conflict('PENSION_FUND_IDENTITY_INVALID',422);
-   const custodyId='custody-'+sha([household,job.owner_ref,providerId,cnpj].join('|')).slice(0,32);
-   await c.query(`INSERT INTO app.custody_accounts(household_id,id,owner_id,institution_id,external_reference,identity_basis)
-    VALUES($1,$2,$3,$4,$5,'observed_reference') ON CONFLICT(household_id,id) DO NOTHING`,[household,custodyId,job.owner_ref,providerId,cnpj]);
-   const account=await c.query('SELECT owner_id,institution_id,external_reference FROM app.custody_accounts WHERE household_id=$1 AND id=$2',[household,custodyId]);
-   if(account.rows[0]?.owner_id!==job.owner_ref||account.rows[0]?.institution_id!==providerId||account.rows[0]?.external_reference!==cnpj)throw new Conflict('PENSION_CUSTODY_ACCOUNT_CONFLICT');
-   pensionAccounts.set(cnpj,custodyId);
+  const resolved=(raw:Record<string,unknown>)=>job.parser_version===PENSION_PARSER_VERSION&&pensionIdentity(raw,provider)!==null;
+  for(const row of records.filter(item=>item.record_kind==='position'&&resolved(item.original))){
+   const plan=String(row.original.plan_number).trim(),custodyId=pensionCustodyId(household,job.owner_ref,providerId,plan);
+   await c.query(`INSERT INTO app.custody_accounts(household_id,id,owner_id,institution_id,external_reference,identity_basis) VALUES($1,$2,$3,$4,$5,'observed_reference') ON CONFLICT(household_id,id) DO NOTHING`,[household,custodyId,job.owner_ref,providerId,plan]);
+   const account=await c.query('SELECT owner_id,institution_id,external_reference,identity_basis FROM app.custody_accounts WHERE household_id=$1 AND id=$2',[household,custodyId]);
+   if(account.rows[0]?.owner_id!==job.owner_ref||account.rows[0]?.institution_id!==providerId||account.rows[0]?.external_reference!==plan||account.rows[0]?.identity_basis!=='observed_reference')throw new Conflict('PENSION_CUSTODY_ACCOUNT_CONFLICT');
+   pensionAccounts.set(plan,custodyId);
   }
-  let inserted=0;for(const row of records){const ordinal=Number(row.source_ordinal),raw=row.original,kind=row.record_kind,code=String(raw.instrument_code??''),date=String(kind==='position'?raw.reference_date:raw.trade_date??'');if(!Number.isSafeInteger(ordinal)||ordinal<2||!code||!/^\d{4}-\d{2}-\d{2}$/.test(date)||!exact(String(raw.quantity??'0')).gt(0)||!['position','movement'].includes(kind))throw new Conflict('INVALID_PENSION_RECORD',422);
+  let inserted=0,needsReview=0;for(const row of records){const ordinal=Number(row.source_ordinal),raw=row.original,kind=row.record_kind,code=String(raw.instrument_code??''),date=String(kind==='position'?raw.reference_date:raw.trade_date??'');if(!Number.isSafeInteger(ordinal)||ordinal<2||!/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(date)||!exact(String(raw.quantity??'0')).gt(0)||!['position','movement'].includes(kind))throw new Conflict('INVALID_PENSION_RECORD',422);
+   const isResolved=Boolean(resolved(raw)),reasons=isResolved?[]:Array.isArray(raw.identity_review_reasons)&&raw.identity_review_reasons.length?raw.identity_review_reasons.map(String):['pension_identity_reinterpretation_required'];if(!isResolved)needsReview++;
    const assertionId='assertion-'+sha([documentId,row.source_sheet,ordinal].join('|')),event=kind==='movement'?String(raw.event_type):null,direction=kind==='movement'?String(raw.direction):null;
-   const cnpj=String(raw.fund_cnpj??'').replace(/\D/g,'');const custodyId=kind==='position'?pensionAccounts.get(cnpj)??null:null;
+   const custodyId=kind==='position'&&isResolved?pensionAccounts.get(String(raw.plan_number).trim())??null:null;
    const added=await c.query(`INSERT INTO app.source_assertions(household_id,id,document_id,owner_id,source_sheet,source_row,assertion_kind,institution_id,custody_account_id,instrument_code,asserted_on,source_event_type,tentative_event_type,direction,quantity,raw_row,interpretation_status)
-    VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,'observed') ON CONFLICT(household_id,document_id,source_sheet,source_row) DO NOTHING RETURNING id`,[household,assertionId,documentId,job.owner_ref,row.source_sheet,ordinal,kind,kind==='position'?providerId:null,custodyId,code,date,event,kind==='movement'?'pension_contribution_observation':'opening_position_observation',direction,exact(String(raw.quantity)).toFixed(),JSON.stringify(raw)]);inserted+=added.rowCount??0;
+    VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17) ON CONFLICT(household_id,document_id,source_sheet,source_row) DO NOTHING RETURNING id`,[household,assertionId,documentId,job.owner_ref,row.source_sheet,ordinal,kind,kind==='position'?providerId:null,custodyId,code||null,date,event,kind==='movement'?'pension_contribution_observation':'opening_position_observation',direction,exact(String(raw.quantity)).toFixed(),JSON.stringify(raw),isResolved?'observed':'needs_review']);inserted+=added.rowCount??0;
    const actual=added.rows[0]?.id??(await c.query('SELECT id FROM app.source_assertions WHERE household_id=$1 AND document_id=$2 AND source_sheet=$3 AND source_row=$4',[household,documentId,row.source_sheet,ordinal])).rows[0]?.id;const same=await c.query('SELECT raw_row=$3::jsonb AS same FROM app.source_assertions WHERE household_id=$1 AND id=$2',[household,actual,JSON.stringify(raw)]);if(!actual||same.rows[0]?.same!==true)throw new Conflict('SOURCE_ROW_CONFLICT');
-   await c.query(`INSERT INTO app.source_interpretations(household_id,assertion_id,parser_version,instrument_code,tentative_event_type,status,review_reasons) VALUES($1,$2,$3,$4,$5,'parsed','{}') ON CONFLICT DO NOTHING`,[household,actual,job.parser_version,code,kind==='movement'?'pension_contribution_observation':'opening_position_observation']);
+   await c.query(`INSERT INTO app.source_interpretations(household_id,assertion_id,parser_version,instrument_code,tentative_event_type,status,review_reasons) VALUES($1,$2,$3,$4,$5,$6,$7) ON CONFLICT DO NOTHING`,[household,actual,job.parser_version,code||null,kind==='movement'?'pension_contribution_observation':'opening_position_observation',isResolved?'parsed':'needs_review',reasons]);
   }
-  await c.query('INSERT INTO app.ingested_import_jobs(household_id,import_job_id,document_id,content_sha256,parser_version,row_count) VALUES($1,$2,$3,$4,$5,$6)',[household,id,documentId,job.content_sha256,job.parser_version,records.length]);await c.query('COMMIT');return{document_id:documentId,rows:records.length,new_rows:inserted,replayed:false,portfolio_published:false};
+  await c.query('INSERT INTO app.ingested_import_jobs(household_id,import_job_id,document_id,content_sha256,parser_version,row_count) VALUES($1,$2,$3,$4,$5,$6)',[household,id,documentId,job.content_sha256,job.parser_version,records.length]);await c.query('COMMIT');return{document_id:documentId,rows:records.length,new_rows:inserted,needs_review:needsReview,replayed:false,portfolio_published:false};
  }catch(error){await c.query('ROLLBACK');throw error;}finally{c.release();}
 }
 export async function interpretReadyManualPhotos(db:pg.Pool,household:string){

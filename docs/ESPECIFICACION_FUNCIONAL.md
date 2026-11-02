@@ -1,5 +1,7 @@
 # Juanca — especificación funcional
 
+> **En desarrollo, issue #6:** la identidad de previsión se separa por titular, proveedor, número de plan y fondo. La evidencia sin plan o sin CNPJ de fondo explícito queda pendiente; una decisión de identidad conserva el original y no publica la cartera. Las filas históricas que agrupan varios planes requieren evidencia separada. Si existe una posición anterior agrupada por fondo, la publicación se bloquea hasta disponer de una conciliación revisada que evite duplicaciones. Esta mejora todavía no está desplegada.
+
 **Estado de referencia:** 24 de octubre de 2026. PostgreSQL es la autoridad financiera productiva; D1/R2 queda como copia de recuperación y el gateway bloquea sus escrituras financieras. Los apartados **objetivo** son mejoras no implementadas. La [especificación técnica](ESPECIFICACION_TECNICA.md) describe el runtime y la [especificación UX](ESPECIFICACION_UX.md), la presentación.
 
 ## 1. Propósito y límites

@@ -31,9 +31,8 @@ export async function createManualExternalPositionSnapshot(db:pg.Pool,household:
   return {index,cnpj,plan_number:planNumber,product_name:product,fund,fund_cnpj:cnpj,gross_balance:gross,net_balance:net,tax_regime:text(p.tax_regime,80),isin:text(p.isin,32)||null,anbima_code:text(p.anbima_code,32)||null,currency:'BRL',market_value:chosen,unit_price:chosen,quantity:'1'};
  });
  if(new Set(plans.map(p=>p.plan_number)).size!==plans.length)throw new Conflict('DUPLICATE_PLAN_NUMBER',422);
- const grouped=new Map<string,typeof plans[number] & {plans:typeof plans}>();
- for(const p of plans){const existing=grouped.get(p.fund_cnpj);if(!existing){grouped.set(p.fund_cnpj,{...p,plans:[p]});continue;}if(existing.fund!==p.fund||existing.product_name!==p.product_name)throw new Conflict('FUND_CNPJ_IDENTITY_CONFLICT',422);existing.plans.push(p);existing.gross_balance=exact(existing.gross_balance).plus(p.gross_balance).toFixed();existing.net_balance=exact(existing.net_balance).plus(p.net_balance).toFixed();existing.market_value=exact(existing.market_value).plus(p.market_value).toFixed();existing.unit_price=existing.market_value;}
- const positions=[...grouped.values()];
+ const funds=new Map<string,{fund:string;product:string}>();for(const p of plans){const prior=funds.get(p.fund_cnpj);if(prior&&(prior.fund!==p.fund||prior.product!==p.product_name))throw new Conflict('FUND_CNPJ_IDENTITY_CONFLICT',422);funds.set(p.fund_cnpj,{fund:p.fund,product:p.product_name});}
+ const positions=plans;
  const canonical={owner:input.owner,institution,reference_date:cut,valuation_basis:input.valuation_basis,plans,evidence_refs:[...evidenceRefs]};
  const contentHash=sha(JSON.stringify(canonical)),documentId=`telegram-pension-${sha(household+'\0'+input.request_key).slice(0,40)}`;
  const c=await db.connect();
@@ -47,9 +46,10 @@ export async function createManualExternalPositionSnapshot(db:pg.Pool,household:
   await c.query(`INSERT INTO app.source_documents(household_id,id,owner_id,source_system,report_kind,original_name,content_sha256,storage_key,effective_as_of,date_basis,status)
     VALUES($1,$2,$3,$4,'position',$5,$6,$7,$8,'user_reported','evidence_only')`,[household,documentId,owner.rows[0].id,institution,`Telegram - snapshot previdencia ${cut}`,contentHash,`manual:telegram:${documentId}`,cut]);
   for(const [index,p] of positions.entries()){
-   const raw={institution,plan_number:p.plan_number,plans:p.plans.map(({index:_i,...plan})=>plan),product_name:p.product_name,fund:p.fund,fund_cnpj:p.fund_cnpj,gross_balance:p.gross_balance,net_balance:p.net_balance,tax_regime:p.plans.every(plan=>plan.tax_regime===p.tax_regime)?p.tax_regime:'mixed',isin:p.isin,anbima_code:p.anbima_code,valuation_basis:input.valuation_basis,currency:'BRL',market_value:p.market_value,unit_price:p.unit_price,evidence_refs:evidenceRefs};
+   const {index:_planIndex,...plan}=p;
+   const raw={institution,instrument_code:`PREV-${p.fund_cnpj}`,plan_number:p.plan_number,plans:[plan],product_name:p.product_name,fund:p.fund,fund_cnpj:p.fund_cnpj,gross_balance:p.gross_balance,net_balance:p.net_balance,tax_regime:p.tax_regime,isin:p.isin,anbima_code:p.anbima_code,valuation_basis:input.valuation_basis,currency:'BRL',market_value:p.market_value,unit_price:p.unit_price,identity_status:'observed',identity_evidence_kind:'user_reported',identity_evidence:{plan:[{value:p.plan_number,locator:`Telegram:plan:${index+1}`}],fund:[{value:p.fund,locator:`Telegram:plan:${index+1}`}],fund_cnpj:[{value:p.fund_cnpj,locator:`Telegram:plan:${index+1}`}]},evidence_refs:evidenceRefs};
    await c.query(`INSERT INTO app.source_assertions(household_id,id,document_id,owner_id,source_sheet,source_row,assertion_kind,instrument_code,asserted_on,quantity,raw_row,interpretation_status)
-     VALUES($1,$2,$3,$4,'Telegram',$5,'position',$6,$7,'1',$8,'observed')`,[household,`${documentId}:fund:${index+1}`,documentId,owner.rows[0].id,index+2,`PREV-${p.fund_cnpj}`,cut,JSON.stringify(raw)]);
+     VALUES($1,$2,$3,$4,'Telegram',$5,'position',$6,$7,'1',$8,'observed')`,[household,`${documentId}:plan:${index+1}`,documentId,owner.rows[0].id,index+2,`PREV-${p.fund_cnpj}`,cut,JSON.stringify(raw)]);
   }
   await c.query("INSERT INTO app.audit_log(household_id,actor_id,action,resource_id,details) VALUES($1,$2,'manual_external_snapshot_staged',$3,$4)",[household,actor,documentId,{source_system:institution,reference_date:cut,plans:plans.length,positions:positions.length,valuation_basis:input.valuation_basis,content_sha256:contentHash,evidence_refs:evidenceRefs,portfolio_changed:false}]);
   await c.query('COMMIT');
