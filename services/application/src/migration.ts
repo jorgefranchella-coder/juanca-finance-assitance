@@ -3,6 +3,7 @@ import {readFile} from 'node:fs/promises';
 import type pg from 'pg';
 import {exact,integer} from './money.ts';
 import {accountScope,buildPortfolio,selectInputs,type Row} from './portfolio.ts';
+import {Conflict} from './commands.ts';
 export type Envelope={source_sha256:string;exported_at:string;canonical_content:string;content:{format:number;tables:Record<string,Row[]>;conversation_archive:Row[]}};
 export function hash(value:string){return createHash('sha256').update(value).digest('hex');}
 export function ownerId(owner:string){return 'owner-'+hash(owner).slice(0,24);}
@@ -107,6 +108,10 @@ export async function publishInTransaction(c:pg.PoolClient,run:string,h:string,e
   valuation_as_of:[...inputs.quotes.map(q=>String(q.quoted_at).slice(0,10)),...(inputs.fx?[String(inputs.fx.quoted_at).slice(0,10)]:[])].filter(date=>/^\d{4}-\d{2}-\d{2}$/.test(date)).sort().at(-1)??effective,
   valuation_cutoff_as_of:valuationCutoffAsOf};
  view.positions=view.positions.map(p=>({...p,owner_id:ownerId(p.owner),account_id:accountId(p.account_id)}));
+ // A future publication must never resurrect a reviewed legacy position.
+ // Historical queries before the replacement's effective/knowledge time remain intact.
+ const retirements=await c.query('SELECT account_id,instrument_code,currency FROM app.pension_legacy_retirements WHERE household_id=$1 AND effective_as_of<=$2::date AND recorded_at<=$3::timestamptz',[h,effective,known]);
+ for(const retired of retirements.rows)if(view.positions.some(p=>p.account_id===retired.account_id&&p.instrument_code===retired.instrument_code&&p.currency===retired.currency))throw new Conflict('PENSION_LEGACY_REBUILD_CONFLICT',409);
  const marketRevision=hash(JSON.stringify([inputs.quotes,inputs.fx]));const calculation='decimal-half-up-v1:'+hash((await readFile(new URL('./portfolio.ts',import.meta.url),'utf8'))+(await readFile(new URL('./money.ts',import.meta.url),'utf8')));
  const version=hash(JSON.stringify([run,h,effective,known,factsRevision,marketRevision,calculation,resolutions.rows,aliases.rows,attributions.rows,positionResolutions.rows]));
  await c.query('INSERT INTO app.portfolio_versions(household_id,id,run_id,facts_revision,market_revision,calculation_version,effective_as_of,known_at,view) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9) ON CONFLICT DO NOTHING',[h,version,run,factsRevision,marketRevision,calculation,effective,known,view]);

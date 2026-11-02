@@ -1,6 +1,6 @@
 # Juanca — especificación funcional
 
-> **En desarrollo, issue #6:** la identidad de previsión se separa por titular, proveedor, número de plan y fondo. La evidencia sin plan o sin CNPJ de fondo explícito queda pendiente; una decisión de identidad conserva el original y no publica la cartera. Las filas históricas que agrupan varios planes requieren evidencia separada. Si existe una posición anterior agrupada por fondo, la publicación se bloquea hasta disponer de una conciliación revisada que evite duplicaciones. Esta mejora todavía no está desplegada.
+> **En desarrollo, issue #6:** la identidad de previsión se separa por titular, proveedor, número de plan y fondo. La evidencia sin plan o sin CNPJ de fondo explícito queda pendiente; una decisión de identidad conserva el original y no publica la cartera. Las filas históricas que agrupan varios planes requieren evidencia separada. Si existe una posición anterior agrupada por fondo, Revisiones muestra el saldo anterior y los planes, y solicita aprobar expresamente su sustitución junto con la publicación del extracto completo. La operación se rechaza si los datos revisados cambiaron, faltan planes o el saldo anterior sigue apareciendo en la reconstrucción. Esta mejora todavía no está desplegada.
 
 > El cálculo selecciona la última fotografía por titular y proveedor de previsión. Una fotografía histórica con proveedores mezclados o sin proveedor identificable queda señalada como alcance no resuelto; no se infiere su distribución.
 

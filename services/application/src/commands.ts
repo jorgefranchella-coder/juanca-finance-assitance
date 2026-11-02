@@ -66,6 +66,7 @@ export async function approve(db:pg.Pool,h:string,actor:string,id:string,key:str
   if(p.status==='applied'){const result={proposal_id:id,event_id:p.applied_event_id,status:'applied',replayed:true};await c.query('INSERT INTO app.command_results VALUES($1,$2,$3,$4,$5)',[h,actor,key,digest,result]);await c.query('COMMIT');return result;}
   if(p.status!=='pending')throw new Conflict('PROPOSAL_NOT_PENDING');
   if(state.rows[0].facts_revision!==body.expected_facts_revision)throw new Conflict('STALE_PORTFOLIO');
+  if((await c.query('SELECT 1 FROM app.pension_legacy_retirements WHERE household_id=$1 AND account_id=$2 AND instrument_code=$3 AND currency=$4',[h,p.account_id,p.instrument_code,p.currency])).rowCount)throw new Conflict('PENSION_LEGACY_POSITION_RETIRED');
   if(state.rows[0].latest_version){
    const published=await c.query('SELECT view FROM app.portfolio_versions WHERE household_id=$1 AND id=$2',[h,state.rows[0].latest_version]);
    const positions=Array.isArray(published.rows[0]?.view?.positions)?published.rows[0].view.positions:[];
