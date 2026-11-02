@@ -38,3 +38,11 @@ test('pension balance photos are not labelled as trades',()=>{
   const card=buildReviewCards(input({photos:[{...base,ocr_text}]}))[0];assert.equal(card.title,'Saldo de previdencia por revisar');assert.equal(card.event_date,null);
  }
 });
+
+
+test('pension snapshot moves from missing data to approval and history',()=>{
+ const snapshot={document_id:'btg',owner:'Jorge',source_system:'BTG Pactual',original_name:'foto',content_sha256:'hash',effective_as_of:'2026-11-02',rows:2,invalid_rows:1,published:false,latest:true};
+ assert.equal(buildReviewCards(input({external:[snapshot]}))[0].lane,'evidence');
+ assert.equal(buildReviewCards(input({external:[{...snapshot,invalid_rows:0}]}))[0].lane,'decision');
+ assert.equal(buildReviewCards(input({external:[{...snapshot,invalid_rows:0,published:true}]}))[0].lane,'history');
+});
