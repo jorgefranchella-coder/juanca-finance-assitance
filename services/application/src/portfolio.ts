@@ -57,18 +57,22 @@ export function buildPortfolio(input:Inputs,resolutions:Map<string,string>=new M
 }
 export function selectInputs(tables:Record<string,Row[]>,household:string,effectiveAsOf:string,knownAt:string,valuationAsOf=effectiveAsOf):Inputs{
  const imports=tables.imports.filter(i=>i.user_id===household&&i.status==='processed'&&String(i.reference_date??'')<=effectiveAsOf&&new Date(String(i.created_at)+'Z').toISOString()<=knownAt);
- // Pension statements are complete cuts for one provider, not for every
- // pension provider belonging to the owner. Prefer the institution actually
- // observed in their position rows; mixed or unknown statements retain a
- // separate legacy scope until their identities are reviewed.
+ // Only new, explicitly published pension snapshots establish independent
+ // provider scopes. Historical imports stay in their original shared scope
+ // until a reviewed provider snapshot replaces them.
  const pensionProviders=new Map<string,Set<string>>();
  for(const r of tables.import_records){if(r.record_kind!=='position')continue;try{const value=JSON.parse(String(r.payload)) as Row;const institution=String(value.institution??'').trim();if(institution){const id=String(r.import_id),providers=pensionProviders.get(id)??new Set<string>();providers.add(institution);pensionProviders.set(id,providers);}}catch{/* Invalid rows remain subject to normal validation. */}}
- const scope=(i:Row)=>{const base=String(i.owner)+'\0'+String(i.file_type);if(i.file_type!=='pension_statement')return base;const providers=pensionProviders.get(String(i.id));return base+'\0'+(providers?.size===1?[...providers][0]:'__legacy_unresolved__');};
+ const scope=(i:Row)=>{const base=String(i.owner)+'\0'+String(i.file_type);if(i.file_type!=='pension_statement')return base;const providers=pensionProviders.get(String(i.id));return base+'\0'+(i.pension_scope==='provider-v1'&&providers?.size===1?'provider:'+[...providers][0]:'__legacy__');};
  const latest=new Map<string,Row>();
  for(const i of imports){const key=scope(i);const old=latest.get(key);if(!old||String(i.reference_date??'')>String(old.reference_date??'')||i.reference_date===old.reference_date&&String(i.created_at)>=String(old.created_at))latest.set(key,i);}
  const byId=new Map(imports.map(i=>[String(i.id),i]));const snapshots:SourceRow[]=[];const trades:SourceRow[]=[];
  for(const r of tables.import_records){const i=byId.get(String(r.import_id));if(!i)continue;const row={id:String(r.id),import_id:String(i.id),file_type:String(i.file_type),owner:String(i.owner),reference_date:i.reference_date as string|null,created_at:String(i.created_at),payload:String(r.payload)};
-  if(r.record_kind==='position'&&['positions','avenue_statement','pension_statement'].includes(row.file_type)&&latest.get(scope(i))===i)snapshots.push(row);
+  let selected=latest.get(scope(i))===i;
+  if(selected&&i.file_type==='pension_statement'&&i.pension_scope!=='provider-v1'){
+   const providers=pensionProviders.get(String(i.id));
+   if(providers?.size===1){const provider=[...providers][0],replacement=latest.get(String(i.owner)+'\0pension_statement\0provider:'+provider);if(replacement&&String(replacement.reference_date??'')>=String(i.reference_date??''))selected=false;}
+  }
+  if(r.record_kind==='position'&&['positions','avenue_statement','pension_statement'].includes(row.file_type)&&selected)snapshots.push(row);
   if(r.record_kind==='trade'&&['chat_transaction','avenue_confirmation'].includes(row.file_type)){const p=JSON.parse(row.payload) as Row;if(String(p.trade_date??'')<=effectiveAsOf)trades.push(row);}
  }
  snapshots.sort((a,b)=>a.owner.localeCompare(b.owner)||a.file_type.localeCompare(b.file_type)||Number(a.id)-Number(b.id));

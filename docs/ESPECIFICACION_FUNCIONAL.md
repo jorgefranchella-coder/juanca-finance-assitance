@@ -2,7 +2,7 @@
 
 > **En desarrollo, issue #6:** la identidad de previsión se separa por titular, proveedor, número de plan y fondo. La evidencia sin plan o sin CNPJ de fondo explícito queda pendiente; una decisión de identidad conserva el original y no publica la cartera. Las filas históricas que agrupan varios planes requieren evidencia separada. Si existe una posición anterior agrupada por fondo, Revisiones muestra el saldo anterior y los planes, y solicita aprobar expresamente su sustitución junto con la publicación del extracto completo. La operación se rechaza si los datos revisados cambiaron, faltan planes o el saldo anterior sigue apareciendo en la reconstrucción. Esta mejora todavía no está desplegada.
 
-> El cálculo selecciona la última fotografía por titular y proveedor de previsión. Una fotografía histórica con proveedores mezclados o sin proveedor identificable queda señalada como alcance no resuelto; no se infiere su distribución.
+> Para fotografías publicadas con el nuevo flujo, el cálculo selecciona la última por titular y proveedor de previsión. Las fotografías anteriores conservan su selección histórica hasta publicar una fotografía revisada del proveedor; esto evita incorporar automáticamente posiciones antes ocultas. Una fotografía con proveedores mezclados o sin proveedor identificable queda señalada como alcance no resuelto.
 
 **Estado de referencia:** 24 de octubre de 2026. PostgreSQL es la autoridad financiera productiva; D1/R2 queda como copia de recuperación y el gateway bloquea sus escrituras financieras. Los apartados **objetivo** son mejoras no implementadas. La [especificación técnica](ESPECIFICACION_TECNICA.md) describe el runtime y la [especificación UX](ESPECIFICACION_UX.md), la presentación.
 
