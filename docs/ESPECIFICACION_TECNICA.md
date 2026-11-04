@@ -281,3 +281,6 @@ Activación del 01/11/2026: se creó un respaldo PostgreSQL verificado inmediata
 
 
 La interpretación manual `manual-trade-v4` detecta ciertas cláusulas y filas OCR de operaciones múltiples y devuelve los fragmentos con sus offsets. Las evidencias pendientes antiguas se comprueban al leerlas sin sobrescribir interpretaciones guardadas; el worker agrega una interpretación versionada para OCR. La API bloquea la creación de una propuesta a partir de texto identificado como múltiple o de una lectura OCR v4 marcada como múltiple. Esta detección heurística no cubre todas las tablas ni todos los formatos, y no reinterpreta hechos ya aprobados.
+
+
+Las confirmaciones Avenue se conservan como documento y assertions inmutables. `avenue_trade_proposal_links` vincula una assertion por propuesta; la preparación es transaccional, idempotente y bloquea coincidencias económicas que requieren revisión. La aprobación verifica evidencia, posición, fecha de corte y posibles eventos duplicados, y conserva la fecha de liquidación. El original PDF se entrega desde la ingesta solo tras validar familia y SHA-256.

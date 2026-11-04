@@ -263,7 +263,7 @@ class Gateway(BaseHTTPRequestHandler):
                 return
             else:
                 methods = {'PUT'} if match.group(3) else {'GET'}
-                if match.group(1) == 'photos' and match.group(3):
+                if match.group(1) in {'photos', 'documents'} and match.group(3):
                     methods = {'GET', 'PUT'}
                 if match.group(1) == 'text' and match.group(3):
                     methods = set()

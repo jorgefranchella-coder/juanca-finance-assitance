@@ -5,7 +5,7 @@ import {pool} from './db.ts';
 import {portfolio,positionPage} from './queries.ts';
 import {Conflict,approve,createProposal,listProposals,rejectProposal,type Approval,type ProposalInput} from './commands.ts';
 import {chatHistory,sendChat} from './conversation.ts';
-import {getPhotoContent,getPhotoStatus,getSourceStatus,listPhotoEvidence,listTextIntakes,putPhoto,putSourceDocument,readJson,recordText,startPhoto,startSourceDocument,textStatus} from './manual-intake.ts';
+import {getImportedSourceContent,getPhotoContent,getPhotoStatus,getSourceStatus,listPhotoEvidence,listTextIntakes,putPhoto,putSourceDocument,readJson,recordText,startPhoto,startSourceDocument,textStatus} from './manual-intake.ts';
 import {listManualB3Candidates} from './manual-b3-candidates.ts';
 import {recordManualB3Decision} from './manual-b3-decisions.ts';
 import {listB3SnapshotReviews,recordB3SnapshotReview} from './b3-snapshot-decisions.ts';
@@ -88,6 +88,7 @@ const server=createServer(async(req,res)=>{
   const sourceMatch=url.pathname.match(/^\/v1\/evidence\/documents\/([0-9a-f-]{36})$/i);
   if(sourceMatch&&req.method==='GET'){reply(200,await getSourceStatus(config.household_id,sourceMatch[1]));return;}
   const sourceContentMatch=url.pathname.match(/^\/v1\/evidence\/documents\/([0-9a-f-]{36})\/content$/i);
+  if(sourceContentMatch&&req.method==='GET'){const content=await getImportedSourceContent(db,config.household_id,sourceContentMatch[1]);res.statusCode=200;res.setHeader('Content-Type',content.contentType);res.setHeader('Content-Length',String(content.bytes.length));res.setHeader('Content-Disposition','inline');res.end(content.bytes);return;}
   if(sourceContentMatch&&req.method==='PUT'){reply(201,await putSourceDocument(config.household_id,sourceContentMatch[1],req));return;}
   if(url.pathname==='/v1/reconciliation/b3/candidates'&&req.method==='GET'){
    const rawLimit=url.searchParams.has('limit')?Number(url.searchParams.get('limit')):50;if(!Number.isInteger(rawLimit)||rawLimit<1||rawLimit>100)throw new Conflict('VALIDATION',422);

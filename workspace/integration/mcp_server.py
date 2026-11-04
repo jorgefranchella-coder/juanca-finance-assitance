@@ -338,7 +338,7 @@ def importar_documento(ruta: str, fuente: str, propietario: str, tipo: str = '',
         result = register_file_evidence(ruta, propietario, kind='document', source=fuente,
                                         file_type=file_type, reference_date=fecha_referencia or None)
         return {'evidence': result, 'evidence_recorded': True, 'portfolio_changed': False,
-                'next_step': 'Documento original guardado en PostgreSQL para conciliación; la cartera no cambia hasta publicar una revisión aprobada.'}
+                'next_step': ('Documento original recibido y en cola de procesamiento. No confirmes que haya propuestas listas hasta verificar el resultado; la cartera cambia solo al aprobar cada propuesta.' if file_type == 'avenue_confirmation' else 'Documento original recibido y en cola de procesamiento. Consulta su estado antes de indicar qué revisión está disponible; la cartera aún no cambió.')}
     return api('/api/import/' + fuente, fields={'owner': propietario,'kind': tipo,'reference_date': fecha_referencia}, file_path=ruta)
 
 @mcp.tool()

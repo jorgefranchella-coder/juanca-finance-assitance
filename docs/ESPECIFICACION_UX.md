@@ -131,6 +131,10 @@ La pestaña Cartera y movimientos muestra conteo, valor invertido y fecha del sn
 
 El panel de mercado pide tickers B3 y de Estados Unidos y actualiza solo cuando el usuario pulsa «Actualizar precios». Muestra el estado del trabajo asíncrono, cotización, proveedor y hora observada, además del USD/BRL disponible. No se consulta proveedores automáticamente al abrir la pestaña.
 
+## Confirmaciones Avenue
+
+En «Para decidir» se presenta una tarjeta por compra o venta reconocida. El detalle incluye cuenta, fechas de operación y liquidación, cantidad, precio, comisiones y acceso al PDF original. Cada tarjeta se aprueba o rechaza por separado. Si hay una posible operación duplicada o faltan datos, se muestra una tarea de revisión en vez de una propuesta aplicable.
+
 ## Bandeja unificada de Revisiones (28/10/2026)
 
 Revisiones presenta una sola lista con tres estados: **Para decidir**, **Faltan datos** e **Historial**. Las propuestas de movimientos, confirmaciones y extractos publicables aparecen primero; textos y fotos sin propuesta quedan en Faltan datos. Cada estado se ordena por fecha de recepción de la evidencia o del caso, de más reciente a más antiguo. La fecha económica se muestra por separado como «Operación/corte». La ficha compacta indica titular, asunto, institución de custodia cuando existe, estado y cantidad de evidencias relacionadas. El botón «Revisar…» abre el detalle y expone la decisión final solo allí.

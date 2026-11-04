@@ -1,4 +1,5 @@
 import {test,before,after} from 'node:test';
+import {prepareAvenueTradeProposals} from '../src/avenue-trade-proposals.ts';
 import assert from 'node:assert/strict';
 import {readFile,writeFile,mkdtemp,rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
@@ -342,6 +343,26 @@ test('multiple trade OCR cannot be linked to a single proposal',async()=>{
  const input={owner_id:'owner1',account_id:'account1',instrument_code:'PETR4',currency:'BRL',side:'buy',quantity:'10',unit_price:'60',effective_date:'2026-08-10',source_evidence:{kind:'manual_photo' as const,id}};
  await assert.rejects(()=>createProposal(db,f.h,f.actor,'multiple-photo-01',input),(e:unknown)=>e instanceof Conflict&&e.code==='MULTIPLE_OPERATIONS_REQUIRE_SEPARATE_EVIDENCE');
  assert.equal((await db.query('SELECT status FROM app.manual_photo_evidence WHERE household_id=$1 AND upload_id=$2',[f.h,id])).rows[0].status,'awaiting_review');
+});
+test('Avenue trade rows create separate idempotent evidence-linked proposals',async()=>{
+ const f=await fixture(),custody='custody-fixture-'+randomUUID(),document='avenue-fixture-'+randomUUID();
+ await db.query("INSERT INTO app.custody_accounts(household_id,id,owner_id,institution_id,external_reference,identity_basis) VALUES($1,$2,'owner1','avenue-securities','fixture-account','observed_reference')",[f.h,custody]);
+ const scope=JSON.stringify(['Fixture',`custody:${custody}`]),account=accountId(scope);
+ await db.query("INSERT INTO app.accounts(household_id,id,owner_id,source_scope,identity_status) VALUES($1,$2,'owner1',$3,'known')",[f.h,account,scope]);
+ await db.query("INSERT INTO app.source_documents(household_id,id,owner_id,source_system,report_kind,original_name,content_sha256,storage_key,date_basis) VALUES($1,$2,'owner1','Avenue','movement','fixture.pdf',$3,'fixture','trade_date')",[f.h,document,hash(document)]);
+ for(const [index,code,price] of [[2,'PETR4',30],[3,'VALE3',40]] as const){const raw={side:'buy',currency:'USD',quantity:2,unit_price:price,fees_minor:0,instrument_code:code,trade_date:'2026-11-03',settlement_date:'2026-11-04',principal_minor:price*200};await db.query("INSERT INTO app.source_assertions(household_id,id,document_id,owner_id,source_sheet,source_row,assertion_kind,custody_account_id,instrument_code,asserted_on,quantity,raw_row,interpretation_status) VALUES($1,$2,$3,'owner1','fixture',$4,'movement',$5,$6,'2026-11-03',2,$7,'observed')",[f.h,'assertion-'+randomUUID(),document,index,custody,code,JSON.stringify(raw)]);}
+ assert.deepEqual(await prepareAvenueTradeProposals(db,f.h,document),{created:2,existing:0,blocked:[]});
+ assert.deepEqual(await prepareAvenueTradeProposals(db,f.h,document),{created:0,existing:2,blocked:[]});
+ assert.equal((await db.query('SELECT count(*)::int AS n FROM app.avenue_trade_proposal_links WHERE household_id=$1',[f.h])).rows[0].n,2);
+ assert.equal((await db.query('SELECT facts_revision::text FROM app.household_state WHERE household_id=$1',[f.h])).rows[0].facts_revision,'0');
+ const listed=(await listProposals(db,f.h,'pending')).proposals.filter(p=>p.avenue_document_id===document);assert.equal(listed.length,2);assert.equal(listed[0].settlement_date,'2026-11-04');
+ const chosen=listed[0];await approve(db,f.h,f.actor,chosen.id,'avenue-approve-01',{version:chosen.version,summary_hash:chosen.summary_hash,expected_facts_revision:'0'});
+ const applied=await db.query('SELECT settlement_date::text,evidence_id FROM app.events WHERE household_id=$1 AND id=$2',[f.h,'proposal:'+chosen.id]);assert.equal(applied.rows[0].settlement_date,'2026-11-04');assert.match(applied.rows[0].evidence_id,/^avenue-assertion:/);
+
+ const copy='avenue-copy-'+randomUUID();await db.query("INSERT INTO app.source_documents(household_id,id,owner_id,source_system,report_kind,original_name,content_sha256,storage_key,date_basis) VALUES($1,$2,'owner1','Avenue','movement','copy.pdf',$3,'fixture','trade_date')",[f.h,copy,hash(copy)]);
+ await db.query("INSERT INTO app.source_assertions(household_id,id,document_id,owner_id,source_sheet,source_row,assertion_kind,custody_account_id,instrument_code,asserted_on,quantity,raw_row,interpretation_status) SELECT household_id,$3,$4,owner_id,source_sheet,source_row,assertion_kind,custody_account_id,instrument_code,asserted_on,quantity,raw_row,interpretation_status FROM app.source_assertions WHERE household_id=$1 AND document_id=$2 AND instrument_code='PETR4'",[f.h,document,'assertion-'+randomUUID(),copy]);
+ const duplicate=await prepareAvenueTradeProposals(db,f.h,copy);assert.equal(duplicate.created,0);assert.equal(duplicate.blocked.length,1);assert.equal((await db.query("SELECT count(*)::int n FROM app.confirmation_items WHERE household_id=$1 AND category='Avenue'",[f.h])).rows[0].n,1);
+
 });
 test('proposal commands require a known account owned by the selected investor and are idempotent',async()=>{
  const f=await fixture(),evidenceId=await manualEvidence(f.h),input={request_key:'proposal-request-01',owner_id:'owner1',account_id:'account1',instrument_code:'VALE3',currency:'BRL',side:'buy',quantity:'2.5',unit_price:'61.20',fees_minor:'15',effective_date:'2026-08-10',source_evidence:{kind:'manual_text' as const,id:evidenceId}};
