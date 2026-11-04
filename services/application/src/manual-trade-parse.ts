@@ -1,4 +1,4 @@
-const VERSION='manual-trade-v3';
+const VERSION='manual-trade-v4';
 type Side='buy'|'sell';
 type Span={value:string;index:number;length:number};
 
@@ -73,14 +73,30 @@ function detectPrice(original:string,flat:string):{value:string|null;currency:st
  const currency=/^(?:US\$|USD)/.test(raw)?'USD':/^(?:€|EUR)/.test(raw)?'EUR':raw.startsWith('$')?'USD':'BRL';
  return{value:selected.value,currency};
 }
+// Keep exact source spans for separately described trades and OCR table rows.
+function tradeCandidates(original:string):Span[] {
+ const clauses:Span[]=[];
+ for(const match of original.matchAll(/[^;\r\n]+/g)){
+  const value=match[0],base=match.index??0,flat=fold(value),verbs=detectSide(flat).matches;
+  // Split repeated trade verbs only if each segment contains its own ticker.
+  const segments=verbs.length>1?verbs.map((v,i)=>({index:v.index,value:value.slice(v.index,verbs[i+1]?.index??value.length)})).filter(part=>detectInstrument(part.value,fold(part.value))):[];
+  if(segments.length>1){for(const part of segments)clauses.push({value:part.value,index:base+part.index,length:part.value.length});continue;}
+  const hasTicker=/\b[A-Z]{2,6}\d{0,5}\b/.test(value);
+  const tableRow=hasTicker&&/(?:R\$|US\$|USD|BRL|EUR|€|\$)\s*[\d.,]+/i.test(value)&&/\b[A-Z]{2,6}\d{0,5}\s+\d+(?:[.,]\d+)?\b/.test(value);
+  if((verbs.length>0&&detectInstrument(value,flat))||tableRow)clauses.push({value,index:base,length:value.length});
+ }
+ return clauses.length>1?clauses:[];
+}
 export function interpretManualTrade(text:string,occurredOn:string|null) {
  const original=text.normalize('NFC'),flat=fold(original),sideResult=detectSide(flat);
  const instrument=detectInstrument(original,flat),quantity=detectQuantity(flat,instrument),price=detectPrice(original,flat);
  const dateMatch=flat.match(/\b(\d{1,2}[/.\-]\d{1,2}[/.\-]\d{4}|\d{4}-\d{2}-\d{2})\b/);
  const tradeDate=dateMatch?isoDate(dateMatch[1]):occurredOn;
- const fields={side:sideResult.side,instrument_code:instrument,quantity,unit_price:price.value,currency:price.currency,trade_date:tradeDate,fees_minor:'0',fees_assumed_zero:true};
+ const candidates=tradeCandidates(original),multiple=candidates.length>1;
+ const fields={side:multiple?null:sideResult.side,instrument_code:multiple?null:instrument,quantity:multiple?null:quantity,unit_price:multiple?null:price.value,currency:multiple?null:price.currency,trade_date:multiple?null:tradeDate,fees_minor:'0',fees_assumed_zero:true,...(multiple?{source_candidates:candidates}:{})};
  const detected=sideResult.matches.length>0||!!instrument||!!price.value;
  const reviewReasons:string[]=[];
+ if(multiple)reviewReasons.push('multiple_operations_require_separate_evidence');
  if(!sideResult.side)reviewReasons.push(sideResult.conflict?'side_conflict':'side_unresolved');
  if(!instrument)reviewReasons.push('instrument_unresolved');
  if(!quantity)reviewReasons.push('quantity_unresolved');
@@ -91,5 +107,5 @@ export function interpretManualTrade(text:string,occurredOn:string|null) {
  const orderRequest=/\b(?:compra|venda|venta) limitada\b|\bordem limitada\b|\bdata de solicitacao\b|\blimit order\b/.test(flat);
  const executionConfirmed=/\b(?:executad[ao]|ejecutad[ao]|executed|filled|preenchid[ao]|comprei|vendi|bought|sold)\b/.test(flat);
  if(orderRequest&&!executionConfirmed)reviewReasons.push('execution_unconfirmed');
- return {parser_version:VERSION,status:!detected?'not_detected':reviewReasons.length?'needs_manual_review':'parsed_review',fields,review_reasons:reviewReasons};
+ return {parser_version:VERSION,...(multiple?{candidates}:{}),status:!detected?'not_detected':reviewReasons.length?'needs_manual_review':'parsed_review',fields,review_reasons:reviewReasons};
 }

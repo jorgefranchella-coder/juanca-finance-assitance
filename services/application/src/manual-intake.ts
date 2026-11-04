@@ -5,6 +5,12 @@ import type pg from 'pg';
 import {Conflict} from './commands.ts';
 import {interpretManualTrade} from './manual-trade-parse.ts';
 
+// Re-evaluate pending evidence at read time without overwriting its saved interpretation.
+function guardAmbiguousText<T extends Record<string,unknown>>(row:T):T{
+ if(row.status!=='awaiting_review'||typeof row.original_text!=='string')return row;
+ const check=interpretManualTrade(row.original_text,typeof row.occurred_on==='string'?row.occurred_on:null);
+ return check.review_reasons.includes('multiple_operations_require_separate_evidence')?{...row,interpretation_status:check.status,fields:check.fields,review_reasons:check.review_reasons,safety_recheck_version:check.parser_version} as T:row;
+}
 const IMAGE_TYPES=new Set(['image/jpeg','image/png','image/webp','image/heic']);
 const MAX_PHOTO_BYTES=20_000_000;
 const KEY=/^[A-Za-z0-9._:-]{8,128}$/;
@@ -34,13 +40,15 @@ export async function recordText(db:pg.Pool,household:string,body:unknown){
   }
   const parsed=await c.query('SELECT interpretation_status,fields,review_reasons,parser_version FROM app.manual_trade_interpretations WHERE household_id=$1 AND intake_id=$2',[household,intake.id]);
   await c.query('COMMIT');
-  return{intake_id:intake.id,status:intake.status,received_at:intake.received_at,interpretation:parsed.rows[0]??null,mode:'shadow',replayed:!saved.rowCount};
+  const checked=guardAmbiguousText({status:intake.status,original_text:input.text,occurred_on:occurred,...(parsed.rows[0]??{})});
+  const interpretation=checked.safety_recheck_version?{interpretation_status:checked.interpretation_status,fields:checked.fields,review_reasons:checked.review_reasons,parser_version:checked.parser_version,safety_recheck_version:checked.safety_recheck_version}:parsed.rows[0]??null;
+  return{intake_id:intake.id,status:intake.status,received_at:intake.received_at,interpretation,mode:'shadow',replayed:!saved.rowCount};
  }catch(error){await c.query('ROLLBACK');throw error;}finally{c.release();}
 }
-export async function textStatus(db:pg.Pool,household:string,id:string){if(!UUID.test(id))throw new Conflict('NOT_FOUND',404);const found=await db.query(`SELECT i.id,i.owner_id,i.original_text,i.occurred_on,i.status,i.received_at,t.interpretation_status,t.fields,t.review_reasons,t.parser_version FROM app.manual_intakes i LEFT JOIN app.manual_trade_interpretations t ON t.household_id=i.household_id AND t.intake_id=i.id WHERE i.household_id=$1 AND i.id=$2`,[household,id]);if(!found.rowCount)throw new Conflict('NOT_FOUND',404);return{...found.rows[0],mode:'shadow',portfolio_changed:false};}
+export async function textStatus(db:pg.Pool,household:string,id:string){if(!UUID.test(id))throw new Conflict('NOT_FOUND',404);const found=await db.query(`SELECT i.id,i.owner_id,i.original_text,i.occurred_on,i.status,i.received_at,t.interpretation_status,t.fields,t.review_reasons,t.parser_version FROM app.manual_intakes i LEFT JOIN app.manual_trade_interpretations t ON t.household_id=i.household_id AND t.intake_id=i.id WHERE i.household_id=$1 AND i.id=$2`,[household,id]);if(!found.rowCount)throw new Conflict('NOT_FOUND',404);return{...guardAmbiguousText(found.rows[0]),mode:'shadow',portfolio_changed:false};}
 export async function listTextIntakes(db:pg.Pool,household:string,limit:number){
  const found=await db.query(`SELECT i.id,i.owner_id,o.display_name AS owner,i.original_text,i.occurred_on,i.status,i.received_at,t.interpretation_status,t.fields,t.review_reasons,t.parser_version FROM app.manual_intakes i JOIN app.owners o ON o.household_id=i.household_id AND o.id=i.owner_id LEFT JOIN app.manual_trade_interpretations t ON t.household_id=i.household_id AND t.intake_id=i.id WHERE i.household_id=$1 ORDER BY i.received_at DESC,i.id LIMIT $2`,[household,limit]);
- return{items:found.rows,mode:'shadow',portfolio_changed:false};
+ return{items:found.rows.map(guardAmbiguousText),mode:'shadow',portfolio_changed:false};
 }
 type IngestionConfig={token:string;port:number};
 let ingestionConfig:Promise<IngestionConfig>|undefined;
@@ -67,7 +75,7 @@ export async function listPhotoEvidence(db:pg.Pool,household:string,limit:number
  const photoEvidence=new Map(evidence.rows.map(row=>[String(row.upload_id),row]));
  const saved=uploadIds.length?await db.query(`SELECT upload_id,ocr_text_sha256,parser_version,interpretation_status,fields,review_reasons FROM app.manual_photo_trade_interpretations WHERE household_id=$1 AND upload_id=ANY($2::uuid[]) ORDER BY created_at DESC`,[household,uploadIds]):{rows:[]};
  const interpretations=new Map<string,Record<string,unknown>>();for(const row of saved.rows){const key=[row.upload_id,row.ocr_text_sha256].join('|');if(!interpretations.has(key))interpretations.set(key,{parser_version:row.parser_version,status:row.interpretation_status,fields:row.fields,review_reasons:row.review_reasons});}
- return{items:items.map(item=>{const key=[item.upload_id,item.ocr_text_sha256].join('|'),linked=photoEvidence.get(String(item.upload_id));return{...item,ocr_trade_interpretation:interpretations.get(key)??null,owner_id:String(item.owner_ref),owner:owners.get(String(item.owner_ref))??'Titular pendiente',proposal_evidence_status:linked?.status??'unavailable',owner_ref:undefined,mode:'shadow',content_interpretation:'pending_manual_review'};}),mode:'shadow',portfolio_changed:false};
+ return{items:items.map(item=>{const key=[item.upload_id,item.ocr_text_sha256].join('|'),linked=photoEvidence.get(String(item.upload_id));const check=linked?.status==='awaiting_review'&&typeof item.ocr_text==='string'?interpretManualTrade(item.ocr_text,typeof item.occurred_on==='string'?item.occurred_on:null):null;const savedInterpretation=interpretations.get(key)??null;const interpretation=check?.review_reasons.includes('multiple_operations_require_separate_evidence')?{parser_version:check.parser_version,status:check.status,fields:check.fields,review_reasons:check.review_reasons,safety_recheck:true}:savedInterpretation;return{...item,ocr_trade_interpretation:interpretation,owner_id:String(item.owner_ref),owner:owners.get(String(item.owner_ref))??'Titular pendiente',proposal_evidence_status:linked?.status??'unavailable',owner_ref:undefined,mode:'shadow',content_interpretation:'pending_manual_review'};}),mode:'shadow',portfolio_changed:false};
 }
 export async function putPhoto(household:string,id:string,req:IncomingMessage){const status=await photoStatus(household,id);const length=Number(req.headers['content-length']);const type=String(req.headers['content-type']??'').split(';')[0];if(!Number.isSafeInteger(length)||length<1||length>MAX_PHOTO_BYTES||length!==Number(status.expected_size)||!IMAGE_TYPES.has(type))throw new Conflict('UPLOAD_METADATA_MISMATCH',422);const chunks:Buffer[]=[];let count=0;for await(const chunk of req){count+=chunk.length;if(count>MAX_PHOTO_BYTES)throw new Conflict('BODY_TOO_LARGE',413);chunks.push(chunk);}if(count!==length)throw new Conflict('UPLOAD_METADATA_MISMATCH',422);const result=await call(`/v1/uploads/${id}/content`,'PUT',Buffer.concat(chunks),{'Content-Type':type,'Content-Length':String(length)});return{...result,mode:'shadow'};}
 

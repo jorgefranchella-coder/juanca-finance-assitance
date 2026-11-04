@@ -47,3 +47,36 @@ test('limited broker order keeps structured fields but requires execution confir
  assert.equal(result.fields.trade_date,'2026-10-28');
  assert.ok(result.review_reasons.includes('execution_unconfirmed'));
 });
+
+
+test('separate trade clauses never merge their prices or instruments',()=>{
+ const result=interpretManualTrade('Compra ejecutada PETR4 cantidad 10; compra ejecutada VALE3 cantidad 20 precio R$ 60,00 fecha 2026-11-03',null);
+ assert.equal(result.status,'needs_manual_review');
+ assert.equal(result.fields.instrument_code,null);assert.equal(result.fields.unit_price,null);
+ assert.ok(result.review_reasons.includes('multiple_operations_require_separate_evidence'));
+});
+
+test('same ticker distinct trade clauses also require separation',()=>{
+ const result=interpretManualTrade('Compra PETR4 cantidad 10 precio R$ 30,00; compra PETR4 cantidad 20 precio R$ 31,00',null);
+ assert.equal(result.fields.instrument_code,null);assert.ok(result.review_reasons.includes('multiple_operations_require_separate_evidence'));
+});
+
+
+test('OCR table rows are identified with source spans without mixing fields',()=>{
+ const text='Compras executadas\nPETR4 10 R$ 30,00\nVALE3 20 R$ 60,00';
+ const result=interpretManualTrade(text,null);
+ assert.equal(result.status,'needs_manual_review');assert.equal(result.fields.instrument_code,null);
+ assert.deepEqual(result.candidates?.map(c=>text.slice(c.index,c.index+c.length)),['PETR4 10 R$ 30,00','VALE3 20 R$ 60,00']);
+});
+
+test('an informative ticker mention is not a second operation',()=>{
+ const result=interpretManualTrade('Compra PETR4 quantidade 10 preço R$ 30,00 data 03/11/2026; referência VALE3',null);
+ assert.equal(result.fields.instrument_code,'PETR4');assert.ok(!result.review_reasons.includes('multiple_operations_require_separate_evidence'));
+});
+
+
+test('same-line trades and US OCR rows require separate review',()=>{
+ for(const text of ['Compra PETR4 quantidade 10 e compra VALE3 quantidade 20 preço R$ 60,00','Executed buys\nAAPL 10 $100.00\nMSFT 5 $200.00']){
+  const result=interpretManualTrade(text,null);assert.equal(result.fields.instrument_code,null);assert.ok(result.review_reasons.includes('multiple_operations_require_separate_evidence'));
+ }
+});

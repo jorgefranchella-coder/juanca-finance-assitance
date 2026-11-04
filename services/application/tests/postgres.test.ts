@@ -328,6 +328,21 @@ async function fixture(){
 async function manualEvidence(h:string,owner='owner1',text='Compré una acción PETR4 por BRL 30 el 10/08/2026'){
  const id=randomUUID();await db.query("INSERT INTO app.manual_intakes(household_id,id,request_key,request_hash,owner_id,original_text,occurred_on) VALUES($1,$2,$3,$4,$5,$6,'2026-08-10')",[h,id,'manual-'+id,hash('manual-'+id),owner,text]);return id;
 }
+test('multiple trade evidence remains unlinked and cannot create a mixed proposal',async()=>{
+ const f=await fixture(),text='Compra PETR4 quantidade 10; compra VALE3 quantidade 20 preço R$ 60,00',id=await manualEvidence(f.h,'owner1',text);
+ const read=await textStatus(db,f.h,id);assert.equal(read.original_text,text);assert.ok(read.review_reasons.includes('multiple_operations_require_separate_evidence'));
+ const input={owner_id:'owner1',account_id:'account1',instrument_code:'PETR4',currency:'BRL',side:'buy',quantity:'10',unit_price:'60',effective_date:'2026-08-10',source_evidence:{kind:'manual_text' as const,id}};
+ await assert.rejects(()=>createProposal(db,f.h,f.actor,'multiple-trades-01',input),(e:unknown)=>e instanceof Conflict&&e.code==='MULTIPLE_OPERATIONS_REQUIRE_SEPARATE_EVIDENCE');
+ assert.equal((await db.query('SELECT status FROM app.manual_intakes WHERE household_id=$1 AND id=$2',[f.h,id])).rows[0].status,'awaiting_review');
+});
+test('multiple trade OCR cannot be linked to a single proposal',async()=>{
+ const f=await fixture(),id=randomUUID();
+ await db.query("INSERT INTO app.manual_photo_evidence(household_id,upload_id,owner_id,file_name,content_sha256) VALUES($1,$2,'owner1','fixture.png',$3)",[f.h,id,'f'.repeat(64)]);
+ await db.query("INSERT INTO app.manual_photo_trade_interpretations(household_id,upload_id,owner_id,ocr_text_sha256,parser_version,interpretation_status,fields,review_reasons) VALUES($1,$2,'owner1',$3,'manual-trade-v4','needs_manual_review','{}',$4)",[f.h,id,'e'.repeat(64),['multiple_operations_require_separate_evidence']]);
+ const input={owner_id:'owner1',account_id:'account1',instrument_code:'PETR4',currency:'BRL',side:'buy',quantity:'10',unit_price:'60',effective_date:'2026-08-10',source_evidence:{kind:'manual_photo' as const,id}};
+ await assert.rejects(()=>createProposal(db,f.h,f.actor,'multiple-photo-01',input),(e:unknown)=>e instanceof Conflict&&e.code==='MULTIPLE_OPERATIONS_REQUIRE_SEPARATE_EVIDENCE');
+ assert.equal((await db.query('SELECT status FROM app.manual_photo_evidence WHERE household_id=$1 AND upload_id=$2',[f.h,id])).rows[0].status,'awaiting_review');
+});
 test('proposal commands require a known account owned by the selected investor and are idempotent',async()=>{
  const f=await fixture(),evidenceId=await manualEvidence(f.h),input={request_key:'proposal-request-01',owner_id:'owner1',account_id:'account1',instrument_code:'VALE3',currency:'BRL',side:'buy',quantity:'2.5',unit_price:'61.20',fees_minor:'15',effective_date:'2026-08-10',source_evidence:{kind:'manual_text' as const,id:evidenceId}};
  const created=await createProposal(db,f.h,f.actor,input.request_key,input);assert.equal(created.status,'pending');assert.equal(created.replayed,false);
