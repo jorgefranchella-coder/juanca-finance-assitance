@@ -284,3 +284,6 @@ La interpretación manual `manual-trade-v4` detecta ciertas cláusulas y filas O
 
 
 Las confirmaciones Avenue se conservan como documento y assertions inmutables. `avenue_trade_proposal_links` vincula una assertion por propuesta; la preparación es transaccional, idempotente y bloquea coincidencias económicas que requieren revisión. La aprobación verifica evidencia, posición, fecha de corte y posibles eventos duplicados, y conserva la fecha de liquidación. El original PDF se entrega desde la ingesta solo tras validar familia y SHA-256.
+
+
+La lectura `avenue-confirmation-v2-2026-11-05` conserva página y línea por operación, detecta cuentas diferentes y filas candidatas no interpretadas, y acepta agrupación numérica estadounidense válida. Si hay dudas, la ingesta entrega cero filas aplicables con motivos y el puente crea una tarea idempotente vinculada al PDF; no prepara un subconjunto. Las lecturas v1 pendientes se envían a revisión. Las interpretaciones y hechos aprobados previos se conservan.

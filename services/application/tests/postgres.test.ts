@@ -1,4 +1,5 @@
 import {test,before,after} from 'node:test';
+import {ingestAvenueConfirmationResult} from '../src/ingestion-bridge.ts';
 import {prepareAvenueTradeProposals} from '../src/avenue-trade-proposals.ts';
 import assert from 'node:assert/strict';
 import {readFile,writeFile,mkdtemp,rm} from 'node:fs/promises';
@@ -343,6 +344,14 @@ test('multiple trade OCR cannot be linked to a single proposal',async()=>{
  const input={owner_id:'owner1',account_id:'account1',instrument_code:'PETR4',currency:'BRL',side:'buy',quantity:'10',unit_price:'60',effective_date:'2026-08-10',source_evidence:{kind:'manual_photo' as const,id}};
  await assert.rejects(()=>createProposal(db,f.h,f.actor,'multiple-photo-01',input),(e:unknown)=>e instanceof Conflict&&e.code==='MULTIPLE_OPERATIONS_REQUIRE_SEPARATE_EVIDENCE');
  assert.equal((await db.query('SELECT status FROM app.manual_photo_evidence WHERE household_id=$1 AND upload_id=$2',[f.h,id])).rows[0].status,'awaiting_review');
+});
+test('incomplete Avenue confirmation produces a visible task and no trade assertions',async()=>{
+ const f=await fixture();await db.query("UPDATE app.owners SET display_name='Jorge' WHERE household_id=$1 AND id='owner1'",[f.h]);
+ const id=randomUUID(),documentId=randomUUID(),job={id,document_id:documentId,parser_version:'avenue-confirmation-v2-2026-11-05',result:{record_count:0,coverage_start:null,coverage_end:null,review_issues:[{code:'unrecognized_trade',page:2,line:8,excerpt:'synthetic row'}]},content_sha256:hash(id),owner_ref:'owner1',file_type:'avenue_confirmation',file_name:'fixture.pdf'};
+ const r=await ingestAvenueConfirmationResult(db,f.h,id,{job,records:[]});assert.equal(r.rows,0);
+ assert.equal((await db.query('SELECT count(*)::int n FROM app.source_assertions WHERE household_id=$1 AND document_id=$2',[f.h,r.document_id])).rows[0].n,0);
+ const tasks=await listConfirmations(db,f.h,'open');assert.ok(tasks.items.some(t=>t.context.original_pdf===documentId&&t.evidence.includes('synthetic row')));
+ const replay=await ingestAvenueConfirmationResult(db,f.h,id,{job,records:[]});assert.equal(replay.document_id,r.document_id);assert.equal((await listConfirmations(db,f.h,'open')).items.filter(t=>t.context.original_pdf===documentId).length,1);
 });
 test('Avenue trade rows create separate idempotent evidence-linked proposals',async()=>{
  const f=await fixture(),custody='custody-fixture-'+randomUUID(),document='avenue-fixture-'+randomUUID();
