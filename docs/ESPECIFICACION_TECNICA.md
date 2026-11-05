@@ -287,3 +287,6 @@ Las confirmaciones Avenue se conservan como documento y assertions inmutables. `
 
 
 La lectura `avenue-confirmation-v2-2026-11-05` conserva página y línea por operación, detecta cuentas diferentes y filas candidatas no interpretadas, y acepta agrupación numérica estadounidense válida. Si hay dudas, la ingesta entrega cero filas aplicables con motivos y el puente crea una tarea idempotente vinculada al PDF; no prepara un subconjunto. Las lecturas v1 pendientes se envían a revisión. Las interpretaciones y hechos aprobados previos se conservan.
+
+
+La lectura de previdencia `pension-statement-v3-dates-2026-11-05` verifica fechas reales y conserva `quote_date`; una fecha inválida produce cero posiciones y una tarea de revisión idempotente con referencia al PDF. La valoración compara `quantity × unit_price` con `market_value` en decimal exacto y tolerancia absoluta de R$ 0,01, sin reemplazar el original. La comprobación se repite en la publicación incluso para lecturas anteriores. Las correcciones coherentes se guardan como revisiones inmutables con actor y fuente; la publicación exige la versión de la decisión presentada al usuario.

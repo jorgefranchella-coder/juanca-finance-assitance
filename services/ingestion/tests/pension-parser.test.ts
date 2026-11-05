@@ -51,4 +51,34 @@ test('a synthetic two-page PDF preserves page provenance for plan and fund',asyn
  const objs=['<< /Type /Catalog /Pages 2 0 R >>','<< /Type /Pages /Kids [3 0 R 4 0 R] /Count 2 >>','<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 5 0 R >> >> /Contents 6 0 R >>','<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 5 0 R >> >> /Contents 7 0 R >>','<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>',...streams.map(body=>`<< /Length ${Buffer.byteLength(body,'latin1')} >>\nstream\n${body}\nendstream`)];
  let pdf='%PDF-1.4\n',offsets=[0];for(const [i,obj] of objs.entries()){offsets.push(Buffer.byteLength(pdf,'latin1'));pdf+=`${i+1} 0 obj\n${obj}\nendobj\n`;}const xref=Buffer.byteLength(pdf,'latin1');pdf+=`xref\n0 ${objs.length+1}\n0000000000 65535 f \n${offsets.slice(1).map(o=>`${String(o).padStart(10,'0')} 00000 n \n`).join('')}trailer\n<< /Size ${objs.length+1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`;
  const parsed=await parsePensionStatement(Buffer.from(pdf,'latin1'),'owner');const original=parsed.rows[0].original;assert.equal(original.plan_number,'PLAN-001');assert.equal(original.fund_cnpj,'22222222000122');assert.equal(original.identity_status,'observed');const evidence=original.identity_evidence as {plan:Array<{locator:string}>;fund:Array<{locator:string}>};assert.match(evidence.plan[0].locator,/^page:1:/);assert.match(evidence.fund[0].locator,/^page:2:/);
+ const invalid=await parsePensionStatement(Buffer.from(pdf.replace('20/10/2026','30/02/2026'),'latin1'),'owner');assert.equal(invalid.rows.length,0);assert.ok('review_issues' in invalid.summary);if('review_issues' in invalid.summary)assert.equal(invalid.summary.review_issues[0].field,'quote_date');
+});
+
+test('pension dates validate real calendar days and retain the quote date',()=>{
+ for(const value of ['31/02/2026','31/04/2026','01/13/2026','00/01/2026','29/02/2025']){
+  assert.throws(()=>parsePensionText(synthetic('A').replace('21/10/2026',value),'owner'),/PENSION_DATE_INVALID:reference_date:page:1:line:/);
+ }
+ const leap=parsePensionText(synthetic('A').replace('21/10/2026','29/02/2024'),'owner');assert.equal(leap.rows[0].original.reference_date,'2024-02-29');assert.equal(leap.rows[0].original.quote_date,'2026-10-20');
+ assert.throws(()=>parsePensionText(synthetic('A').replace('20/10/2026','30/02/2026'),'owner'),/PENSION_DATE_INVALID:quote_date:page:1:line:/);
+ const movement=synthetic('A')+'\nEXTRATO DETALHADO - Conta Básica Empresa\n11/08/2026 31/04/2026 Contribuição R$ 10,00 10,00000000 1,00000000';
+ assert.throws(()=>parsePensionText(movement,'owner'),/PENSION_DATE_INVALID:quote_date:page:1:line:/);
+});
+
+test('pension valuation keeps reported numbers and flags material difference',()=>{
+ const text=synthetic('A').replace('1.000,00','9.000,00');const row=parsePensionText(text,'owner').rows[0].original;
+ assert.equal(row.market_value,'9000.00');assert.equal(row.quantity,'100.00000000');assert.equal(row.unit_price,'10.00000000');
+ const check=row.valuation_reconciliation as {status:string;difference:string;quote_date:string};assert.equal(check.status,'mismatch');assert.equal(check.difference,'8000');assert.equal(check.quote_date,'2026-10-20');
+});
+
+test('pension valuation allows a one-cent rounding tolerance',()=>{
+ const okay=synthetic('A').replace('1.000,00','1.000,01');assert.equal((parsePensionText(okay,'owner').rows[0].original.valuation_reconciliation as {status:string}).status,'consistent');
+ const bad=synthetic('A').replace('1.000,00','1.000,02');assert.equal((parsePensionText(bad,'owner').rows[0].original.valuation_reconciliation as {status:string}).status,'mismatch');
+});
+
+test('valuation does not mix gross and net bases',async()=>{
+ const {pensionValuationCheck}=await import('../../application/src/pension-valuation.ts');
+ assert.equal(pensionValuationCheck({unit_price:'10',market_value:'1000',valuation_basis:'gross',gross_balance:'2000',net_balance:'1000'},'100').status,'basis_mismatch');
+ assert.equal(pensionValuationCheck({unit_price:'10',market_value:'1000',valuation_basis:'net',gross_balance:'2000',net_balance:'1000'},'100').status,'consistent');
+ assert.equal(pensionValuationCheck({unit_price:'20',market_value:'1000',valuation_basis:'net',gross_balance:'2000',net_balance:'1000'},'100').status,'not_comparable');
+ assert.equal(pensionValuationCheck({unit_price:'10',market_value:'1000',quote_date:'2026-02-31'},'100').status,'invalid_date');
 });

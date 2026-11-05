@@ -1,3 +1,4 @@
+import {recordPensionValuationDecision} from './pension-valuation-decisions.ts';
 import {createServer} from 'node:http';
 import {readFile} from 'node:fs/promises';
 import {createHash,randomUUID,timingSafeEqual} from 'node:crypto';
@@ -103,6 +104,7 @@ const server=createServer(async(req,res)=>{
   if(url.pathname==='/v1/reconciliation/external/manual-snapshots'&&req.method==='POST'){
    const actor=String(req.headers['x-juanca-actor']??'');reply(201,await createManualExternalPositionSnapshot(db,config.household_id,actor,await readJson(req,100000)));return;
   }
+  if(url.pathname==='/v1/reconciliation/pension/valuations/decisions'&&req.method==='POST'){reply(201,await recordPensionValuationDecision(db,config.household_id,String(req.headers['x-juanca-actor']??''),await readJson(req)));return;}
   if(url.pathname==='/v1/reconciliation/pension/identities/decisions'&&req.method==='POST'){reply(201,await recordPensionIdentityDecision(db,config.household_id,String(req.headers['x-juanca-actor']??''),await readJson(req)));return;}
   const externalPublish=url.pathname.match(/^\/v1\/reconciliation\/external\/snapshots\/([^/]+)\/publish$/);
   if(externalPublish&&req.method==='POST'){

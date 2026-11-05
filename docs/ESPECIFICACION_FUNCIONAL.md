@@ -167,6 +167,10 @@ Cada operación reconocida en una confirmación genera una propuesta independien
 
 En confirmaciones Avenue, si aparecen cuentas distintas o una fila de operación no puede interpretarse, el comprobante completo queda pendiente: no se generan propuestas parciales. En «Para decidir» aparece una tarea con página y línea, el texto relevante y acceso al PDF original. La lectura reconoce cantidades con agrupación de miles estadounidense. Un documento de varias cuentas debe separarse en comprobantes por cuenta para su procesamiento.
 
+# Control de saldos de previdencia
+
+Los extractos de previdencia validan las fechas de referencia, operación y cotización y conservan las dos fechas de cada saldo. Si una fecha es imposible, se conserva el PDF y se crea una tarea en Revisiones con campo, página y línea; no se generan posiciones parciales. La revisión compara, con aritmética decimal, el saldo declarado con cantidad de cuotas por valor unitario, con tolerancia de R$ 0,01. Se muestran las fechas y la base cuando están informadas; no se presupone que una fecha de cotización anterior sea la fecha del saldo. Una diferencia mayor impide la publicación ordinaria. El usuario puede corregir los tres valores indicando la fuente, conservar el original y luego aprobar la publicación; un saldo agregado por planes requiere nueva evidencia desglosada.
+
 # Compras y ventas recibidas por foto en Telegram
 
 Una captura de una orden muestra datos candidatos del movimiento (titular, lado, ticker, cantidad, precio unitario, moneda y fecha). La bandeja de Revisiones muestra esos campos por separado y permite corregirlos y elegir una cuenta de custodia conocida. Una pantalla de orden limitada o solicitud no prueba ejecución: la propuesta solo puede prepararse cuando el usuario confirma expresamente que se ejecutó. Crear la propuesta no modifica la cartera; la aplicación exige una aprobación posterior. La foto original y el OCR siguen disponibles para cotejar los datos. Si no se informan comisiones, se muestran como cero provisional y se pide verificarlas antes de aprobar.

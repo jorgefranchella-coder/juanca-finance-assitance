@@ -60,7 +60,7 @@ export async function startPhoto(db:pg.Pool,household:string,req:IncomingMessage
 async function photoStatus(household:string,id:string){if(!UUID.test(id))throw new Conflict('NOT_FOUND',404);const status=await call(`/v1/uploads/${id}`,'GET',undefined,{'X-Household-Ref':household});if(status.source!=='manual'||status.file_type!=='manual_evidence')throw new Conflict('NOT_FOUND',404);return status;}
 export async function getImportedSourceContent(db:pg.Pool,household:string,id:string){
  if(!UUID.test(id))throw new Conflict('NOT_FOUND',404);
- const match=await db.query("SELECT content_sha256 FROM app.source_documents WHERE household_id=$1 AND storage_key=$2 AND source_system='Avenue' LIMIT 1",[household,'ingestion:'+id]);
+ const match=await db.query("SELECT content_sha256 FROM app.source_documents WHERE household_id=$1 AND storage_key=$2 AND source_system<>'B3' LIMIT 1",[household,'ingestion:'+id]);
  if(!match.rowCount)throw new Conflict('NOT_FOUND',404);
  const content=await callBinary(`/v1/documents/${id}/content`,{'X-Household-Ref':household});
  if(content.contentType!=='application/pdf'||content.sha256!==match.rows[0].content_sha256||createHash('sha256').update(content.bytes).digest('hex')!==content.sha256)throw new Conflict('DOCUMENT_CONTENT_VERIFICATION_FAILED',502);

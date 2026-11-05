@@ -4,6 +4,7 @@ import {accountId,hash,ownerId,publishInTransaction} from './migration.ts';
 import {Conflict} from './commands.ts';
 import {exact,minor} from './money.ts';
 import {pensionIdentity,pensionCustodyId} from './pension-identity.ts';
+import {pensionValuationCheck} from './pension-valuation.ts';
 
 const KEY=/^[A-Za-z0-9._:-]{8,128}$/;
 type Raw=Record<string,unknown>;
@@ -14,7 +15,7 @@ export async function listExternalPositionSnapshots(db:pg.Pool,household:string)
  const result=await db.query(`SELECT d.id AS document_id,d.owner_id,o.display_name AS owner,d.source_system,d.original_name,d.content_sha256,d.registered_at,
    d.effective_as_of::text AS effective_as_of,d.status,count(a.id)::int AS rows,
    jsonb_agg(jsonb_build_object('assertion_id',a.id,'identity_decision_id',pd.id,'identity_decision_revision',pd.revision,'identity_decision_locator',pd.source_locator,'instrument_code',COALESCE('PREV-'||pd.fund_cnpj,a.instrument_code),'product_name',a.raw_row->>'product_name','fund',COALESCE(pd.fund_name,a.raw_row->>'fund'),
-     'fund_cnpj',COALESCE(pd.fund_cnpj,a.raw_row->>'fund_cnpj'),'plan_number',COALESCE(pd.plan_number,a.raw_row->>'plan_number'),'identity_status',a.raw_row->>'identity_status','identity_review_reasons',a.raw_row->'identity_review_reasons','identity_evidence',a.raw_row->'identity_evidence','quantity',a.quantity::text,'market_value',a.raw_row->>'market_value','gross_balance',a.raw_row->>'gross_balance','net_balance',a.raw_row->>'net_balance',
+     'fund_cnpj',COALESCE(pd.fund_cnpj,a.raw_row->>'fund_cnpj'),'plan_number',COALESCE(pd.plan_number,a.raw_row->>'plan_number'),'identity_status',a.raw_row->>'identity_status','identity_review_reasons',a.raw_row->'identity_review_reasons','identity_evidence',a.raw_row->'identity_evidence','quantity',COALESCE(vd.quantity,a.quantity)::text,'unit_price',COALESCE(vd.unit_price::text,a.raw_row->>'unit_price'),'quote_date',a.raw_row->>'quote_date','valuation_decision_id',vd.id,'valuation_decision_revision',vd.revision,'market_value',COALESCE(vd.market_value::text,a.raw_row->>'market_value'),'gross_balance',a.raw_row->>'gross_balance','net_balance',a.raw_row->>'net_balance',
      'valuation_basis',a.raw_row->>'valuation_basis','position_reference_date',COALESCE(a.raw_row->>'position_reference_date',a.asserted_on::text),'carry_from',a.raw_row->'carry_from','evidence_refs',COALESCE(a.raw_row->'evidence_refs','[]'::jsonb),'plans',COALESCE(a.raw_row->'plans','[]'::jsonb)) ORDER BY a.source_sheet,a.source_row) AS position_details,
    count(*) FILTER(WHERE a.owner_id<>d.owner_id OR (a.instrument_code IS NULL AND pd.id IS NULL) OR a.quantity IS NULL OR a.quantity<=0 OR (ca.identity_basis='pending' AND pd.id IS NULL) OR
     (d.source_system='Avenue' AND (ca.id IS NULL OR ca.external_reference IS DISTINCT FROM NULLIF(btrim(a.raw_row->>'account'),''))) OR
@@ -24,6 +25,7 @@ export async function listExternalPositionSnapshots(db:pg.Pool,household:string)
    JOIN app.source_assertions a ON a.household_id=d.household_id AND a.document_id=d.id AND a.assertion_kind='position'
    LEFT JOIN app.custody_accounts ca ON ca.household_id=a.household_id AND ca.id=a.custody_account_id
    LEFT JOIN LATERAL (SELECT * FROM app.pension_identity_decisions z WHERE z.household_id=a.household_id AND z.assertion_id=a.id ORDER BY z.revision DESC LIMIT 1) pd ON d.source_system<>'Avenue'
+   LEFT JOIN LATERAL (SELECT * FROM app.pension_valuation_decisions z WHERE z.household_id=a.household_id AND z.assertion_id=a.id ORDER BY z.revision DESC LIMIT 1) vd ON d.source_system<>'Avenue'
    LEFT JOIN app.external_position_snapshot_publications p ON p.household_id=d.household_id AND p.document_id=d.id
    LEFT JOIN LATERAL (SELECT d2.id FROM app.source_documents d2 WHERE d2.household_id=d.household_id AND d2.owner_id=d.owner_id AND d2.source_system=d.source_system AND d2.report_kind='position' AND d2.status<>'superseded'
      AND EXISTS(SELECT 1 FROM app.source_assertions a2 WHERE a2.household_id=d2.household_id AND a2.document_id=d2.id AND a2.assertion_kind='position')
@@ -36,6 +38,7 @@ export async function listExternalPositionSnapshots(db:pg.Pool,household:string)
  // Read-only preview of the exact historical balances that would otherwise
  // collide with a plan-level publication. It never alters these balances.
  for(const snapshot of result.rows){
+  if(snapshot.source_system!=='Avenue'){for(const position of snapshot.position_details as Raw[]){const check=pensionValuationCheck(position,position.quantity);position.valuation_reconciliation=check;if(!snapshot.published&&check.status!=='consistent')snapshot.invalid_rows++;}}
   snapshot.legacy_positions=[];
   snapshot.legacy_basis=current.rowCount?{facts_revision:String(current.rows[0].facts_revision),portfolio_version:String(current.rows[0].latest_version)}:null;
   if(snapshot.source_system==='Avenue'||snapshot.published)continue;
@@ -59,15 +62,16 @@ export async function listExternalPositionSnapshots(db:pg.Pool,household:string)
 export async function publishExternalPositionSnapshot(db:pg.Pool,household:string,actor:string,documentId:string,body:unknown){
  if(!body||typeof body!=='object'||Array.isArray(body))throw new Conflict('VALIDATION',422);
  const input=body as Record<string,unknown>;
- if(Object.keys(input).some(k=>!['request_key','content_sha256','legacy_confirmation'].includes(k))||typeof input.request_key!=='string'||!KEY.test(input.request_key)||typeof input.content_sha256!=='string'||!/^[0-9a-f]{64}$/.test(input.content_sha256))throw new Conflict('VALIDATION',422);
+ if(Object.keys(input).some(k=>!['request_key','content_sha256','legacy_confirmation','valuation_preview'].includes(k))||typeof input.request_key!=='string'||!KEY.test(input.request_key)||typeof input.content_sha256!=='string'||!/^[0-9a-f]{64}$/.test(input.content_sha256))throw new Conflict('VALIDATION',422);
  const confirmation=input.legacy_confirmation as {facts_revision?:unknown;portfolio_version?:unknown;positions?:unknown;identities?:unknown}|undefined;
  if(confirmation!==undefined&&(!confirmation||typeof confirmation!=='object'||Array.isArray(confirmation)||Object.keys(confirmation).some(k=>!['facts_revision','portfolio_version','positions','identities'].includes(k))||typeof confirmation.facts_revision!=='string'||!/^\d+$/.test(confirmation.facts_revision)||typeof confirmation.portfolio_version!=='string'||!/^[0-9a-f]{64}$/.test(confirmation.portfolio_version)||!Array.isArray(confirmation.positions)||!confirmation.positions.length||confirmation.positions.length>100||!Array.isArray(confirmation.identities)||!confirmation.identities.length||confirmation.identities.length>1000))throw new Conflict('VALIDATION',422);
+ if(input.valuation_preview!==undefined&&(!Array.isArray(input.valuation_preview)||input.valuation_preview.length>1000||input.valuation_preview.some((v:unknown)=>!v||typeof v!=='object'||Array.isArray(v)||typeof (v as Raw).assertion_id!=='string'||typeof (v as Raw).decision_id!=='string')))throw new Conflict('VALIDATION',422);
  const c=await db.connect();
  try{
   await c.query('BEGIN');
   const member=await c.query("SELECT 1 FROM app.memberships WHERE household_id=$1 AND actor_id=$2 AND role IN ('owner','approver')",[household,actor]);if(!member.rowCount)throw new Conflict('FORBIDDEN',403);
   await c.query('SELECT pg_advisory_xact_lock(hashtextextended($1,0))',[`${household}:external-position-publication:${documentId}`]);
-  const requestHash=hash(JSON.stringify(confirmation?[documentId,input.content_sha256,confirmation]:[documentId,input.content_sha256]));
+  const requestHash=hash(JSON.stringify(input.valuation_preview!==undefined?[documentId,input.content_sha256,confirmation??null,input.valuation_preview]:confirmation?[documentId,input.content_sha256,confirmation]:[documentId,input.content_sha256]));
   const oldRequest=await c.query('SELECT document_id,request_hash,portfolio_version,position_count FROM app.external_position_snapshot_publications WHERE household_id=$1 AND actor_id=$2 AND request_key=$3',[household,actor,input.request_key]);
   if(oldRequest.rowCount){if(oldRequest.rows[0].document_id!==documentId||oldRequest.rows[0].request_hash!==requestHash)throw new Conflict('IDEMPOTENCY_MISMATCH',409);await c.query('COMMIT');return{document_id:documentId,portfolio_version:oldRequest.rows[0].portfolio_version,positions:oldRequest.rows[0].position_count,replayed:true,portfolio_published:true};}
   if((await c.query('SELECT 1 FROM app.external_position_snapshot_publications WHERE household_id=$1 AND document_id=$2',[household,documentId])).rowCount)throw new Conflict('SNAPSHOT_ALREADY_PUBLISHED',409);
@@ -89,11 +93,12 @@ export async function publishExternalPositionSnapshot(db:pg.Pool,household:strin
   const publicationAsOf=cut>String(state.rows[0].effective_as_of)?cut:String(state.rows[0].effective_as_of);
   if(sourceSystem!=='Avenue'){const ids=await c.query("SELECT id FROM app.source_assertions WHERE household_id=$1 AND document_id=$2 AND assertion_kind='position' ORDER BY id",[household,documentId]);for(const item of ids.rows)await c.query('SELECT pg_advisory_xact_lock(hashtextextended($1,0))',[`${household}:pension-identity:${item.id}`]);}
   const source=await c.query(`SELECT a.id,a.interpretation_status,a.owner_id AS assertion_owner_id,a.source_sheet,a.source_row,a.custody_account_id,a.instrument_code,a.quantity::text,a.asserted_on::text,a.raw_row,pd.id AS pension_decision_id,pd.plan_number AS decided_plan,pd.fund_name AS decided_fund,pd.fund_cnpj AS decided_cnpj,pd.source_locator AS decided_locator,
-      ca.owner_id,ca.institution_id,ca.external_reference,ca.identity_basis,ci.kind AS institution_kind
-    FROM app.source_assertions a LEFT JOIN LATERAL (SELECT * FROM app.pension_identity_decisions z WHERE z.household_id=a.household_id AND z.assertion_id=a.id ORDER BY z.revision DESC LIMIT 1) pd ON true LEFT JOIN app.custody_accounts ca ON ca.household_id=a.household_id AND ca.id=a.custody_account_id
+      vd.id AS valuation_decision_id,vd.quantity::text AS valuation_quantity,vd.unit_price::text AS valuation_unit_price,vd.market_value::text AS valuation_market_value,ca.owner_id,ca.institution_id,ca.external_reference,ca.identity_basis,ci.kind AS institution_kind
+    FROM app.source_assertions a LEFT JOIN LATERAL (SELECT * FROM app.pension_identity_decisions z WHERE z.household_id=a.household_id AND z.assertion_id=a.id ORDER BY z.revision DESC LIMIT 1) pd ON true LEFT JOIN LATERAL (SELECT * FROM app.pension_valuation_decisions z WHERE z.household_id=a.household_id AND z.assertion_id=a.id ORDER BY z.revision DESC LIMIT 1) vd ON true LEFT JOIN app.custody_accounts ca ON ca.household_id=a.household_id AND ca.id=a.custody_account_id
     LEFT JOIN app.custody_institutions ci ON ci.id=ca.institution_id
     WHERE a.household_id=$1 AND a.document_id=$2 AND a.assertion_kind='position' ORDER BY a.source_sheet,a.source_row`,[household,documentId]);
   if(!source.rowCount)throw new Conflict('EMPTY_POSITION_SNAPSHOT',422);
+  const decisions=source.rows.filter(row=>row.valuation_decision_id).map(row=>({assertion_id:String(row.id),decision_id:String(row.valuation_decision_id)})).sort((a,b)=>a.assertion_id.localeCompare(b.assertion_id));const preview=Array.isArray(input.valuation_preview)?input.valuation_preview.map(v=>({assertion_id:String((v as Raw).assertion_id),decision_id:String((v as Raw).decision_id)})).sort((a,b)=>a.assertion_id.localeCompare(b.assertion_id)):[];if(JSON.stringify(decisions)!==JSON.stringify(preview))throw new Conflict('PENSION_VALUATION_PREVIEW_CHANGED',409);
   const carryIds=[...new Set(source.rows.map(row=>(row.raw_row as Raw)?.carry_from).filter(value=>value&&typeof value==='object'&&!Array.isArray(value)).map(value=>String((value as Raw).assertion_id??'')))].sort();for(const id of carryIds)await c.query('SELECT pg_advisory_xact_lock(hashtextextended($1,0))',[`${household}:pension-identity:${id}`]);
   const seen=new Set<string>(),legacyDocuments=new Map<string,string>(),legacyPositions=new Map<string,{account_id:string;instrument_code:string;currency:string;quantity:string;opening_as_of:string|null}>(),rows=[] as Array<{id:string;assertion:string;account:string;custody:string;code:string;currency:string;quantity:string;unitPrice:string;marketMinor:string;assetClass:string;asOf:string;payload:Raw}>;
   for(const row of source.rows){
@@ -107,6 +112,7 @@ export async function publishExternalPositionSnapshot(db:pg.Pool,household:strin
     if(!plan||carry.as_of!==asOf||raw.position_reference_date!==asOf||asOf>cut||String(row.asserted_on)!==asOf||old.valuation_basis!==raw.valuation_basis||['plan_number','product_name','fund','fund_cnpj','tax_regime'].some(k=>String(plan[k]??'').trim()!==String(raw[k]??'').trim())||['gross_balance','net_balance','market_value'].some(k=>!exact(String(plan[k]??'0')).eq(exact(String(raw[k]??'0')))))throw new Conflict('PENSION_CARRY_BASE_CHANGED',409);
    }else if(String(row.asserted_on??'')!==cut)throw new Conflict('POSITION_REFERENCE_DATE_MISMATCH',422);
    if(row.pension_decision_id){if(Array.isArray(raw.plans)&&raw.plans.length>1)throw new Conflict('PENSION_AGGREGATED_PLANS_REQUIRES_SPLIT',422);const locator=String(row.decided_locator),plan=String(row.decided_plan),fund=String(row.decided_fund),cnpj=String(row.decided_cnpj);raw={...raw,institution:sourceSystem,plan_number:plan,fund,fund_cnpj:cnpj,instrument_code:`PREV-${cnpj}`,identity_status:'observed',identity_evidence:{plan:[{value:plan,locator}],fund:[{value:fund,locator}],fund_cnpj:[{value:cnpj,locator}]}};}
+   if(sourceSystem!=='Avenue'){if(row.valuation_quantity!==null){raw={...raw,unit_price:row.valuation_unit_price,market_value:row.valuation_market_value};row.quantity=row.valuation_quantity;}if(pensionValuationCheck(raw,row.quantity).status!=='consistent')throw new Conflict('PENSION_VALUATION_REVIEW_REQUIRED',422);}
    let custody=row.pension_decision_id?'':String(row.custody_account_id??''),institution=row.pension_decision_id?'':String(row.institution_id??''),custodyOwner=row.pension_decision_id?'':String(row.owner_id??''),identityBasis=row.pension_decision_id?'':String(row.identity_basis??'');
    if(sourceSystem==='Avenue'&&(institution!=='avenue-securities'||String(row.external_reference??'')!==clean(raw.account)))throw new Conflict('CUSTODY_INSTITUTION_OR_ACCOUNT_MISMATCH',422);
    if(sourceSystem!=='Avenue'){

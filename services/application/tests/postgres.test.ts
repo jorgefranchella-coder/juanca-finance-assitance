@@ -1,5 +1,5 @@
 import {test,before,after} from 'node:test';
-import {ingestAvenueConfirmationResult} from '../src/ingestion-bridge.ts';
+import {ingestAvenueConfirmationResult,ingestPensionResult} from '../src/ingestion-bridge.ts';
 import {prepareAvenueTradeProposals} from '../src/avenue-trade-proposals.ts';
 import assert from 'node:assert/strict';
 import {readFile,writeFile,mkdtemp,rm} from 'node:fs/promises';
@@ -27,6 +27,7 @@ import {fixedIncomeProjection} from '../src/fixed-income.ts';
 import {listFixedIncomeContractTerms,recordFixedIncomeContractTerms} from '../src/fixed-income-contract.ts';
 import {pensionIdentity,pensionCustodyId} from '../src/pension-identity.ts';
 import {recordPensionIdentityDecision} from '../src/pension-identity-decisions.ts';
+import {recordPensionValuationDecision} from '../src/pension-valuation-decisions.ts';
 import {completeQuoteRefreshFollowUp,createConfirmation,listConfirmations,recordConfirmationDecision} from '../src/confirmations.ts';
 const database='juanca_test_'+randomUUID().replaceAll('-','');
 const admin=pool('jorge','postgres');const db=pool('juanca_app',database);const migrator=pool('jorge',database);
@@ -204,9 +205,15 @@ test('an approver can publish an Avenue position snapshot with USD valuation and
   await assert.rejects(()=>publishExternalPositionSnapshot(db,h,actor,staleAvenue,{request_key:'publish-external-stale-001',content_sha256:'a'.repeat(64)}),(e:unknown)=>e instanceof Conflict&&e.code==='HISTORICAL_SNAPSHOT_REQUIRES_CORRECTION_FLOW');const afterStaleExternal=await listExternalPositionSnapshots(db,h);assert.equal(afterStaleExternal.snapshots.find((item:{document_id:string})=>item.document_id===doc)?.latest,true);assert.equal(afterStaleExternal.snapshots.find((item:{document_id:string})=>item.document_id===staleAvenue)?.latest,false);
   const pensionCustody=null;
   const pensionDoc='pension-snapshot-'+randomUUID(),pensionDigest='1'.repeat(64),pensionAssertion='pension-assertion-'+randomUUID();await db.query(`INSERT INTO app.source_documents(household_id,id,owner_id,source_system,report_kind,original_name,content_sha256,storage_key,effective_as_of,date_basis) VALUES($1,$2,$3,'Santander Seguros','position','pension.pdf',$4,'ingestion:fixture','2026-08-03','statement_reference_date')`,[h,pensionDoc,owner,pensionDigest]);
-  const pensionRaw={owner_ref:owner,institution:'Santander Seguros',plan_number:'PLAN-001',fund:'Plano Participante',fund_cnpj:'12345678000199',instrument_code:'PREV-12345678000199',identity_status:'observed',identity_evidence:{plan:[{value:'PLAN-001',locator:'page:1:line:1'}],fund:[{value:'Plano Participante',locator:'page:1:line:2'}],fund_cnpj:[{value:'12345678000199',locator:'page:1:line:3'}]},currency:'BRL',reference_date:'2026-08-03',quantity:'10',unit_price:'12.34',market_value:'123.40'};
+  const pensionRaw={owner_ref:owner,institution:'Santander Seguros',plan_number:'PLAN-001',fund:'Plano Participante',fund_cnpj:'12345678000199',instrument_code:'PREV-12345678000199',identity_status:'observed',identity_evidence:{plan:[{value:'PLAN-001',locator:'page:1:line:1'}],fund:[{value:'Plano Participante',locator:'page:1:line:2'}],fund_cnpj:[{value:'12345678000199',locator:'page:1:line:3'}]},currency:'BRL',reference_date:'2026-08-03',quote_date:'2026-08-02',quantity:'10',unit_price:'12.34',market_value:'900.00'};
   await db.query(`INSERT INTO app.source_assertions(household_id,id,document_id,owner_id,source_sheet,source_row,assertion_kind,institution_id,custody_account_id,instrument_code,asserted_on,quantity,raw_row,interpretation_status) VALUES($1,$2,$3,$4,'Position',2,'position',NULL,$5,'PREV-12345678000199','2026-08-03',10,$6,'observed')`,[h,pensionAssertion,pensionDoc,owner,pensionCustody,pensionRaw]);
-  const pension=await publishExternalPositionSnapshot(db,h,actor,pensionDoc,{request_key:'publish-pension-001',content_sha256:pensionDigest});assert.equal(pension.source_system,'Santander Seguros');assert.equal(pension.effective_as_of,'2026-08-22');
+  const invalidReview=(await listExternalPositionSnapshots(db,h)).snapshots.find(row=>row.document_id===pensionDoc);assert.equal(invalidReview.position_details[0].valuation_reconciliation.status,'mismatch');assert.ok(invalidReview.invalid_rows>0);
+  await assert.rejects(()=>publishExternalPositionSnapshot(db,h,actor,pensionDoc,{request_key:'publish-bad-pension-01',content_sha256:pensionDigest}),(e:unknown)=>e instanceof Conflict&&e.code==='PENSION_VALUATION_REVIEW_REQUIRED');
+  await assert.rejects(()=>recordPensionValuationDecision(db,h,actor,{request_key:'pension-bad-value-001',assertion_id:pensionAssertion,quantity:'10',unit_price:'12.34',market_value:'900',source_locator:'fixture page 1'}),(e:unknown)=>e instanceof Conflict&&e.code==='PENSION_VALUATION_STILL_INCONSISTENT');
+  const valuation=await recordPensionValuationDecision(db,h,actor,{request_key:'pension-value-fixed-01',assertion_id:pensionAssertion,quantity:'10',unit_price:'12.34',market_value:'123.40',source_locator:'fixture page 1'});
+  assert.equal((await db.query("SELECT raw_row->>'market_value' AS original FROM app.source_assertions WHERE household_id=$1 AND id=$2",[h,pensionAssertion])).rows[0].original,'900.00');
+  await assert.rejects(()=>publishExternalPositionSnapshot(db,h,actor,pensionDoc,{request_key:'pension-preview-missing-01',content_sha256:pensionDigest}),(e:unknown)=>e instanceof Conflict&&e.code==='PENSION_VALUATION_PREVIEW_CHANGED');
+  const pension=await publishExternalPositionSnapshot(db,h,actor,pensionDoc,{request_key:'publish-pension-001',content_sha256:pensionDigest,valuation_preview:[{assertion_id:pensionAssertion,decision_id:valuation.decision_id}]});assert.equal(pension.source_system,'Santander Seguros');assert.equal(pension.effective_as_of,'2026-08-22');
   const withPension=await portfolio(db,h),pensionPosition=withPension.positions.find((position:{instrument_code:string})=>position.instrument_code==='PREV-12345678000199');assert.ok(pensionPosition);assert.equal(pensionPosition.asset_class,'private_pension');assert.equal(pensionPosition.quantity,'10');assert.ok(withPension.positions.some((position:{instrument_code:string})=>position.instrument_code==='AAPL'));assert.ok(withPension.positions.some((position:{instrument_code:string})=>position.instrument_code==='PETR4'));
   const manualBody={request_key:'two-plan-pension-001',owner:'Jorge',institution:'Fixture Previdencia',reference_date:'2026-08-04',valuation_basis:'net',plans:[{plan_number:'Plano A',product_name:'PGBL',fund:'Fundo A',fund_cnpj:'12345678000199',gross_balance:'1200.50',net_balance:'1000.25',tax_regime:'regressivo'},{plan_number:'Plano B',product_name:'PGBL',fund:'Fundo A',fund_cnpj:'12345678000199',gross_balance:'2000',net_balance:'1800',tax_regime:'progressivo'}]};
   const staged=await createManualExternalPositionSnapshot(db,h,actor,manualBody);const published=await publishExternalPositionSnapshot(db,h,actor,staged.document_id,{request_key:'publish-two-plans-001',content_sha256:staged.content_sha256});assert.equal(published.positions,2);
@@ -352,6 +359,13 @@ test('incomplete Avenue confirmation produces a visible task and no trade assert
  assert.equal((await db.query('SELECT count(*)::int n FROM app.source_assertions WHERE household_id=$1 AND document_id=$2',[f.h,r.document_id])).rows[0].n,0);
  const tasks=await listConfirmations(db,f.h,'open');assert.ok(tasks.items.some(t=>t.context.original_pdf===documentId&&t.evidence.includes('synthetic row')));
  const replay=await ingestAvenueConfirmationResult(db,f.h,id,{job,records:[]});assert.equal(replay.document_id,r.document_id);assert.equal((await listConfirmations(db,f.h,'open')).items.filter(t=>t.context.original_pdf===documentId).length,1);
+});
+test('invalid pension date creates a review task without positions',async()=>{
+ const f=await fixture();await db.query("UPDATE app.owners SET display_name='Jorge' WHERE household_id=$1 AND id='owner1'",[f.h]);
+ const id=randomUUID(),documentId=randomUUID(),job={id,document_id:documentId,parser_version:'pension-statement-v3-dates-2026-11-05',result:{record_count:0,coverage_start:null,coverage_end:null,review_issues:[{code:'invalid_pension_date',field:'quote_date',page:2,line:8}]},content_sha256:hash(id),owner_ref:'owner1',file_type:'pension_statement',file_name:'fixture.pdf'};
+ const r=await ingestPensionResult(db,f.h,id,{job,records:[]});assert.equal(r.rows,0);assert.equal((await db.query('SELECT count(*)::int n FROM app.source_assertions WHERE household_id=$1 AND document_id=$2',[f.h,r.document_id])).rows[0].n,0);
+ const tasks=await listConfirmations(db,f.h,'open');assert.ok(tasks.items.some(t=>t.context.original_pdf===documentId&&String(t.context.motivos).includes('página 2')));
+ await ingestPensionResult(db,f.h,id,{job,records:[]});assert.equal((await listConfirmations(db,f.h,'open')).items.filter(t=>t.context.original_pdf===documentId).length,1);
 });
 test('Avenue trade rows create separate idempotent evidence-linked proposals',async()=>{
  const f=await fixture(),custody='custody-fixture-'+randomUUID(),document='avenue-fixture-'+randomUUID();

@@ -1,0 +1,23 @@
+import {createHash,randomUUID} from 'node:crypto';
+import type pg from 'pg';
+import {Conflict} from './commands.ts';
+import {exact} from './money.ts';
+import {pensionValuationCheck} from './pension-valuation.ts';
+export async function recordPensionValuationDecision(db:pg.Pool,household:string,actor:string,body:unknown){
+ if(!body||typeof body!=='object'||Array.isArray(body))throw new Conflict('VALIDATION',422);const x=body as Record<string,unknown>;
+ if(Object.keys(x).some(k=>!['request_key','assertion_id','quantity','unit_price','market_value','source_locator'].includes(k))||typeof x.request_key!=='string'||!/^[A-Za-z0-9._:-]{8,128}$/.test(x.request_key)||typeof x.assertion_id!=='string'||!/^[A-Za-z0-9._:-]{1,240}$/.test(x.assertion_id))throw new Conflict('VALIDATION',422);
+ const locator=typeof x.source_locator==='string'?x.source_locator.trim():'';if(!locator||locator.length>240)throw new Conflict('VALIDATION',422);
+ let q:string,p:string,v:string;try{q=exact(x.quantity).toFixed();p=exact(x.unit_price).toFixed();v=exact(x.market_value).toFixed();}catch{throw new Conflict('VALIDATION',422);}
+ if(pensionValuationCheck({unit_price:p,market_value:v},q).status!=='consistent')throw new Conflict('PENSION_VALUATION_STILL_INCONSISTENT',422);
+ const digest=createHash('sha256').update(JSON.stringify([x.assertion_id,q,p,v,locator])).digest('hex'),c=await db.connect();try{await c.query('BEGIN');
+  const member=await c.query("SELECT 1 FROM app.memberships WHERE household_id=$1 AND actor_id=$2 AND role IN ('owner','approver')",[household,actor]);if(!member.rowCount)throw new Conflict('FORBIDDEN',403);
+  await c.query('SELECT pg_advisory_xact_lock(hashtextextended($1,0))',[`${household}:pension-identity:${x.assertion_id}`]);
+  await c.query('SELECT pg_advisory_xact_lock(hashtextextended($1,0))',[`${household}:pension-valuation-request:${actor}:${x.request_key}`]);
+  const prior=await c.query('SELECT id,revision,request_hash FROM app.pension_valuation_decisions WHERE household_id=$1 AND actor_id=$2 AND request_key=$3',[household,actor,x.request_key]);if(prior.rowCount){if(prior.rows[0].request_hash!==digest)throw new Conflict('IDEMPOTENCY_MISMATCH');await c.query('COMMIT');return {decision_id:prior.rows[0].id,revision:prior.rows[0].revision,replayed:true};}
+  const source=await c.query(`SELECT a.raw_row,a.quantity::text AS original_quantity FROM app.source_assertions a JOIN app.source_documents d ON d.household_id=a.household_id AND d.id=a.document_id LEFT JOIN app.external_position_snapshot_publications p ON p.household_id=d.household_id AND p.document_id=d.id WHERE a.household_id=$1 AND a.id=$2 AND a.assertion_kind='position' AND d.report_kind='position' AND d.source_system NOT IN ('B3','Avenue') AND p.document_id IS NULL`,[household,x.assertion_id]);
+  if(!source.rowCount)throw new Conflict('PENSION_ASSERTION_NOT_FOUND',404);if(source.rows[0].raw_row?.carry_from)throw new Conflict('PENSION_CARRIED_IDENTITY_READ_ONLY');if(Array.isArray(source.rows[0].raw_row?.plans))throw new Conflict('PENSION_VALUATION_REQUIRES_NEW_SNAPSHOT',422);const raw=source.rows[0].raw_row as Record<string,unknown>,basis=raw.valuation_basis;if(basis==='gross'||basis==='net'){const declared=raw[basis==='gross'?'gross_balance':'net_balance'];try{if(declared==null||!exact(declared).eq(exact(v)))throw new Error('basis mismatch');}catch{throw new Conflict('PENSION_VALUATION_REQUIRES_NEW_SNAPSHOT',422);}}
+  const previous=await c.query('SELECT id,revision FROM app.pension_valuation_decisions WHERE household_id=$1 AND assertion_id=$2 ORDER BY revision DESC LIMIT 1',[household,x.assertion_id]),id=randomUUID(),revision=Number(previous.rows[0]?.revision??0)+1;
+  await c.query('INSERT INTO app.pension_valuation_decisions(household_id,id,assertion_id,revision,quantity,unit_price,market_value,source_locator,actor_id,request_key,request_hash,supersedes_id) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)',[household,id,x.assertion_id,revision,q,p,v,locator,actor,x.request_key,digest,previous.rows[0]?.id??null]);
+  await c.query("INSERT INTO app.audit_log(household_id,actor_id,action,resource_id,details) VALUES($1,$2,'pension_valuation_decided',$3,$4)",[household,actor,id,{assertion_id:x.assertion_id,source_locator:locator,revision,original_reconciliation:pensionValuationCheck(raw,source.rows[0].original_quantity),corrected_reconciliation:pensionValuationCheck({unit_price:p,market_value:v},q),portfolio_changed:false}]);await c.query('COMMIT');return {decision_id:id,revision,replayed:false,portfolio_changed:false};
+ }catch(error){await c.query('ROLLBACK');throw error;}finally{c.release();}
+}
