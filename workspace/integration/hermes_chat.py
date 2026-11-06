@@ -22,7 +22,7 @@ def session():
     p = ROOT / 'state' / 'web-chat-session.json'
     if p.exists():
         return json.loads(p.read_text())['id']
-    result = call('/api/sessions', {'title': 'Patrimônio — Juanca', 'model': 'gpt-5.5'})
+    result = call('/api/sessions', {'title': 'Patrimônio — Juanca', 'model': 'gpt-5.6-luna'})
     sid = result.get('session', {}).get('id') or result.get('id') or result.get('session_id')
     if not sid:
         raise ValueError('No se pudo crear la sesión de Hermes')
