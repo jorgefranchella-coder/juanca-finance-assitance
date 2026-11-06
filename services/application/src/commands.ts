@@ -1,4 +1,4 @@
-import {interpretManualTrade} from './manual-trade-parse.ts';
+import {interpretManualTrade,MANUAL_TRADE_PARSER_VERSION} from './manual-trade-parse.ts';
 import type pg from 'pg';
 import {randomUUID} from 'node:crypto';
 import {exact,integer,minor,D} from './money.ts';
@@ -23,6 +23,18 @@ export async function listProposals(db:pg.Pool,h:string,status?:string){
  const result=await db.query(`SELECT p.id,p.owner_id,o.display_name AS owner,p.account_id,a.source_scope AS account_scope,p.instrument_code,p.currency,p.side,p.quantity::text,p.unit_price::text,p.fees_minor::text,p.effective_date::text,p.version,p.summary_hash,p.status,p.source_message_id,p.source_evidence_kind,p.source_evidence_id,COALESCE(i.original_text,pe.file_name,doc.original_name) AS source_evidence_text,COALESCE(i.received_at,pe.received_at,doc.registered_at) AS source_evidence_received_at,p.applied_event_id,link.assertion_id AS avenue_assertion_id,doc.id AS avenue_document_id,substring(doc.storage_key from 11) AS avenue_original_id,obs.raw_row->>'settlement_date' AS settlement_date FROM app.proposals p JOIN app.owners o ON o.household_id=p.household_id AND o.id=p.owner_id JOIN app.accounts a ON a.household_id=p.household_id AND a.id=p.account_id LEFT JOIN app.manual_intakes i ON i.household_id=p.household_id AND p.source_evidence_kind='manual_text' AND i.id=p.source_evidence_id LEFT JOIN app.manual_photo_evidence pe ON pe.household_id=p.household_id AND p.source_evidence_kind='manual_photo' AND pe.upload_id=p.source_evidence_id LEFT JOIN app.avenue_trade_proposal_links link ON link.household_id=p.household_id AND link.proposal_id=p.id LEFT JOIN app.source_assertions obs ON obs.household_id=link.household_id AND obs.id=link.assertion_id LEFT JOIN app.source_documents doc ON doc.household_id=obs.household_id AND doc.id=obs.document_id WHERE p.household_id=$1 AND ($2::text IS NULL OR p.status=$2) ORDER BY p.effective_date DESC,p.id`,[h,status??null]);
  return {proposals:result.rows};
 }
+async function assertSingleTradeEvidence(c:pg.PoolClient,h:string,kind:string,id:string){
+ if(kind==='manual_text'){
+  const evidence=await c.query('SELECT original_text FROM app.manual_intakes WHERE household_id=$1 AND id=$2',[h,id]);
+  if(!evidence.rowCount)throw new Conflict('EVIDENCE_OWNER_MISMATCH',422);
+  if(interpretManualTrade(String(evidence.rows[0].original_text),null).review_reasons.includes('multiple_operations_require_separate_evidence'))throw new Conflict('MULTIPLE_OPERATIONS_REQUIRE_SEPARATE_EVIDENCE',422);
+ }
+ if(kind==='manual_photo'){
+  const interpretations=await c.query('SELECT review_reasons,parser_version FROM app.manual_photo_trade_interpretations WHERE household_id=$1 AND upload_id=$2 ORDER BY created_at DESC LIMIT 1',[h,id]);
+  if(interpretations.rows[0]?.review_reasons?.includes('multiple_operations_require_separate_evidence'))throw new Conflict('MULTIPLE_OPERATIONS_REQUIRE_SEPARATE_EVIDENCE',422);
+  if(interpretations.rowCount&&interpretations.rows[0].parser_version!==MANUAL_TRADE_PARSER_VERSION)throw new Conflict('PHOTO_INTERPRETATION_RECHECK_REQUIRED',409);
+ }
+}
 export async function createProposal(db:pg.Pool,h:string,actor:string,key:string,input:ProposalInput){
  commandKey(key);const normalized=normalizeProposal(input);const digest=hash(JSON.stringify(normalized)),c=await db.connect();
  try{
@@ -35,11 +47,7 @@ export async function createProposal(db:pg.Pool,h:string,actor:string,key:string
    ?await c.query("SELECT status,original_text FROM app.manual_intakes WHERE household_id=$1 AND id=$2 AND owner_id=$3 FOR UPDATE",[h,normalized.source_evidence.id,normalized.owner_id])
    :await c.query("SELECT status FROM app.manual_photo_evidence WHERE household_id=$1 AND upload_id=$2 AND owner_id=$3 FOR UPDATE",[h,normalized.source_evidence.id,normalized.owner_id]);
   if(!evidence.rowCount)throw new Conflict('EVIDENCE_OWNER_MISMATCH',422);if(evidence.rows[0].status!=='awaiting_review')throw new Conflict('EVIDENCE_ALREADY_LINKED');
-  if(normalized.source_evidence.kind==='manual_text'&&interpretManualTrade(String(evidence.rows[0].original_text),null).review_reasons.includes('multiple_operations_require_separate_evidence'))throw new Conflict('MULTIPLE_OPERATIONS_REQUIRE_SEPARATE_EVIDENCE',422);
-  if(normalized.source_evidence.kind==='manual_photo'){
-   const interpretations=await c.query("SELECT review_reasons FROM app.manual_photo_trade_interpretations WHERE household_id=$1 AND upload_id=$2 ORDER BY created_at DESC LIMIT 1",[h,normalized.source_evidence.id]);
-   if(interpretations.rows[0]?.review_reasons?.includes('multiple_operations_require_separate_evidence'))throw new Conflict('MULTIPLE_OPERATIONS_REQUIRE_SEPARATE_EVIDENCE',422);
-  }
+  await assertSingleTradeEvidence(c,h,normalized.source_evidence.kind,normalized.source_evidence.id);
   const id=randomUUID(),summary_hash=summaryHash(normalized);await c.query(`INSERT INTO app.proposals(household_id,id,owner_id,account_id,instrument_code,currency,side,quantity,unit_price,fees_minor,effective_date,summary_hash,status,source_evidence_kind,source_evidence_id) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,'pending',$13,$14)`,[h,id,normalized.owner_id,normalized.account_id,normalized.instrument_code,normalized.currency,normalized.side,normalized.quantity,normalized.unit_price,normalized.fees_minor,normalized.effective_date,summary_hash,normalized.source_evidence.kind,normalized.source_evidence.id]);
   if(normalized.source_evidence.kind==='manual_text')await c.query("UPDATE app.manual_intakes SET status='linked' WHERE household_id=$1 AND id=$2",[h,normalized.source_evidence.id]);else await c.query("UPDATE app.manual_photo_evidence SET status='linked' WHERE household_id=$1 AND upload_id=$2",[h,normalized.source_evidence.id]);
   const result={proposal_id:id,version:1,summary_hash,status:'pending',replayed:false};await c.query('INSERT INTO app.command_results VALUES($1,$2,$3,$4,$5)',[h,actor,key,digest,result]);await c.query("INSERT INTO app.audit_log(household_id,actor_id,action,resource_id,details) VALUES($1,$2,'proposal_created',$3,$4)",[h,actor,id,{summary_hash,account_id:normalized.account_id,evidence_kind:normalized.source_evidence.kind,evidence_id:normalized.source_evidence.id}]);await c.query('COMMIT');return result;
@@ -71,6 +79,7 @@ export async function approve(db:pg.Pool,h:string,actor:string,id:string,key:str
   if(p.version!==body.version||p.summary_hash!==body.summary_hash)throw new Conflict('PROPOSAL_CHANGED');
   if(p.status==='applied'){const result={proposal_id:id,event_id:p.applied_event_id,status:'applied',replayed:true};await c.query('INSERT INTO app.command_results VALUES($1,$2,$3,$4,$5)',[h,actor,key,digest,result]);await c.query('COMMIT');return result;}
   if(p.status!=='pending')throw new Conflict('PROPOSAL_NOT_PENDING');
+  if(p.source_evidence_kind&&p.source_evidence_id)await assertSingleTradeEvidence(c,h,String(p.source_evidence_kind),String(p.source_evidence_id));
   if(state.rows[0].facts_revision!==body.expected_facts_revision)throw new Conflict('STALE_PORTFOLIO');
   if((await c.query('SELECT 1 FROM app.pension_legacy_retirements WHERE household_id=$1 AND account_id=$2 AND instrument_code=$3 AND currency=$4',[h,p.account_id,p.instrument_code,p.currency])).rowCount)throw new Conflict('PENSION_LEGACY_POSITION_RETIRED');
   if(state.rows[0].latest_version){

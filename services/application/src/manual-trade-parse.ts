@@ -1,6 +1,7 @@
 import {Decimal} from 'decimal.js';
 
-const VERSION='manual-trade-v6-amount-roles';
+export const MANUAL_TRADE_PARSER_VERSION='manual-trade-v7-multiple-operations';
+const VERSION=MANUAL_TRADE_PARSER_VERSION;
 const ExactDecimal=Decimal.clone({precision:60});
 type Side='buy'|'sell';
 type Span={value:string;index:number;length:number};
@@ -127,6 +128,18 @@ function tradeCandidates(original:string):Span[] {
   // Split repeated trade verbs only if each segment contains its own ticker.
   const segments=verbs.length>1?verbs.map((v,i)=>({index:v.index,value:value.slice(v.index,verbs[i+1]?.index??value.length)})).filter(part=>detectInstrument(part.value,fold(part.value))):[];
   if(segments.length>1){for(const part of segments)clauses.push({value:part.value,index:base+part.index,length:part.value.length});continue;}
+  // One action may describe several securities without repeating the verb.
+  // Require a quantity adjacent to each ticker so an informational mention alone
+  // does not turn a single trade into multiple operations.
+  const quantified:Span[]=[];
+  for(const ticker of value.matchAll(/\b[A-Z][A-Z0-9]{1,9}\b/g)){
+   const code=ticker[0],index=ticker.index??0;if(NON_TICKERS.has(code))continue;
+   const before=value.slice(Math.max(0,index-45),index),after=value.slice(index+code.length,index+code.length+45);
+   const left=/(\d[\d.,]*)\s*(?:(?:de|of)\s+)?(?:(?:acoes?|acciones?|shares?|units?|unidades?)\s+)?$/i.exec(before);
+   const right=/^\s*(?:(?:qty|quantity|cantidad|quantidade)\s*[:=]?\s*|[:x]\s*)?(\d[\d.,]*)\b/i.exec(after);
+   if(left||right){const start=left?index-left[0].length:index;const end=right?index+code.length+right[0].length:index+code.length;quantified.push({value:value.slice(start,end),index:base+start,length:end-start});}
+  }
+  if(quantified.length>1){clauses.push(...quantified);continue;}
   const hasTicker=/\b[A-Z]{2,6}\d{0,5}\b/.test(value);
   const rowTicker=/\b([A-Z]{2,6}\d{0,5})\s+\d+(?:[.,]\d+)?\b/.exec(value);
   const tableRow=hasTicker&&!!rowTicker&&!NON_TICKERS.has(rowTicker[1])&&/(?:R\$|US\$|USD|BRL|EUR|€|\$)\s*[\d.,]+/i.test(value);

@@ -186,3 +186,5 @@ El calendario de proyección puede incluir fechas futuras estimadas con feriados
 En movimientos manuales, los importes con separadores inglés o brasileño inequívocos se normalizan sin perder precisión. Si un separador de tres dígitos es ambiguo o la agrupación es inválida, el dato queda pendiente de confirmación; las lecturas anteriores pendientes se vuelven a contrastar sin modificar los hechos aprobados.
 
 En comprobantes manuales, Juanca distingue precio unitario, total bruto, total neto y cargos declarados. Si no identifica un precio unitario o no puede conciliar los importes, deja la evidencia para revisión. Las comisiones explícitas se muestran para confirmar y nunca se sustituyen silenciosamente por cero.
+
+Si una evidencia manual o una foto describe varias operaciones, Revisiones muestra los fragmentos detectados y solicita registrar cada movimiento por separado. La creación y la aprobación vuelven a comprobar la evidencia; una lectura OCR anterior se actualiza antes de permitir continuar.

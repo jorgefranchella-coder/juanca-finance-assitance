@@ -141,3 +141,17 @@ test('pending old total-as-unit-price interpretation is blocked and original rem
  const row={status:'awaiting_review',original_text:'Compra ejecutada PETR4; cantidad 10; total R$ 300,00; fecha 2026-11-03',occurred_on:null,fields:{quantity:'10',unit_price:'300.00',fees_minor:'0'},interpretation_status:'parsed_review',review_reasons:[] as string[],parser_version:'manual-trade-v5-numeric'};
  const checked=guardAmbiguousText(row);assert.equal(checked.interpretation_status,'needs_manual_review');assert.equal(checked.fields.unit_price,null);assert.ok(checked.review_reasons.includes('unit_price_unresolved'));assert.equal(row.fields.unit_price,'300.00');
 });
+
+test('one action and two quantified securities are separate candidate trades',()=>{
+ for(const text of [
+  'Compré 10 PETR4 y 20 VALE3 a R$ 60,00 el 03/11/2026',
+  'Compré 10 PETR4 a R$ 30,00 y 20 PETR4 a R$ 31,00 el 03/11/2026',
+  'Bought 10 AAPL and 5 MSFT at USD 60.00 on 2026-11-03',
+  'Compra PETR4 quantidade 10 e VALE3 quantidade 20 preço R$ 60,00',
+ ]){
+  const parsed=interpretManualTrade(text,null);assert.equal(parsed.status,'needs_manual_review',text);assert.equal(parsed.fields.unit_price,null);assert.ok(parsed.review_reasons.includes('multiple_operations_require_separate_evidence'));assert.equal(parsed.candidates?.length,2);
+  for(const c of parsed.candidates??[])assert.equal(text.slice(c.index,c.index+c.length),c.value);
+ }
+ const single=interpretManualTrade('Bought 10 AAPL at USD 30.00 on 2026-11-03; reference MSFT',null);
+ assert.ok(!single.review_reasons.includes('multiple_operations_require_separate_evidence'));
+});

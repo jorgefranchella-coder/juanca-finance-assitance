@@ -344,12 +344,27 @@ test('multiple trade evidence remains unlinked and cannot create a mixed proposa
  await assert.rejects(()=>createProposal(db,f.h,f.actor,'multiple-trades-01',input),(e:unknown)=>e instanceof Conflict&&e.code==='MULTIPLE_OPERATIONS_REQUIRE_SEPARATE_EVIDENCE');
  assert.equal((await db.query('SELECT status FROM app.manual_intakes WHERE household_id=$1 AND id=$2',[f.h,id])).rows[0].status,'awaiting_review');
 });
+test('existing pending proposal with mixed source evidence cannot be applied',async()=>{
+ const f=await fixture(),text='Compra PETR4 quantidade 10; compra VALE3 quantidade 20 preço R$ 60,00',id=await manualEvidence(f.h,'owner1',text);
+ await db.query("UPDATE app.proposals SET source_evidence_kind='manual_text',source_evidence_id=$3 WHERE household_id=$1 AND id=$2",[f.h,'p1',id]);
+ await assert.rejects(()=>approve(db,f.h,f.actor,'p1','mixed-approval-01',f.body),(e:unknown)=>e instanceof Conflict&&e.code==='MULTIPLE_OPERATIONS_REQUIRE_SEPARATE_EVIDENCE');
+ assert.equal((await db.query("SELECT status FROM app.proposals WHERE household_id=$1 AND id='p1'",[f.h])).rows[0].status,'pending');
+ assert.equal((await db.query('SELECT count(*)::int AS n FROM app.events WHERE household_id=$1',[f.h])).rows[0].n,0);
+});
 test('multiple trade OCR cannot be linked to a single proposal',async()=>{
  const f=await fixture(),id=randomUUID();
  await db.query("INSERT INTO app.manual_photo_evidence(household_id,upload_id,owner_id,file_name,content_sha256) VALUES($1,$2,'owner1','fixture.png',$3)",[f.h,id,'f'.repeat(64)]);
- await db.query("INSERT INTO app.manual_photo_trade_interpretations(household_id,upload_id,owner_id,ocr_text_sha256,parser_version,interpretation_status,fields,review_reasons) VALUES($1,$2,'owner1',$3,'manual-trade-v6-amount-roles','needs_manual_review','{}',$4)",[f.h,id,'e'.repeat(64),['multiple_operations_require_separate_evidence']]);
+ await db.query("INSERT INTO app.manual_photo_trade_interpretations(household_id,upload_id,owner_id,ocr_text_sha256,parser_version,interpretation_status,fields,review_reasons) VALUES($1,$2,'owner1',$3,'manual-trade-v7-multiple-operations','needs_manual_review','{}',$4)",[f.h,id,'e'.repeat(64),['multiple_operations_require_separate_evidence']]);
  const input={owner_id:'owner1',account_id:'account1',instrument_code:'PETR4',currency:'BRL',side:'buy',quantity:'10',unit_price:'60',effective_date:'2026-08-10',source_evidence:{kind:'manual_photo' as const,id}};
  await assert.rejects(()=>createProposal(db,f.h,f.actor,'multiple-photo-01',input),(e:unknown)=>e instanceof Conflict&&e.code==='MULTIPLE_OPERATIONS_REQUIRE_SEPARATE_EVIDENCE');
+ assert.equal((await db.query('SELECT status FROM app.manual_photo_evidence WHERE household_id=$1 AND upload_id=$2',[f.h,id])).rows[0].status,'awaiting_review');
+});
+test('old OCR interpretation must be rechecked before preparing a proposal',async()=>{
+ const f=await fixture(),id=randomUUID();
+ await db.query("INSERT INTO app.manual_photo_evidence(household_id,upload_id,owner_id,file_name,content_sha256) VALUES($1,$2,'owner1','fixture.png',$3)",[f.h,id,'f'.repeat(64)]);
+ await db.query("INSERT INTO app.manual_photo_trade_interpretations(household_id,upload_id,owner_id,ocr_text_sha256,parser_version,interpretation_status,fields,review_reasons) VALUES($1,$2,'owner1',$3,'manual-trade-v6-amount-roles','parsed_review','{}','{}')",[f.h,id,'e'.repeat(64)]);
+ const input={owner_id:'owner1',account_id:'account1',instrument_code:'PETR4',currency:'BRL',side:'buy',quantity:'10',unit_price:'60',effective_date:'2026-08-10',source_evidence:{kind:'manual_photo' as const,id}};
+ await assert.rejects(()=>createProposal(db,f.h,f.actor,'stale-photo-001',input),(e:unknown)=>e instanceof Conflict&&e.code==='PHOTO_INTERPRETATION_RECHECK_REQUIRED');
  assert.equal((await db.query('SELECT status FROM app.manual_photo_evidence WHERE household_id=$1 AND upload_id=$2',[f.h,id])).rows[0].status,'awaiting_review');
 });
 test('incomplete Avenue confirmation produces a visible task and no trade assertions',async()=>{
