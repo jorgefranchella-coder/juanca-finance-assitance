@@ -16,6 +16,16 @@ mcp = FastMCP('patrimonio')
 CONFIG = json.loads((Path(__file__).parent / 'credentials.json').read_text())
 BASE = 'http://127.0.0.1:3040'
 
+class ApiError(ValueError):
+    def __init__(self, status, body):
+        self.status = status
+        try:
+            self.body = json.loads(body)
+        except (ValueError, TypeError):
+            self.body = {}
+        super().__init__(f'API {status}: {body[:1500]}')
+
+
 def api(path, payload=None, fields=None, file_path=None, method=None, extra_headers=None):
     headers = {'Authorization': 'Bearer ' + CONFIG['token']}
     headers.update(extra_headers or {})
@@ -44,7 +54,7 @@ def api(path, payload=None, fields=None, file_path=None, method=None, extra_head
         with urlopen(Request(BASE + path, data=data, headers=headers, method=method), timeout=180) as r:
             return json.load(r)
     except HTTPError as e:
-        raise ValueError(f'API {e.code}: {e.read().decode()[:1500]}') from e
+        raise ApiError(e.code, e.read().decode()) from e
 
 
 def authority_mode():
@@ -63,6 +73,20 @@ def register_text_evidence(owner, message):
     content = message.strip().encode('utf-8')
     request_id = stable_request_id(owner, content)
     return api('/api/shadow/evidence/text', {'request_id': request_id, 'owner': owner, 'text': message.strip()}, method='POST'), request_id
+
+
+def file_evidence_request(path, body, headers):
+    try:
+        return api(path, body, method='POST', extra_headers=headers)
+    except ApiError as exc:
+        if exc.status != 409 or exc.body.get('code') != 'IDEMPOTENCY_MISMATCH':
+            raise
+        details = exc.body.get('details')
+        if not isinstance(details, dict):
+            details = {}
+        return {'status': 'conflict', 'code': 'IDEMPOTENCY_MISMATCH', 'details': details,
+                'evidence_recorded': False, 'portfolio_changed': False,
+                'next_step': 'El reenvío no fue aceptado. Revisa los datos diferentes y el estado del registro anterior; no confirmes una importación nueva ni cambies la cartera.'}
 
 
 def register_file_evidence(path, owner, *, kind, source=None, file_type=None, reference_date=None, request_id=None):
@@ -85,7 +109,7 @@ def register_file_evidence(path, owner, *, kind, source=None, file_type=None, re
             'X-Juanca-File-Name': quote(filename, safe=''),
             'X-Juanca-Request-Id': request_id,
         }
-        return api('/api/shadow/evidence/photo-file', body, method='POST', extra_headers=headers)
+        return file_evidence_request('/api/shadow/evidence/photo-file', body, headers)
     if kind != 'document' or source not in {'b3', 'avenue', 'pension'}:
         raise ValueError('Tipo de evidencia documental invalido')
     mime = mimetypes.guess_type(filename)[0] or 'application/octet-stream'
@@ -110,7 +134,7 @@ def register_file_evidence(path, owner, *, kind, source=None, file_type=None, re
     }
     if reference_date:
         headers['X-Juanca-Reference-Date'] = reference_date
-    return api('/api/shadow/evidence/document-file', body, method='POST', extra_headers=headers)
+    return file_evidence_request('/api/shadow/evidence/document-file', body, headers)
 
 
 def prepare_postgres_transaction(owner, message, account_id=None, photo_evidence_id=None):
@@ -301,6 +325,8 @@ def registrar_evidencia_foto(propietario: str, ruta: str) -> dict:
     if mode != 'postgres':
         raise ValueError('El registro de fotos por Telegram requiere autoridad PostgreSQL activa')
     result = register_file_evidence(ruta, propietario, kind='photo')
+    if result.get('status') == 'conflict':
+        return result
     return {'evidence': result, 'evidence_recorded': True, 'portfolio_changed': False,
             'next_step': 'Foto conservada en PostgreSQL para revisión; no modifica la cartera.'}
 
@@ -409,6 +435,11 @@ def importar_documento(ruta: str, fuente: str, propietario: str, tipo: str = '',
                      'pension_statement')
         result = register_file_evidence(ruta, propietario, kind='document', source=fuente,
                                         file_type=file_type, reference_date=fecha_referencia or None)
+        if result.get('status') == 'conflict':
+            return result
+        if result.get('replayed'):
+            return {'evidence': result, 'evidence_recorded': True, 'portfolio_changed': False,
+                    'next_step': 'El documento ya estaba registrado. Informa el estado de procesamiento devuelto y no afirmes que se creó una importación nueva.'}
         return {'evidence': result, 'evidence_recorded': True, 'portfolio_changed': False,
                 'next_step': ('Documento original recibido y en cola de procesamiento. No confirmes que haya propuestas listas hasta verificar el resultado; la cartera cambia solo al aprobar cada propuesta.' if file_type == 'avenue_confirmation' else 'Documento original recibido y en cola de procesamiento. Consulta su estado antes de indicar qué revisión está disponible; la cartera aún no cambió.')}
     return api('/api/import/' + fuente, fields={'owner': propietario,'kind': tipo,'reference_date': fecha_referencia}, file_path=ruta)

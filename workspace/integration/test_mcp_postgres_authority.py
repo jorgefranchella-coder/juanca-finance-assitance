@@ -89,6 +89,20 @@ class PostgresMCPTest(unittest.TestCase):
             payload = {'ok': True}
         return FakeResponse(payload)
 
+    def test_document_conflict_does_not_claim_registration(self):
+        conflict = {'code': 'IDEMPOTENCY_MISMATCH', 'details': {'changed_fields': ['file_type'],
+                    'previous': {'upload_id': 'previous-id', 'import_job_status': 'awaiting_review'}}}
+        with tempfile.NamedTemporaryFile(suffix='.pdf') as source:
+            source.write(b'synthetic pdf'); source.flush()
+            with patch.object(mcp_server, 'authority_mode', return_value='postgres'), \
+                 patch.object(mcp_server, 'api', side_effect=mcp_server.ApiError(409, json.dumps(conflict))):
+                result = mcp_server.importar_documento(source.name, 'avenue', 'Jorge', 'statement')
+        self.assertEqual(result['status'], 'conflict')
+        self.assertFalse(result['evidence_recorded'])
+        self.assertFalse(result['portfolio_changed'])
+        self.assertEqual(result['details']['previous']['import_job_status'], 'awaiting_review')
+        self.assertEqual(result['details']['changed_fields'], ['file_type'])
+
     def test_text_trade_uses_postgres_evidence_and_creates_pending_proposal(self):
         with patch.object(mcp_server, 'urlopen', self.fake_urlopen):
             result = mcp_server.proponer_transaccion('Jorge', 'Compré 2 PETR4 a R$ 30 el 23/10/2026')

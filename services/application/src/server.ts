@@ -170,7 +170,7 @@ const server=createServer(async(req,res)=>{
     FROM app.accounts a JOIN app.owners o ON o.household_id=a.household_id AND o.id=a.owner_id
     WHERE a.household_id=$1 ORDER BY o.display_name,a.identity_status,a.source_scope`,[config.household_id]);reply(200,{accounts:r.rows});return;}
   throw new Conflict('NOT_FOUND',404);
- }catch(error){const code=error instanceof Conflict?error.code:'DEPENDENCY_UNAVAILABLE';const status=error instanceof Conflict?error.status:503;reply(status,{code,message:code,request_id:requestId,retryable:status===503,details:{}});}
+ }catch(error){const code=error instanceof Conflict?error.code:'DEPENDENCY_UNAVAILABLE';const status=error instanceof Conflict?error.status:503;reply(status,{code,message:code,request_id:requestId,retryable:status===503,details:error instanceof Conflict?error.details:{}});}
 });
 server.requestTimeout=120000;server.headersTimeout=10000;
 server.listen(config.port,'127.0.0.1',()=>console.log('Juanca application shadow ready on loopback.'));

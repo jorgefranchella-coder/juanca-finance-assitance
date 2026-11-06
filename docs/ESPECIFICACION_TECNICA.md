@@ -293,3 +293,5 @@ La lectura de previdencia `pension-statement-v3-dates-2026-11-05` verifica fecha
 
 
 La herramienta MCP `consultar_patrimonio` distingue `summary` (contadores, con lectura separada de posiciones actuales), `positions` (con filtros opcionales y campos faltantes explícitos) y `extractos` (estado y detalle de snapshots consultados). La lectura de posiciones exige autoridad PostgreSQL confirmada; ante error devuelve `unavailable` y nunca utiliza el historial como fuente de datos actuales. Las fechas y la cobertura proceden de la respuesta y no se inventan. Los listados de extractos pueden ser parciales.
+
+La ingesta de evidencias compara la identidad semántica independientemente del nombre temporal. Ante una clave reutilizada con metadatos diferentes devuelve conflicto y, únicamente dentro de la misma familia, los campos distintos y el estado de la importación anterior; Hermes debe indicar que el reenvío no fue aceptado.

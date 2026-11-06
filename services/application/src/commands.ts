@@ -3,7 +3,7 @@ import type pg from 'pg';
 import {randomUUID} from 'node:crypto';
 import {exact,integer,minor,D} from './money.ts';
 import {hash,publishInTransaction,summaryHash} from './migration.ts';
-export class Conflict extends Error{code:string;status:number;constructor(code:string,status=409){super(code);this.code=code;this.status=status;}}
+export class Conflict extends Error{code:string;status:number;details:Record<string,unknown>;constructor(code:string,status=409,details:Record<string,unknown>={}){super(code);this.code=code;this.status=status;this.details=details;}}
 export type Approval={version:number;summary_hash:string;expected_facts_revision:string};
 export type ProposalInput={owner_id:string;account_id:string;instrument_code:string;currency:string;side:string;quantity:string|number;unit_price:string|number;fees_minor?:string|number;effective_date:string;source_evidence:{kind:'manual_text'|'manual_photo';id:string}};
 function commandKey(key:string){if(!/^[A-Za-z0-9_-]{8,100}$/.test(key))throw new Conflict('VALIDATION',422);}
