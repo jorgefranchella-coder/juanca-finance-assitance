@@ -108,3 +108,36 @@ test('pending historic interpretation with wrong amount is rechecked without mut
  const checked=guardAmbiguousText(row);assert.equal(checked.interpretation_status,'needs_manual_review');assert.equal(checked.fields.unit_price,'1234.56');assert.ok(checked.review_reasons.includes('numeric_interpretation_changed_requires_review'));assert.equal(row.fields.unit_price,'1.23456');
  const approved=guardAmbiguousText({...row,status:'linked'});assert.equal(approved.fields.unit_price,'1.23456');
 });
+
+test('totals and commissions never become unit prices',()=>{
+ for(const text of [
+  'Compra ejecutada PETR4; cantidad 10; total R$ 300,00; fecha 2026-11-03',
+  'Compra ejecutada PETR4; cantidad 10; comisión R$ 5,00; total R$ 305,00; fecha 2026-11-03',
+  'Executed buy AAPL quantity 10; fee USD 5.00; net total USD 305.00; date 2026-11-03',
+  'Compra executada PETR4; quantidade 10; corretagem R$ 5,00; total líquido R$ 305,00; data 2026-11-03',
+ ]){
+  const result=interpretManualTrade(text,null);assert.equal(result.status,'needs_manual_review');assert.equal(result.fields.unit_price,null);assert.ok(result.review_reasons.includes('unit_price_unresolved'));assert.ok(result.fields.amount_candidates?.length);
+ }
+ const withFee=interpretManualTrade('Compra ejecutada PETR4; cantidad 10; comisión R$ 5,00; total R$ 305,00; fecha 2026-11-03',null);
+ assert.equal(withFee.fields.fees_minor,'500');assert.equal(withFee.fields.fees_assumed_zero,false);
+});
+
+test('price and fees reconcile declared gross and net values, otherwise require review',()=>{
+ for(const [text,expected] of [
+  ['Compra ejecutada PETR4; cantidad 10; precio R$ 30,00; total bruto R$ 300,00; comisión R$ 5,00; total neto R$ 305,00; fecha 2026-11-03',true],
+  ['Compra ejecutada PETR4; cantidad 10; precio R$ 30,00; total bruto R$ 400,00; fecha 2026-11-03',false],
+  ['Bought AAPL quantity 10; unit price USD 30.00; fee USD 5.00; net total USD 305.00; date 2026-11-03',true],
+  ['Compra executada PETR4; quantidade 10; preço unitário R$ 30,00; corretagem R$ 5,00; total líquido R$ 306,00; data 2026-11-03',false],
+ ] as const){const result=interpretManualTrade(text,null);assert.equal(result.fields.unit_price,'30.00');assert.equal(result.status,expected?'parsed_review':'needs_manual_review',text);if(!expected)assert.ok(result.review_reasons.includes('declared_amount_mismatch'));}
+ const unknown=interpretManualTrade('Bought AAPL quantity 10; price USD 30.00; net total USD 300.00; date 2026-11-03',null);assert.ok(unknown.review_reasons.includes('net_total_requires_review'));
+});
+
+test('unparsed commission is never silently assumed zero',()=>{
+ const parsed=interpretManualTrade('Compra PETR4 quantidade 10 preço R$ 30,00 comissão 5,00 data 03/11/2026',null);
+ assert.equal(parsed.fields.fees_minor,null);assert.equal(parsed.fields.fees_assumed_zero,false);assert.ok(parsed.review_reasons.includes('fees_require_review'));
+});
+
+test('pending old total-as-unit-price interpretation is blocked and original remains intact',()=>{
+ const row={status:'awaiting_review',original_text:'Compra ejecutada PETR4; cantidad 10; total R$ 300,00; fecha 2026-11-03',occurred_on:null,fields:{quantity:'10',unit_price:'300.00',fees_minor:'0'},interpretation_status:'parsed_review',review_reasons:[] as string[],parser_version:'manual-trade-v5-numeric'};
+ const checked=guardAmbiguousText(row);assert.equal(checked.interpretation_status,'needs_manual_review');assert.equal(checked.fields.unit_price,null);assert.ok(checked.review_reasons.includes('unit_price_unresolved'));assert.equal(row.fields.unit_price,'300.00');
+});

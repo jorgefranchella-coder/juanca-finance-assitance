@@ -1,4 +1,7 @@
-const VERSION='manual-trade-v5-numeric';
+import {Decimal} from 'decimal.js';
+
+const VERSION='manual-trade-v6-amount-roles';
+const ExactDecimal=Decimal.clone({precision:60});
 type Side='buy'|'sell';
 type Span={value:string;index:number;length:number};
 
@@ -72,16 +75,49 @@ function detectQuantity(flat:string,instrument:string|null):{value:string|null;i
  }
  return {value:null,invalid:false};
 }
-function detectPrice(original:string,flat:string):{value:string|null;currency:string|null;invalid:boolean} {
- const matches:Span[]=[];const regex=/(?:R\$|BRL\s*\$?|US\$|USD\s*\$?|EUR\s*€?|€|\$)\s*([\d.,]+)/gi;
+type AmountRole='unit_price'|'gross_total'|'net_total'|'total_unknown'|'fee'|'unknown';
+type AmountCandidate={role:AmountRole;raw:string;value:string|null;currency:string;index:number;length:number};
+function detectAmounts(original:string,quantity:string|null,side:Side|null) {
+ const candidates:AmountCandidate[]=[];
+ const regex=/(?:R\$|BRL\s*\$?|US\$|USD\s*\$?|EUR\s*€?|€|\$)\s*([\d.,]+)/gi;
  for(const match of original.matchAll(regex)){
-  matches.push({value:match[1],index:match.index??0,length:match[0].length});
+  const index=match.index??0,raw=match[0].trim().toUpperCase();
+  const currency=/^(?:US\$|USD)/.test(raw)?'USD':/^(?:€|EUR)/.test(raw)?'EUR':raw.startsWith('$')?'USD':'BRL';
+  const prefix=fold(original.slice(Math.max(0,index-70),index)).split(/[;\n\r]/).pop()??'';
+  let role:AmountRole='unknown';
+  if(/\b(?:total\s+(?:liquido|liquida|neto|neta|net)|(?:net|neto|neto da operacao|liquido)\s+(?:total|amount|valor)|(?:net|liquid)\s+(?:proceeds|amount))\s*[:=]?\s*$/.test(prefix))role='net_total';
+  else if(/\b(?:(?:total|valor)\s+(?:bruto|bruta|gross)|(?:gross|bruto)\s+(?:total|amount|valor)|principal)\s*[:=]?\s*$/.test(prefix))role='gross_total';
+  else if(/\b(?:comissao|comision|corretagem|taxa|custos?|encargos?|fees?|commission|charges?|brokerage)\s*[:=]?\s*$/.test(prefix))role='fee';
+  else if(/\b(?:total|valor total|total amount|amount total)\s*[:=]?\s*$/.test(prefix))role='total_unknown';
+  else if(/\b(?:unit(?:ario|aria)?|preco(?:\s+unitario)?|precio(?:\s+unitario)?|price(?:\s+per\s+share)?|unit price|at|a|por|cada|per)\s*[:=]?\s*$/.test(prefix))role='unit_price';
+  candidates.push({role,raw:match[0],value:number(match[1]),currency,index,length:match[0].length});
  }
- if(!matches.length)return{value:null,currency:null,invalid:false};
- const labeled=matches.find(item=>/\b(?:unit(?:ario|aria)?|preco|precio|price|at|por|cada|per)\s*[:=]?\s*$/i.test(fold(original.slice(Math.max(0,item.index-36),item.index))));
- const selected=labeled??matches[0],raw=original.slice(selected.index,selected.index+selected.length).trim().toUpperCase();
- const currency=/^(?:US\$|USD)/.test(raw)?'USD':/^(?:€|EUR)/.test(raw)?'EUR':raw.startsWith('$')?'USD':'BRL';
- const value=number(selected.value);return{value,currency,invalid:value===null};
+ const prices=candidates.filter(item=>item.role==='unit_price');
+ const chosen=prices.length===1?prices[0]:null;
+ const fees=candidates.filter(item=>item.role==='fee');
+ const hasFeeLabel=/\b(?:comissao|comision|corretagem|taxa|custos?|encargos?|fees?|commission|charges?|brokerage)\b/.test(fold(original));
+ const reasons:string[]=[];
+ if(prices.length>1)reasons.push('multiple_unit_prices_require_review');
+ if(candidates.some(c=>c.role==='total_unknown'||c.role==='unknown'))reasons.push('amount_role_requires_review');
+ if(candidates.some(item=>item.value===null))reasons.push('numeric_format_ambiguous_or_invalid');
+ const currency=chosen?.currency??(new Set(candidates.map(c=>c.currency)).size===1?candidates[0]?.currency:null)??null;
+ if(currency&&candidates.some(c=>c.currency!==currency))reasons.push('amount_currency_mismatch');
+ let feesMinor:string|null='0';
+ if(hasFeeLabel&&!fees.length){feesMinor=null;reasons.push('fees_require_review');}
+ if(fees.length){
+  if(fees.some(f=>!f.value||f.currency!==currency)){feesMinor=null;reasons.push('fees_require_review');}
+  else {const cents=fees.reduce((sum,f)=>sum.add(new ExactDecimal(f.value!).mul(100)),new ExactDecimal(0));if(!cents.isInteger()){feesMinor=null;reasons.push('fees_require_review');}else feesMinor=cents.toFixed(0);}
+ }
+ const principal=quantity&&chosen?.value?new ExactDecimal(quantity).mul(chosen.value):null;
+ if(principal&&currency){
+  for(const item of candidates.filter(c=>c.value&&c.currency===currency&&(c.role==='gross_total'||c.role==='net_total'))){
+   let expected:Decimal|null=principal;
+   if(item.role==='net_total')expected=fees.length>0&&feesMinor!==null&&side?principal.add(new ExactDecimal(feesMinor).div(100).mul(side==='buy'?1:-1)):null;
+   if(expected&&!expected.toDecimalPlaces(2,Decimal.ROUND_HALF_UP).eq(new ExactDecimal(item.value!).toDecimalPlaces(2,Decimal.ROUND_HALF_UP)))reasons.push('declared_amount_mismatch');
+   if(!expected)reasons.push('net_total_requires_review');
+  }
+ }
+ return {value:chosen?.value??null,currency,invalid:chosen?.value===null,reasons:[...new Set(reasons)],fees_minor:feesMinor,fees_assumed_zero:!hasFeeLabel,candidates};
 }
 // Keep exact source spans for separately described trades and OCR table rows.
 function tradeCandidates(original:string):Span[] {
@@ -92,18 +128,19 @@ function tradeCandidates(original:string):Span[] {
   const segments=verbs.length>1?verbs.map((v,i)=>({index:v.index,value:value.slice(v.index,verbs[i+1]?.index??value.length)})).filter(part=>detectInstrument(part.value,fold(part.value))):[];
   if(segments.length>1){for(const part of segments)clauses.push({value:part.value,index:base+part.index,length:part.value.length});continue;}
   const hasTicker=/\b[A-Z]{2,6}\d{0,5}\b/.test(value);
-  const tableRow=hasTicker&&/(?:R\$|US\$|USD|BRL|EUR|€|\$)\s*[\d.,]+/i.test(value)&&/\b[A-Z]{2,6}\d{0,5}\s+\d+(?:[.,]\d+)?\b/.test(value);
+  const rowTicker=/\b([A-Z]{2,6}\d{0,5})\s+\d+(?:[.,]\d+)?\b/.exec(value);
+  const tableRow=hasTicker&&!!rowTicker&&!NON_TICKERS.has(rowTicker[1])&&/(?:R\$|US\$|USD|BRL|EUR|€|\$)\s*[\d.,]+/i.test(value);
   if((verbs.length>0&&detectInstrument(value,flat))||tableRow)clauses.push({value,index:base,length:value.length});
  }
  return clauses.length>1?clauses:[];
 }
 export function interpretManualTrade(text:string,occurredOn:string|null) {
  const original=text.normalize('NFC'),flat=fold(original),sideResult=detectSide(flat);
- const instrument=detectInstrument(original,flat),quantity=detectQuantity(flat,instrument),price=detectPrice(original,flat);
+ const instrument=detectInstrument(original,flat),quantity=detectQuantity(flat,instrument),price=detectAmounts(original,quantity.value,sideResult.side);
  const dateMatch=flat.match(/\b(\d{1,2}[/.\-]\d{1,2}[/.\-]\d{4}|\d{4}-\d{2}-\d{2})\b/);
  const tradeDate=dateMatch?isoDate(dateMatch[1]):occurredOn;
  const candidates=tradeCandidates(original),multiple=candidates.length>1;
- const fields={side:multiple?null:sideResult.side,instrument_code:multiple?null:instrument,quantity:multiple?null:quantity.value,unit_price:multiple?null:price.value,currency:multiple?null:price.currency,trade_date:multiple?null:tradeDate,fees_minor:'0',fees_assumed_zero:true,...(multiple?{source_candidates:candidates}:{})};
+ const fields={side:multiple?null:sideResult.side,instrument_code:multiple?null:instrument,quantity:multiple?null:quantity.value,unit_price:multiple?null:price.value,currency:multiple?null:price.currency,trade_date:multiple?null:tradeDate,fees_minor:price.fees_minor,fees_assumed_zero:price.fees_assumed_zero,...(price.candidates.some(c=>c.role!=='unit_price')||price.candidates.length>1?{amount_candidates:price.candidates}:{}),...(multiple?{source_candidates:candidates}:{})};
  const detected=sideResult.matches.length>0||!!instrument||!!price.value;
  const reviewReasons:string[]=[];
  if(multiple)reviewReasons.push('multiple_operations_require_separate_evidence');
@@ -111,6 +148,7 @@ export function interpretManualTrade(text:string,occurredOn:string|null) {
  if(!instrument)reviewReasons.push('instrument_unresolved');
  if(!quantity.value)reviewReasons.push('quantity_unresolved');
  if(quantity.invalid||price.invalid)reviewReasons.push('numeric_format_ambiguous_or_invalid');
+ reviewReasons.push(...price.reasons.filter(reason=>!reviewReasons.includes(reason)));
  if(!price.value)reviewReasons.push('unit_price_unresolved');
  if(!tradeDate)reviewReasons.push('trade_date_unresolved');
  if(!price.currency)reviewReasons.push('currency_unresolved');
