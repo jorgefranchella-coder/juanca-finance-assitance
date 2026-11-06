@@ -29,9 +29,27 @@ try{
  const intent={household_ref:'test-family',owner_ref:'test-owner',account_ref:null,source:'manual',file_type:'manual_evidence',reference_date:null,file_name:'sample.png',content_sha256:digest,byte_size:image.length,content_type:'image/png'};
  const accepted=await fetch(base+'/v1/uploads',{method:'POST',headers,body:JSON.stringify(intent)});assert.equal(accepted.status,202);const upload=await accepted.json() as {upload_id:string};
  const stored=await fetch(base+`/v1/uploads/${upload.upload_id}/content`,{method:'PUT',headers:{Authorization:'Bearer '+token,'Content-Type':'image/png','Content-Length':String(image.length)},body:Uint8Array.from(image)});assert.equal(stored.status,201);
+ // Existing jobs used to hash the transport filename. Replays must also work for them.
+ await testDb.query('UPDATE ingestion.upload_jobs SET request_hash=$2 WHERE id=$1',[upload.upload_id,createHash('sha256').update(JSON.stringify(intent)).digest('hex')]);
+ for(const name of ['sample.png','telegram-other-name.png']){
+  const retried=await fetch(base+'/v1/uploads',{method:'POST',headers,body:JSON.stringify({...intent,file_name:name})});assert.equal(retried.status,202);assert.equal((await retried.json() as {upload_id:string}).upload_id,upload.upload_id);
+  const again=await fetch(base+`/v1/uploads/${upload.upload_id}/content`,{method:'PUT',headers:{Authorization:'Bearer '+token,'Content-Type':'image/png','Content-Length':String(image.length)},body:Uint8Array.from(image)});assert.equal(again.status,200);const body=await again.json() as {replayed:boolean;import_job_id:string;import_job_status:string};assert.equal(body.replayed,true);assert.ok(body.import_job_id);assert.equal(body.import_job_status,'queued');
+ }
+ for(const change of [{owner_ref:'other'}, {account_ref:'other'}, {source:'avenue',file_type:'avenue_statement',content_type:'application/pdf'}, {reference_date:'2026-11-01'}, {content_sha256:'a'.repeat(64)}]){
+  const conflict=await fetch(base+'/v1/uploads',{method:'POST',headers,body:JSON.stringify({...intent,...change})});assert.equal(conflict.status,409);assert.equal((await conflict.json() as {code:string}).code,'IDEMPOTENCY_MISMATCH');
+ }
+ assert.equal((await testDb.query('SELECT id FROM ingestion.upload_jobs')).rowCount,1);assert.equal((await testDb.query('SELECT id FROM ingestion.import_jobs')).rowCount,1);
  const status=await fetch(base+`/v1/uploads/${upload.upload_id}`,{headers:{Authorization:'Bearer '+token,'X-Household-Ref':'test-family'}});assert.equal(status.status,200);assert.equal((await status.json() as {status:string}).status,'stored');
  const wrongScope=await fetch(base+`/v1/uploads/${upload.upload_id}`,{headers:{Authorization:'Bearer '+token,'X-Household-Ref':'another-family'}});assert.equal(wrongScope.status,404);
  const rows=await testDb.query('SELECT d.object_key,d.content_sha256 FROM ingestion.documents d');assert.equal(rows.rowCount,1);assert.equal(createHash('sha256').update(await readFile(rows.rows[0].object_key)).digest('hex'),digest);
+ const pdf=Buffer.from('%PDF-1.4 synthetic fixture');const pdfHeaders={...headers,'Idempotency-Key':'avenue-smoke-001'};
+ const pdfIntent={...intent,source:'avenue',file_type:'avenue_confirmation',file_name:'telegram-one.pdf',content_type:'application/pdf',byte_size:pdf.length,content_sha256:createHash('sha256').update(pdf).digest('hex')};
+ const pdfAccepted=await fetch(base+'/v1/uploads',{method:'POST',headers:pdfHeaders,body:JSON.stringify(pdfIntent)});assert.equal(pdfAccepted.status,202);const pdfUpload=await pdfAccepted.json() as {upload_id:string};
+ const pdfPut=()=>fetch(base+`/v1/uploads/${pdfUpload.upload_id}/content`,{method:'PUT',headers:{Authorization:'Bearer '+token,'Content-Type':'application/pdf','Content-Length':String(pdf.length)},body:Uint8Array.from(pdf)});
+ assert.equal((await pdfPut()).status,201);
+ const pdfAgain=await fetch(base+'/v1/uploads',{method:'POST',headers:pdfHeaders,body:JSON.stringify({...pdfIntent,file_name:'telegram-two.pdf'})});assert.equal(pdfAgain.status,202);assert.equal((await pdfAgain.json() as {upload_id:string}).upload_id,pdfUpload.upload_id);
+ const pdfReplay=await pdfPut();assert.equal(pdfReplay.status,200);assert.equal((await pdfReplay.json() as {import_job_status:string}).import_job_status,'queued');
+ const pdfChanged=await fetch(base+'/v1/uploads',{method:'POST',headers:pdfHeaders,body:JSON.stringify({...pdfIntent,file_type:'avenue_statement'})});assert.equal(pdfChanged.status,409);
  const documentId=randomUUID(),assignmentId=randomUUID(),uploadJobId=randomUUID(),importJobId=randomUUID(),jobHash='a'.repeat(64),parser='b3-test-v1',rowHash='c'.repeat(64);
  await testDb.query('INSERT INTO ingestion.documents(id,content_sha256,byte_size,content_type,object_key) VALUES($1,$2,1,$3,$4)',[documentId,jobHash,'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',join(root,'b3.xlsx')]);
  await testDb.query("INSERT INTO ingestion.document_assignments(id,document_id,household_ref,owner_ref,source,file_type,reference_date) VALUES($1,$2,'test-family','test-owner','b3','positions','2026-10-21')",[assignmentId,documentId]);
