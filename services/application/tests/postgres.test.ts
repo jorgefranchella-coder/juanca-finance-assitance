@@ -1,5 +1,5 @@
 import {test,before,after} from 'node:test';
-import {ingestAvenueConfirmationResult,ingestPensionResult} from '../src/ingestion-bridge.ts';
+import {ingestAvenueConfirmationResult,ingestAvenueStatementResult,ingestPensionResult} from '../src/ingestion-bridge.ts';
 import {prepareAvenueTradeProposals} from '../src/avenue-trade-proposals.ts';
 import assert from 'node:assert/strict';
 import {readFile,writeFile,mkdtemp,rm} from 'node:fs/promises';
@@ -191,10 +191,12 @@ test('an approver can publish an Avenue position snapshot with USD valuation and
   await db.query("INSERT INTO app.custody_institutions(id,canonical_name,kind) VALUES('avenue-securities','Avenue Securities','custodian') ON CONFLICT(id) DO NOTHING");
   const owner=ownerId('Jorge'),custody='avenue-custody-'+randomUUID();await db.query("INSERT INTO app.custody_accounts(household_id,id,owner_id,institution_id,external_reference,identity_basis) VALUES($1,$2,$3,'avenue-securities','acct-123','observed_reference')",[h,custody,owner]);
   const doc='avenue-snapshot-'+randomUUID(),digest='f'.repeat(64);await db.query(`INSERT INTO app.source_documents(household_id,id,owner_id,source_system,report_kind,original_name,content_sha256,storage_key,effective_as_of,date_basis) VALUES($1,$2,$3,'Avenue','position','statement.pdf',$4,'ingestion:fixture','2026-08-03','statement_reference_date')`,[h,doc,owner,digest]);
-  const assertion='avenue-assertion-'+randomUUID(),raw={owner:'Jorge',asset_class:'international_equity',product_name:'Apple Inc.',account:'acct-123',instrument_code:'AAPL',quantity:'2',unit_price:'200',market_value_minor:'40000',currency:'USD',reference_date:'2026-08-03'};
+  const assertion='avenue-assertion-'+randomUUID(),raw={owner:'Jorge',asset_class:'international_equity',product_name:'Apple Inc.',account:'acct-123',instrument_code:'AAPL',quantity:'2',unit_price:'200',market_value_minor:'40000',currency:'USD',reference_date:'2026-08-03',statement_coverage:'verified'};
   await db.query(`INSERT INTO app.source_assertions(household_id,id,document_id,owner_id,source_sheet,source_row,assertion_kind,institution_id,custody_account_id,instrument_code,asserted_on,quantity,raw_row,interpretation_status) VALUES($1,$2,$3,$4,'Statement',2,'position','avenue-securities',$5,'AAPL','2026-08-03',2,$6,'observed')`,[h,assertion,doc,owner,custody,raw]);
   const emptyNewer='external-empty-newer-'+randomUUID();await db.query(`INSERT INTO app.source_documents(household_id,id,owner_id,source_system,report_kind,original_name,content_sha256,storage_key,effective_as_of,date_basis) VALUES($1,$2,$3,'Avenue','position','empty-newer.pdf',$4,'ingestion:fixture','2026-08-04','statement_reference_date')`,[h,emptyNewer,owner,'e'.repeat(64)]);
-  const listed=await listExternalPositionSnapshots(db,h);assert.equal(listed.snapshots.length,1);assert.equal(listed.portfolio_effective_as_of,'2026-08-22');assert.equal(listed.snapshots[0].invalid_rows,0);assert.equal(listed.snapshots[0].latest,true);
+  const listed=await listExternalPositionSnapshots(db,h);assert.equal(listed.snapshots.length,1);assert.equal(listed.portfolio_effective_as_of,'2026-08-22');assert.equal(listed.snapshots[0].invalid_rows,1);assert.equal(listed.snapshots[0].latest,true);
+  await assert.rejects(()=>publishExternalPositionSnapshot(db,h,actor,doc,{request_key:'unverified-avenue-01',content_sha256:digest}),(e:unknown)=>e instanceof Conflict&&e.code==='AVENUE_STATEMENT_COVERAGE_REQUIRED');
+  await db.query("INSERT INTO app.source_interpretations(household_id,assertion_id,parser_version,instrument_code,tentative_event_type,status,review_reasons) VALUES($1,$2,'avenue-statement-v2-coverage-2026-11-06','AAPL','opening_position_observation','parsed','{}')",[h,assertion]);
   const body={request_key:'publish-external-001',content_sha256:digest};const result=await publishExternalPositionSnapshot(db,h,actor,doc,body),again=await publishExternalPositionSnapshot(db,h,actor,doc,body);assert.equal(result.portfolio_published,true);assert.equal(result.source_as_of,'2026-08-03');assert.equal(result.effective_as_of,'2026-08-22');assert.equal(again.replayed,true);
   const latest=await portfolio(db,h),avenuePosition=latest.positions.find((position:{instrument_code:string})=>position.instrument_code==='AAPL');assert.ok(avenuePosition);assert.equal(avenuePosition.quantity,'2');assert.equal(avenuePosition.currency,'USD');
   assert.ok(latest.positions.some((position:{instrument_code:string})=>position.instrument_code==='PETR4'));
@@ -366,6 +368,22 @@ test('old OCR interpretation must be rechecked before preparing a proposal',asyn
  const input={owner_id:'owner1',account_id:'account1',instrument_code:'PETR4',currency:'BRL',side:'buy',quantity:'10',unit_price:'60',effective_date:'2026-08-10',source_evidence:{kind:'manual_photo' as const,id}};
  await assert.rejects(()=>createProposal(db,f.h,f.actor,'stale-photo-001',input),(e:unknown)=>e instanceof Conflict&&e.code==='PHOTO_INTERPRETATION_RECHECK_REQUIRED');
  assert.equal((await db.query('SELECT status FROM app.manual_photo_evidence WHERE household_id=$1 AND upload_id=$2',[f.h,id])).rows[0].status,'awaiting_review');
+});
+test('complete Avenue statement uses verified reference date and preserves row provenance',async()=>{
+ const f=await fixture();await db.query("UPDATE app.owners SET display_name='Jorge' WHERE household_id=$1 AND id='owner1'",[f.h]);await db.query("UPDATE app.accounts SET source_scope=$3 WHERE household_id=$1 AND id=$2",[f.h,'account1',JSON.stringify(['Jorge','account:SYNTHETIC-1'])]);
+ await db.query("INSERT INTO app.custody_institutions(id,canonical_name,kind) VALUES('avenue-securities','Avenue Securities','custodian') ON CONFLICT(id) DO NOTHING");
+ const id=randomUUID(),documentId=randomUUID(),job={id,document_id:documentId,parser_version:'avenue-statement-v2-coverage-2026-11-06',result:{record_count:1,reference_date:'2026-10-31',coverage_start:null,coverage_end:null,statement_coverage:{complete:true},review_issues:[]},content_sha256:hash(id),owner_ref:'owner1',file_type:'avenue_statement',file_name:'fixture.pdf',reference_date:null};
+ const original={account:'SYNTHETIC-1',reference_date:'2026-10-31',statement_coverage:'verified',source_page:4,source_line:2,instrument_code:'AAA',quantity:10,unit_price:10,market_value_minor:10000,asset_class:'international_equity',currency:'USD'};
+ const records=[{source_sheet:'Statement',source_ordinal:2,record_kind:'position',original,original_sha256:hash(JSON.stringify(original))}];
+ const result=await ingestAvenueStatementResult(db,f.h,id,{job,records});assert.equal(result.rows,1);const row=await db.query('SELECT raw_row FROM app.source_assertions WHERE household_id=$1 AND document_id=$2',[f.h,result.document_id]);assert.equal(row.rows[0].raw_row.source_page,4);assert.equal((await db.query('SELECT effective_as_of::text AS date FROM app.source_documents WHERE household_id=$1 AND id=$2',[f.h,result.document_id])).rows[0].date,'2026-10-31');
+});
+test('incomplete Avenue statement creates a review task and never position assertions',async()=>{
+ const f=await fixture();await db.query("UPDATE app.owners SET display_name='Jorge' WHERE household_id=$1 AND id='owner1'",[f.h]);
+ const id=randomUUID(),documentId=randomUUID(),job={id,document_id:documentId,parser_version:'avenue-statement-v2-coverage-2026-11-06',result:{record_count:0,reference_date:'2026-10-31',coverage_start:null,coverage_end:null,statement_coverage:{complete:false},review_issues:[{code:'unrecognized_position',page:4,line:3,excerpt:'synthetic position'}]},content_sha256:hash(id),owner_ref:'owner1',file_type:'avenue_statement',file_name:'fixture.pdf',reference_date:null};
+ const result=await ingestAvenueStatementResult(db,f.h,id,{job,records:[]});assert.equal(result.review_required,true);assert.equal(result.portfolio_published,false);
+ assert.equal((await db.query('SELECT count(*)::int AS n FROM app.source_assertions WHERE household_id=$1 AND document_id=$2',[f.h,result.document_id])).rows[0].n,0);
+ assert.ok((await listConfirmations(db,f.h,'open')).items.some(t=>t.context.original_pdf===documentId&&t.evidence.includes('synthetic position')));
+ await ingestAvenueStatementResult(db,f.h,id,{job,records:[]});assert.equal((await listConfirmations(db,f.h,'open')).items.filter(t=>t.context.original_pdf===documentId).length,1);
 });
 test('incomplete Avenue confirmation produces a visible task and no trade assertions',async()=>{
  const f=await fixture();await db.query("UPDATE app.owners SET display_name='Jorge' WHERE household_id=$1 AND id='owner1'",[f.h]);

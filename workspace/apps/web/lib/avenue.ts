@@ -12,6 +12,9 @@ export type AvenuePosition = {
   market_value_minor: number;
   currency: "USD";
   reference_date: string;
+  source_page?: number;
+  source_line?: number;
+  statement_coverage?: "verified";
 };
 
 export type AvenueTrade = {
@@ -57,7 +60,10 @@ const months: Record<string, string> = {
 function statementDate(text: string): string {
   const match = /-\s+([A-Z][a-z]+)\s+(\d{2}),\s+(\d{4})/.exec(text);
   if (!match || !months[match[1]]) throw new Error("Data-base do extrato Avenue não encontrada.");
-  return `${match[3]}-${months[match[1]]}-${match[2]}`;
+  const result = `${match[3]}-${months[match[1]]}-${match[2]}`;
+  const parsed = new Date(`${result}T00:00:00Z`);
+  if (Number.isNaN(parsed.valueOf()) || parsed.toISOString().slice(0,10) !== result) throw new Error("Data-base do extrato Avenue inválida.");
+  return result;
 }
 
 function statementAccount(text: string): string | null {
@@ -75,61 +81,51 @@ function cleanStatementDescription(value: string): string {
 
 const positionPattern = /^(.*?)\s*([A-Z0-9]{1,10})\s+C\s+([\d,.]+)\s+([\d,.]+)\s+\$?\s*([\d,.]+)(?:\s|$)/;
 
-export function parseAvenueStatement(pages: string[], owner: string): AvenuePosition[] {
-  const allText = pages.join("\n");
-  if (!allText.includes("PORTFOLIO SUMMARY") || !allText.includes("TOTAL PRICED PORTFOLIO")) {
-    throw new Error("Este PDF não parece ser um extrato mensal da Avenue.");
+type StatementIssue = {code:string;page:number;line:number;excerpt:string};
+export function analyzeAvenueStatement(pages:string[],owner:string):{positions:AvenuePosition[];issues:StatementIssue[];reference_date:string;coverage:{declared_total_minor:number|null;cash_minor:number|null;invested_minor:number;complete:boolean}} {
+ const allText=pages.join("\n");
+ if(!allText.includes("PORTFOLIO SUMMARY")||!allText.includes("TOTAL PRICED PORTFOLIO"))throw new Error("Este PDF não parece ser um extrato mensal da Avenue.");
+ const referenceDate=statementDate(allText),account=statementAccount(allText),positions:AvenuePosition[]=[],issues:StatementIssue[]=[];
+ const accounts=[...allText.matchAll(/AVENUE ACCOUNT NUMBER:\s*([A-Z0-9-]+)/gi)].map(m=>m[1].toUpperCase());
+ if(new Set(accounts).size!==1)issues.push({code:accounts.length?'multiple_accounts':'account_missing',page:0,line:0,excerpt:''});
+ let assetClass:AvenuePosition['asset_class']|null=null,pendingDescription='',declaredTotal:number|null=null,cash:number|null=null;
+ const totals:Array<{value:number;page:number;line:number;kind:string}>=[];
+ const amount=(line:string)=>{const m=/\$\s*([0-9][0-9,]*\.[0-9]{2})\b/.exec(line);if(!m||!/^\d{1,3}(?:,\d{3})*(?:\.\d{2})$|^\d+\.\d{2}$/.test(m[1]))return null;const n=usdMinor(m[1]);return Number.isSafeInteger(n)?n:null;};
+ for(let pageIndex=0;pageIndex<pages.length;pageIndex++){
+  if(!pages[pageIndex].trim())issues.push({code:'empty_page',page:pageIndex+1,line:0,excerpt:''});
+  const lines=pages[pageIndex].split(/\r?\n/);
+  for(let lineIndex=0;lineIndex<lines.length;lineIndex++){
+   const line=lines[lineIndex].trim();if(!line)continue;
+   if(/TOTAL PRICED PORTFOLIO/i.test(line)){const total=amount(line);if(total!==null){if(declaredTotal!==null&&declaredTotal!==total)issues.push({code:'conflicting_totals',page:pageIndex+1,line:lineIndex+1,excerpt:line.slice(0,200)});declaredTotal=total;}assetClass=null;pendingDescription='';continue;}
+   if(/^Total Cash(?:\s|\()/i.test(line)){const value=amount(line);if(value!==null){if(cash!==null&&cash!==value)issues.push({code:'conflicting_cash_totals',page:pageIndex+1,line:lineIndex+1,excerpt:line.slice(0,200)});cash=value;}continue;}
+   if(line==='EQUITIES / OPTIONS'){assetClass='international_equity';pendingDescription='';continue;}
+   if(line==='FIXED INCOME'){assetClass='international_fixed_income';pendingDescription='';continue;}
+   if(line==='MUTUAL FUND'){assetClass='money_market';pendingDescription='';continue;}
+   const subtotal=/^Total (Equities|Fixed Income|Mutual Funds?)/i.exec(line);
+   if(subtotal){const value=amount(line);if(value!==null)totals.push({value,page:pageIndex+1,line:lineIndex+1,kind:subtotal[1].toLowerCase()});assetClass=null;pendingDescription='';continue;}
+   if(/^Mutual Fund \$/i.test(line)){assetClass=null;pendingDescription='';continue;}
+   if(!assetClass){if(positionPattern.test(line))issues.push({code:'position_without_section',page:pageIndex+1,line:lineIndex+1,excerpt:line.slice(0,200)});continue;}
+   if(/^(DESCRIPTION|SYMBOL\/|CUSIP|ACCOUNT|TYPE|MARKET|VALUE|LAST PERIOD|EST\.|ANNUAL|INCOME|% OF TOTAL|PORTFOLIO|PAGE |July |All investment|Excess cash|Total cost)/i.test(line))continue;
+   const match=positionPattern.exec(line);
+   if(match){
+    const quantity=decimal(match[3]),unitPrice=decimal(match[4]),marketValueMinor=usdMinor(match[5]);
+    if([match[3],match[4],match[5]].some(value=>!/^(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?$/.test(value))||!Number.isFinite(quantity)||!Number.isFinite(unitPrice)||!Number.isSafeInteger(marketValueMinor)||quantity<=0||unitPrice<=0||marketValueMinor<0){issues.push({code:'invalid_position',page:pageIndex+1,line:lineIndex+1,excerpt:line.slice(0,200)});pendingDescription='';continue;}
+    positions.push({kind:'position',source:'avenue',owner,asset_class:assetClass,product_name:cleanStatementDescription([pendingDescription,match[1].trim()].filter(Boolean).join(' '))||match[2],institution:'Avenue',account,instrument_code:match[2],quantity,unit_price:unitPrice,market_value_minor:marketValueMinor,currency:'USD',reference_date:referenceDate,source_page:pageIndex+1,source_line:lineIndex+1});pendingDescription='';
+   }else if(/\b[A-Z0-9.]{1,10}\s+[A-Z]\s+\d|\$\s*[\d,.]+/.test(line)){
+    issues.push({code:'unrecognized_position',page:pageIndex+1,line:lineIndex+1,excerpt:line.slice(0,200)});pendingDescription='';
+   }else if(!/^(PORTFOLIO SUMMARY|Total Cash)/.test(line))pendingDescription=`${pendingDescription} ${line}`.trim();
   }
-  const referenceDate = statementDate(pages[0] ?? allText);
-  const account = statementAccount(allText);
-  const positions: AvenuePosition[] = [];
-  let assetClass: AvenuePosition["asset_class"] | null = null;
-  let pendingDescription = "";
-
-  for (const page of pages.slice(1, 3)) {
-    for (const originalLine of page.split("\n")) {
-      const line = originalLine.trim();
-      if (!line) continue;
-      if (line === "EQUITIES / OPTIONS") { assetClass = "international_equity"; pendingDescription = ""; continue; }
-      if (line === "FIXED INCOME") { assetClass = "international_fixed_income"; pendingDescription = ""; continue; }
-      if (line === "MUTUAL FUND") { assetClass = "money_market"; pendingDescription = ""; continue; }
-      if (line.startsWith("Total Equities")) { assetClass = "international_fixed_income"; pendingDescription = ""; continue; }
-      if (line.startsWith("Total Fixed Income")) { assetClass = null; pendingDescription = ""; continue; }
-      if (line.startsWith("Mutual Fund $") || line.startsWith("TOTAL PRICED")) { assetClass = null; pendingDescription = ""; continue; }
-      if (!assetClass || /^(DESCRIPTION|SYMBOL\/|CUSIP|ACCOUNT|TYPE|MARKET|VALUE|LAST PERIOD|EST\.|ANNUAL|INCOME|% OF TOTAL|PORTFOLIO|PAGE |July |All investment|Excess cash|Total cost)/.test(line)) continue;
-
-      const match = positionPattern.exec(line);
-      if (match) {
-        const inlineDescription = match[1].trim();
-        const instrumentCode = match[2];
-        const quantity = decimal(match[3]);
-        const unitPrice = decimal(match[4]);
-        const marketValueMinor = usdMinor(match[5]);
-        if (!Number.isFinite(quantity) || !Number.isFinite(unitPrice) || !Number.isFinite(marketValueMinor)) continue;
-        positions.push({
-          kind: "position",
-          source: "avenue",
-          owner,
-          asset_class: assetClass,
-          product_name: cleanStatementDescription([pendingDescription, inlineDescription].filter(Boolean).join(" ")) || instrumentCode,
-          institution: "Avenue",
-          account,
-          instrument_code: instrumentCode,
-          quantity,
-          unit_price: unitPrice,
-          market_value_minor: marketValueMinor,
-          currency: "USD",
-          reference_date: referenceDate,
-        });
-        pendingDescription = "";
-      } else if (!/^(PORTFOLIO SUMMARY|Total Cash)/.test(line)) {
-        pendingDescription = `${pendingDescription} ${line}`.trim();
-      }
-    }
-  }
-
-  if (positions.length < 2) throw new Error("Nenhuma posição reconhecida no extrato Avenue.");
-  return positions;
+ }
+ const invested=positions.reduce((sum,p)=>sum+p.market_value_minor,0);
+ if(!positions.length)issues.push({code:'no_positions',page:0,line:0,excerpt:''});
+ for(const total of totals){const kind=total.kind.startsWith('equit')?'international_equity':total.kind.startsWith('fixed')?'international_fixed_income':'money_market';const actual=positions.filter(p=>p.asset_class===kind).reduce((sum,p)=>sum+p.market_value_minor,0);if(actual!==total.value)issues.push({code:'subtotal_mismatch',page:total.page,line:total.line,excerpt:total.kind});}
+ if(declaredTotal===null)issues.push({code:'portfolio_total_unavailable',page:0,line:0,excerpt:''});
+ else if(invested+(cash??0)!==declaredTotal)issues.push({code:'portfolio_total_mismatch',page:0,line:0,excerpt:''});
+ const complete=issues.length===0;
+ return{positions:complete?positions.map(p=>({...p,statement_coverage:'verified' as const})):positions,issues,reference_date:referenceDate,coverage:{declared_total_minor:declaredTotal,cash_minor:cash,invested_minor:invested,complete}};
+}
+export function parseAvenueStatement(pages:string[],owner:string):AvenuePosition[]{
+ const result=analyzeAvenueStatement(pages,owner);if(result.issues.length)throw new Error('AVENUE_STATEMENT_REVIEW_REQUIRED');return result.positions;
 }
 
 const usNumber = "(?:[0-9]{1,3}(?:,[0-9]{3})+|[0-9]+)(?:\\.[0-9]+)?";

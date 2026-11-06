@@ -1,11 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { analyzeAvenueConfirmations, parseAvenueConfirmations, parseAvenueStatement } from "../lib/avenue.ts";
+import { analyzeAvenueConfirmations, analyzeAvenueStatement, parseAvenueConfirmations, parseAvenueStatement } from "../lib/avenue.ts";
 
 test("parses Avenue invested positions and ignores cash balances", () => {
   const pages = [
-    "PORTFOLIO SUMMARY July 01, 2026 - July 31, 2026 AVENUE ACCOUNT NUMBER: 123 TOTAL PRICED PORTFOLIO Total Cash (Net Portfolio Balance) $ 23.69",
+    "PORTFOLIO SUMMARY July 01, 2026 - July 31, 2026 AVENUE ACCOUNT NUMBER: 123 TOTAL PRICED PORTFOLIO $ 6,763.79\nTotal Cash (Net Portfolio Balance) $ 23.69",
     "EQUITIES / OPTIONS\nMicrosoft Corporation\nMSFT C 5 464.72 $ 2,323.60\nNVIDIA Corp\nNVDA C 22 200.75 $ 4,416.50\nTotal Equities",
   ];
   const positions = parseAvenueStatement(pages, "Jorge");
@@ -49,4 +49,24 @@ test('a page without an account or explicit continuation stays pending',()=>{
  const first='Account cleared by Apex\nTrade Date Account Number: SYNTHETIC-A\n1 B 11/03/26 11/04/26 10 AAA 30.00 300.00 0.00 0.00 0.00';
  const next='1 B 11/03/26 11/04/26 10 BBB 30.00 300.00 0.00 0.00 0.00';
  assert.ok(analyzeAvenueConfirmations([first,next],'Jorge').issues.some(i=>i.code==='account_context_missing'));
+});
+
+
+test('reads all statement pages with provenance, excluding explicitly identified cash',()=>{
+ const pages=['PORTFOLIO SUMMARY\nOctober 01, 2026 - October 31, 2026\nAVENUE ACCOUNT NUMBER: SYNTHETIC-1\nTOTAL PRICED PORTFOLIO $625.00\nTotal Cash (Net Portfolio Balance) $25.00','EQUITIES / OPTIONS\nAlpha AAA C 10 10.00 $100.00\nBeta BBB C 10 20.00 $200.00','EQUITIES / OPTIONS\nPAGE 3','EQUITIES / OPTIONS\nGamma CCC C 10 30.00 $300.00\nTotal Equities $600.00'];
+ const analysis=analyzeAvenueStatement(pages,'owner');assert.deepEqual(analysis.issues,[]);assert.deepEqual(analysis.positions.map(p=>p.instrument_code),['AAA','BBB','CCC']);assert.equal(analysis.positions[2].source_page,4);assert.equal(analysis.positions[2].source_line,2);assert.equal(analysis.coverage.cash_minor,2500);assert.equal(analysis.coverage.invested_minor,60000);
+});
+
+test('accepts one position and blocks missing coverage, unknown rows and wrong totals',()=>{
+ const head='PORTFOLIO SUMMARY\nOctober 01, 2026 - October 31, 2026\nAVENUE ACCOUNT NUMBER: SYNTHETIC-1\nTOTAL PRICED PORTFOLIO $100.00';
+ const body='EQUITIES / OPTIONS\nAlpha AAA C 10 10.00 $100.00';
+ assert.equal(parseAvenueStatement([head,body],'owner').length,1);
+ for(const [pages,code] of [
+  [[head.replace('$100.00','$200.00'),body],'portfolio_total_mismatch'],
+  [[head.replace(' $100.00',''),body],'portfolio_total_unavailable'],
+  [[head,body+'\nBroken BBB C 1,00 10.00 $10.00'],'invalid_position'],
+  [[head,body+'\nBroken BBB X 10 10.00 $100.00'],'unrecognized_position'],
+  [[head,body,''],'empty_page'],
+  [[head,'Orphan BBB C 10 10.00 $100.00'],'position_without_section'],
+ ]){const analysis=analyzeAvenueStatement(pages,'owner');assert.ok(analysis.issues.some(i=>i.code===code),code);assert.throws(()=>parseAvenueStatement(pages,'owner'),/REVIEW_REQUIRED/);}
 });

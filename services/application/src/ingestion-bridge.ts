@@ -11,7 +11,7 @@ const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const PARSER='b3-bridge-v1-2026-10-10';
 type Raw=Record<string,unknown>;
 type IngestRecord={source_sheet:string;source_ordinal:number|string;record_kind:string;original:Raw;original_sha256:string};
-type IngestJob={id:string;document_id:string;parser_version:string;result:{record_count:number;coverage_start:string|null;coverage_end:string|null;reference_date?:string|null;review_issues?:Array<{code:string;page:number;line:number;excerpt?:string;field?:string}>};content_sha256:string;owner_ref:string;source?:string;file_type:string;reference_date:string|null;file_name:string};
+type IngestJob={id:string;document_id:string;parser_version:string;result:{record_count:number;coverage_start:string|null;coverage_end:string|null;reference_date?:string|null;review_issues?:Array<{code:string;page:number;line:number;excerpt?:string;field?:string}>;statement_coverage?:{complete?:boolean}};content_sha256:string;owner_ref:string;source?:string;file_type:string;reference_date:string|null;file_name:string};
 function sha(value:string){return createHash('sha256').update(value).digest('hex');}
 function clean(value:unknown){return String(value??'').trim().replace(/\s+/g,' ');}
 function norm(value:unknown){return clean(value).normalize('NFD').replace(/[\u0300-\u036f]/g,'').toUpperCase().replace(/[^A-Z0-9]+/g,' ').trim().replace(/\s+/g,' ');}
@@ -37,11 +37,32 @@ export async function acknowledgeImportJob(household:string,id:string){if(!UUID.
 export async function ingestAvenueBatch(db:pg.Pool,household:string,id:string){
  if(!UUID.test(id))throw new Conflict('NOT_FOUND',404);
  const value=await ingestionCall(`/v1/import-jobs/${id}/records`,'GET',undefined,{'X-Household-Ref':household});
+ return ingestAvenueStatementResult(db,household,id,value);
+}
+export async function ingestAvenueStatementResult(db:pg.Pool,household:string,id:string,value:Record<string,unknown>){
  const job=value.job as IngestJob,records=value.records as IngestRecord[];
- if(!job||job.id!==id||!UUID.test(job.document_id)||job.file_type!=='avenue_statement'||!Array.isArray(records)||records.length!==job.result?.record_count||!/^[0-9a-f]{64}$/.test(job.content_sha256)||!['avenue-statement-v1-2026-10-22'].includes(job.parser_version))throw new Conflict('INVALID_INGESTION_BATCH',422);
+ if(!job||job.id!==id||!UUID.test(job.document_id)||job.file_type!=='avenue_statement'||!Array.isArray(records)||records.length!==job.result?.record_count||!/^[0-9a-f]{64}$/.test(job.content_sha256)||!['avenue-statement-v1-2026-10-22','avenue-statement-v2-coverage-2026-11-06'].includes(job.parser_version))throw new Conflict('INVALID_INGESTION_BATCH',422);
  const owner=await db.query('SELECT display_name FROM app.owners WHERE household_id=$1 AND id=$2',[household,job.owner_ref]);if(!owner.rowCount)throw new Conflict('UNKNOWN_OWNER',422);
+ const legacy=job.parser_version==='avenue-statement-v1-2026-10-22';
+ if(!legacy&&(!Array.isArray(job.result.review_issues)||!job.result.statement_coverage))throw new Conflict('INVALID_INGESTION_BATCH',422);
+ const issues=legacy?[{code:'legacy_parser_requires_review',page:0,line:0,excerpt:''}]:(job.result.review_issues??[]);
+ if(legacy||issues.length||job.result.statement_coverage?.complete!==true){
+  if(!legacy&&records.length)throw new Conflict('INVALID_INGESTION_BATCH',422);
+  const candidateId='avenue-'+sha([household,job.owner_ref,job.content_sha256].join('|')).slice(0,32),c=await db.connect();
+  try{await c.query('BEGIN');
+   const existing=await c.query("SELECT id FROM app.source_documents WHERE household_id=$1 AND owner_id=$2 AND source_system='Avenue' AND report_kind='position' AND content_sha256=$3",[household,job.owner_ref,job.content_sha256]);const documentId=String(existing.rows[0]?.id??candidateId);
+   await c.query(`INSERT INTO app.source_documents(household_id,id,owner_id,source_system,report_kind,original_name,content_sha256,storage_key,effective_as_of,date_basis) VALUES($1,$2,$3,'Avenue','position',$4,$5,$6,$7,'statement_reference_date') ON CONFLICT(household_id,id) DO NOTHING`,[household,documentId,job.owner_ref,job.file_name,job.content_sha256,'ingestion:'+job.document_id,job.reference_date]);
+   const sourceKey='avenue-statement-incomplete:'+documentId;
+   await c.query(`INSERT INTO app.confirmation_items(household_id,id,source_key,owner,category,title,context,evidence,actions,status,created_at,updated_at) VALUES($1,$2,$3,$4,'Avenue','Revisar extracto Avenue incompleto',$5::jsonb,$6::jsonb,$7::jsonb,'open',now(),now()) ON CONFLICT(household_id,source_key) DO NOTHING`,[household,crypto.randomUUID(),sourceKey,String(owner.rows[0].display_name),JSON.stringify({documento:documentId,original_pdf:job.document_id,motivos:issues.map(x=>`${({legacy_parser_requires_review:'La lectura anterior no verificó todas las páginas',portfolio_total_unavailable:'No se encontró un total de cartera verificable',portfolio_total_mismatch:'El total no coincide con las posiciones y la caja identificada',subtotal_mismatch:'Un subtotal no coincide con las posiciones',unrecognized_position:'Una fila de posición no pudo interpretarse',invalid_position:'Una posición contiene datos inválidos',position_without_section:'Una posición aparece fuera de una sección reconocida',empty_page:'Una página no contiene texto legible',no_positions:'No se identificaron posiciones',multiple_accounts:'El extracto contiene varias cuentas',account_missing:'Falta la cuenta',conflicting_totals:'El extracto contiene totales contradictorios',conflicting_cash_totals:'El extracto contiene saldos de caja contradictorios'} as Record<string,string>)[x.code]??'El extracto requiere revisión'}${x.page?` (página ${x.page}, línea ${x.line})`:''}`).join('; ')||'Cobertura sin verificar'}),JSON.stringify(issues.map(x=>x.excerpt).filter(Boolean)),JSON.stringify([{key:'revisar',label:'Revisar o enviar el extracto completo',keeps_open:true},{key:'descartar',label:'Descartar este extracto'}])]);
+   await c.query('INSERT INTO app.ingested_import_jobs(household_id,import_job_id,document_id,content_sha256,parser_version,row_count) VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT DO NOTHING',[household,id,documentId,job.content_sha256,job.parser_version,records.length]);
+   const imported=await c.query('SELECT document_id,content_sha256,parser_version,row_count FROM app.ingested_import_jobs WHERE household_id=$1 AND import_job_id=$2',[household,id]);if(imported.rows[0]?.document_id!==documentId||imported.rows[0]?.content_sha256!==job.content_sha256||imported.rows[0]?.parser_version!==job.parser_version||Number(imported.rows[0]?.row_count)!==records.length)throw new Conflict('INGESTION_BATCH_CHANGED');
+   await c.query('COMMIT');return{document_id:documentId,rows:records.length,new_rows:0,replayed:false,portfolio_published:false,review_required:true};
+  }catch(error){await c.query('ROLLBACK');throw error;}finally{c.release();}
+ }
+ if(!records.length||records.some(row=>row.original.statement_coverage!=='verified'))throw new Conflict('AVENUE_STATEMENT_COVERAGE_REQUIRED',422);
+ const statementDate=String(job.reference_date??job.result.reference_date??'').slice(0,10);if(!date(statementDate))throw new Conflict('REFERENCE_DATE_REQUIRED',422);
  const ownerName=String(owner.rows[0].display_name),accountRef=String((records[0]?.original as Raw)?.account??'');
- if(!accountRef||records.some(row=>row.record_kind!=='position'||String(row.original.account??'')!==accountRef||String(row.original.reference_date??'')!==String(job.reference_date).slice(0,10)))throw new Conflict('AVENUE_ACCOUNT_OR_DATE_MISMATCH',422);
+ if(!accountRef||records.some(row=>row.record_kind!=='position'||String(row.original.account??'')!==accountRef||String(row.original.reference_date??'')!==statementDate))throw new Conflict('AVENUE_ACCOUNT_OR_DATE_MISMATCH',422);
  const account=await resolveAvenueAccount(db,household,job.owner_ref,ownerName,accountRef);
  const proposedDocumentId='avenue-'+sha([household,job.owner_ref,job.content_sha256].join('|')).slice(0,32),custodyAccountId='custody-'+sha([household,job.owner_ref,'avenue-securities',account.reference].join('|')).slice(0,32);
  const c=await db.connect();try{await c.query('BEGIN');
@@ -52,7 +73,7 @@ export async function ingestAvenueBatch(db:pg.Pool,household:string,id:string){
   const prior=await c.query('SELECT document_id,content_sha256,row_count FROM app.ingested_import_jobs WHERE household_id=$1 AND import_job_id=$2 FOR UPDATE',[household,id]);if(prior.rowCount){if(prior.rows[0].document_id!==documentId||prior.rows[0].content_sha256!==job.content_sha256||Number(prior.rows[0].row_count)!==records.length)throw new Conflict('INGESTION_BATCH_CHANGED');await c.query('COMMIT');return{document_id:documentId,rows:records.length,new_rows:0,replayed:true,portfolio_published:false};}
   if(priorDoc.rowCount&&(priorDoc.rows[0].owner_id!==job.owner_ref||priorDoc.rows[0].content_sha256!==job.content_sha256||priorDoc.rows[0].report_kind!=='position'))throw new Conflict('SOURCE_DOCUMENT_CONFLICT');
   await c.query(`INSERT INTO app.source_documents(household_id,id,owner_id,source_system,report_kind,original_name,content_sha256,storage_key,effective_as_of,date_basis)
-   VALUES($1,$2,$3,'Avenue','position',$4,$5,$6,$7,'statement_reference_date') ON CONFLICT(household_id,id) DO NOTHING`,[household,documentId,job.owner_ref,job.file_name,job.content_sha256,'ingestion:'+job.document_id,job.reference_date]);
+   VALUES($1,$2,$3,'Avenue','position',$4,$5,$6,$7,'statement_reference_date') ON CONFLICT(household_id,id) DO NOTHING`,[household,documentId,job.owner_ref,job.file_name,job.content_sha256,'ingestion:'+job.document_id,statementDate]);
   const doc=await c.query('SELECT content_sha256,owner_id,report_kind FROM app.source_documents WHERE household_id=$1 AND id=$2',[household,documentId]);if(doc.rows[0]?.content_sha256!==job.content_sha256||doc.rows[0]?.owner_id!==job.owner_ref||doc.rows[0]?.report_kind!=='position')throw new Conflict('SOURCE_DOCUMENT_CONFLICT');
   let inserted=0,needsReview=0;
   for(const row of records){const ordinal=Number(row.source_ordinal),raw=row.original,code=String(raw.instrument_code??'').trim(),quantity=String(raw.quantity??''),date=String(raw.reference_date??'');if(!Number.isSafeInteger(ordinal)||ordinal<2||!code||!quantity||!date||!/^[0-9a-f]{64}$/.test(row.original_sha256))throw new Conflict('INVALID_AVENUE_POSITION',422);

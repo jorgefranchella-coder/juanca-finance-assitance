@@ -188,3 +188,5 @@ En movimientos manuales, los importes con separadores inglés o brasileño inequ
 En comprobantes manuales, Juanca distingue precio unitario, total bruto, total neto y cargos declarados. Si no identifica un precio unitario o no puede conciliar los importes, deja la evidencia para revisión. Las comisiones explícitas se muestran para confirmar y nunca se sustituyen silenciosamente por cero.
 
 Si una evidencia manual o una foto describe varias operaciones, Revisiones muestra los fragmentos detectados y solicita registrar cada movimiento por separado. La creación y la aprobación vuelven a comprobar la evidencia; una lectura OCR anterior se actualiza antes de permitir continuar.
+
+Los extractos de posiciones Avenue recorren todas las páginas admitidas y conservan el localizador de cada fila. Antes de publicar, el total de inversiones debe conciliar con el total de cartera y la caja identificada; un extracto con cobertura no verificada genera una tarea para revisión y no sustituye posiciones. Las lecturas antiguas que no acreditan cobertura quedan bloqueadas para nuevas publicaciones.
