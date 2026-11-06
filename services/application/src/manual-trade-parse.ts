@@ -1,15 +1,25 @@
-const VERSION='manual-trade-v4';
+const VERSION='manual-trade-v5-numeric';
 type Side='buy'|'sell';
 type Span={value:string;index:number;length:number};
 
 function fold(value:string){return value.normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();}
 function number(value:string):string|null {
- const raw=value.trim().replace(/\s/g,'');
- if(!/^[0-9.,]+$/.test(raw))return null;
- if(!raw.includes(',')&&/^\d{1,3}\.\d{3}$/.test(raw))return null;
- const normalized=raw.includes(',')?raw.replace(/\./g,'').replace(',','.'):raw;
- if((normalized.match(/\./g)?.length??0)>1||!/^[0-9]+(\.[0-9]+)?$/.test(normalized))return null;
- return normalized;
+ const raw=value.trim();
+ if(!/^\d+(?:[.,]\d+)*$/.test(raw))return null;
+ const comma=raw.includes(','),dot=raw.includes('.');
+ if(comma&&dot){
+  const decimal=raw.lastIndexOf(',')>raw.lastIndexOf('.')?',':'.',group=decimal===','?'.':',';
+  const parts=raw.split(decimal);if(parts.length!==2||!/^\d+$/.test(parts[1]))return null;
+  const groups=parts[0].split(group);if(!/^\d{1,3}$/.test(groups[0])||groups.slice(1).some(g=>!/^\d{3}$/.test(g)))return null;
+  return groups.join('')+'.'+parts[1];
+ }
+ if(!comma&&!dot)return raw;
+ const separator=comma?',':'.',parts=raw.split(separator);
+ // A single group of three digits can be either a decimal or a thousands group.
+ if(parts.length===2){if(parts[1].length===3)return null;return parts.join('.');}
+ // Multiple separators are accepted only with proper groups; the last group still
+ // makes this ambiguous between a grouped integer and a decimal with grouping.
+ return null;
 }
 function isoDate(value:string):string|null {
  if(/^\d{4}-\d{2}-\d{2}$/.test(value)){
@@ -43,35 +53,35 @@ function detectInstrument(original:string,flat:string):string|null {
  if(selected)return selected.value;
  const lowerTicker=/\b([A-Z]{1,6}\d{1,5})\b/i.exec(flat);return lowerTicker?.[1]?.toUpperCase()??null;
 }
-function detectQuantity(flat:string,instrument:string|null):string|null {
- const n='(\\d+(?:[.,]\\d+)?)';
+function detectQuantity(flat:string,instrument:string|null):{value:string|null;invalid:boolean} {
+ const n='(\\d[\\d.,]*)';
  const patterns=[
   new RegExp(`\\b(?:qty|quantity|cantidad|quantidade)\\b\\s*(?:de|of|is|=|:)?\\s*${n}`,'i'),
   new RegExp(`${n}\\s*(?:de|of)?\\s*(?:acciones?|acoes?|shares?|units?|unidades?|quotas?|cotas?|titulos?)\\b`,'i'),
  ];
- for(const pattern of patterns){const match=pattern.exec(flat);if(match){const parsed=number(match[1]);if(parsed)return parsed;}}
+ for(const pattern of patterns){const match=pattern.exec(flat);if(match){const parsed=number(match[1]);return {value:parsed,invalid:parsed===null};}}
  if(instrument){
   const index=flat.indexOf(instrument.toLowerCase());
   if(index>=0){
    const before=flat.slice(Math.max(0,index-80),index),after=flat.slice(index+instrument.length,index+instrument.length+80);
    const prior=new RegExp(`${n}\\s*(?:(?:de|of)\\s+)?$`,'i').exec(before);
-   if(prior){const parsed=number(prior[1]);if(parsed)return parsed;}
+   if(prior){const parsed=number(prior[1]);return {value:parsed,invalid:parsed===null};}
    const later=new RegExp(`^\\s*(?:(?:x|:|-)\\s*)?${n}\\b`,'i').exec(after);
-   if(later){const parsed=number(later[1]);if(parsed)return parsed;}
+   if(later){const parsed=number(later[1]);return {value:parsed,invalid:parsed===null};}
   }
  }
- return null;
+ return {value:null,invalid:false};
 }
-function detectPrice(original:string,flat:string):{value:string|null;currency:string|null} {
+function detectPrice(original:string,flat:string):{value:string|null;currency:string|null;invalid:boolean} {
  const matches:Span[]=[];const regex=/(?:R\$|BRL\s*\$?|US\$|USD\s*\$?|EUR\s*€?|€|\$)\s*([\d.,]+)/gi;
  for(const match of original.matchAll(regex)){
-  const amount=number(match[1]);if(amount)matches.push({value:amount,index:match.index??0,length:match[0].length});
+  matches.push({value:match[1],index:match.index??0,length:match[0].length});
  }
- if(!matches.length)return{value:null,currency:null};
+ if(!matches.length)return{value:null,currency:null,invalid:false};
  const labeled=matches.find(item=>/\b(?:unit(?:ario|aria)?|preco|precio|price|at|por|cada|per)\s*[:=]?\s*$/i.test(fold(original.slice(Math.max(0,item.index-36),item.index))));
  const selected=labeled??matches[0],raw=original.slice(selected.index,selected.index+selected.length).trim().toUpperCase();
  const currency=/^(?:US\$|USD)/.test(raw)?'USD':/^(?:€|EUR)/.test(raw)?'EUR':raw.startsWith('$')?'USD':'BRL';
- return{value:selected.value,currency};
+ const value=number(selected.value);return{value,currency,invalid:value===null};
 }
 // Keep exact source spans for separately described trades and OCR table rows.
 function tradeCandidates(original:string):Span[] {
@@ -93,13 +103,14 @@ export function interpretManualTrade(text:string,occurredOn:string|null) {
  const dateMatch=flat.match(/\b(\d{1,2}[/.\-]\d{1,2}[/.\-]\d{4}|\d{4}-\d{2}-\d{2})\b/);
  const tradeDate=dateMatch?isoDate(dateMatch[1]):occurredOn;
  const candidates=tradeCandidates(original),multiple=candidates.length>1;
- const fields={side:multiple?null:sideResult.side,instrument_code:multiple?null:instrument,quantity:multiple?null:quantity,unit_price:multiple?null:price.value,currency:multiple?null:price.currency,trade_date:multiple?null:tradeDate,fees_minor:'0',fees_assumed_zero:true,...(multiple?{source_candidates:candidates}:{})};
+ const fields={side:multiple?null:sideResult.side,instrument_code:multiple?null:instrument,quantity:multiple?null:quantity.value,unit_price:multiple?null:price.value,currency:multiple?null:price.currency,trade_date:multiple?null:tradeDate,fees_minor:'0',fees_assumed_zero:true,...(multiple?{source_candidates:candidates}:{})};
  const detected=sideResult.matches.length>0||!!instrument||!!price.value;
  const reviewReasons:string[]=[];
  if(multiple)reviewReasons.push('multiple_operations_require_separate_evidence');
  if(!sideResult.side)reviewReasons.push(sideResult.conflict?'side_conflict':'side_unresolved');
  if(!instrument)reviewReasons.push('instrument_unresolved');
- if(!quantity)reviewReasons.push('quantity_unresolved');
+ if(!quantity.value)reviewReasons.push('quantity_unresolved');
+ if(quantity.invalid||price.invalid)reviewReasons.push('numeric_format_ambiguous_or_invalid');
  if(!price.value)reviewReasons.push('unit_price_unresolved');
  if(!tradeDate)reviewReasons.push('trade_date_unresolved');
  if(!price.currency)reviewReasons.push('currency_unresolved');

@@ -182,3 +182,5 @@ Cuando la lectura detecta varias operaciones en un mismo texto o en filas OCR co
 La base DI B3 para un porcentaje de CDI capitalizado requiere calendario DI con cobertura, tasas históricas y un supuesto futuro identificado. Si falta cualquiera de esos datos, la posición queda incompleta. La primera implementación desplegada no admite pagos intermedios para esta base.
 
 El calendario de proyección puede incluir fechas futuras estimadas con feriados de ANBIMA; se identifican como escenario y no sustituyen fechas históricas confirmadas. El calendario y las tasas deben actualizarse periódicamente.
+
+En movimientos manuales, los importes con separadores inglés o brasileño inequívocos se normalizan sin perder precisión. Si un separador de tres dígitos es ambiguo o la agrupación es inválida, el dato queda pendiente de confirmación; las lecturas anteriores pendientes se vuelven a contrastar sin modificar los hechos aprobados.

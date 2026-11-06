@@ -1,6 +1,7 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {interpretManualTrade} from '../src/manual-trade-parse.ts';
+import {guardAmbiguousText} from '../src/manual-intake.ts';
 
 const cases=[
  ['es','Venta ejecutada: 8 acciones de CSAN3 a R$ 2,73 el 27/10/2026.','BRL'],
@@ -79,4 +80,31 @@ test('same-line trades and US OCR rows require separate review',()=>{
  for(const text of ['Compra PETR4 quantidade 10 e compra VALE3 quantidade 20 preço R$ 60,00','Executed buys\nAAPL 10 $100.00\nMSFT 5 $200.00']){
   const result=interpretManualTrade(text,null);assert.equal(result.fields.instrument_code,null);assert.ok(result.review_reasons.includes('multiple_operations_require_separate_evidence'));
  }
+});
+
+test('numeric parser preserves unambiguous English and Brazilian grouping exactly',()=>{
+ for(const amount of ['1,234.56','1.234,56']){
+  const result=interpretManualTrade(`Bought AAPL quantity 10 at USD ${amount} on 2026-11-02`,null);
+  assert.equal(result.fields.unit_price,'1234.56');assert.equal(result.status,'parsed_review');
+ }
+ const grouped=interpretManualTrade('Bought AAPL quantity 1,234.50 at USD 10.50 on 2026-11-02',null);
+ assert.equal(grouped.fields.quantity,'1234.50');
+});
+
+test('ambiguous and malformed amounts and quantities remain unresolved without truncation',()=>{
+ for(const amount of ['1,234','1.234','12,34.56','1.23.456','12,34,567','1,234.56.78']){
+  const result=interpretManualTrade(`Bought AAPL quantity 10 at USD ${amount} on 2026-11-02`,null);
+  assert.equal(result.fields.unit_price,null,amount);assert.equal(result.status,'needs_manual_review');assert.ok(result.review_reasons.includes('numeric_format_ambiguous_or_invalid'));
+ }
+ for(const quantity of ['1,234','1.234','12,34.56','1,234.56.78']){
+  const result=interpretManualTrade(`Bought AAPL quantity ${quantity} at USD 10.50 on 2026-11-02`,null);
+  assert.equal(result.fields.quantity,null,quantity);assert.equal(result.status,'needs_manual_review');assert.ok(result.review_reasons.includes('numeric_format_ambiguous_or_invalid'));
+ }
+});
+
+
+test('pending historic interpretation with wrong amount is rechecked without mutating stored data',()=>{
+ const row={status:'awaiting_review',original_text:'Bought AAPL quantity 10 at USD 1,234.56 on 2026-11-02',occurred_on:null,fields:{quantity:'10',unit_price:'1.23456'},interpretation_status:'parsed_review',review_reasons:[] as string[],parser_version:'manual-trade-v4'};
+ const checked=guardAmbiguousText(row);assert.equal(checked.interpretation_status,'needs_manual_review');assert.equal(checked.fields.unit_price,'1234.56');assert.ok(checked.review_reasons.includes('numeric_interpretation_changed_requires_review'));assert.equal(row.fields.unit_price,'1.23456');
+ const approved=guardAmbiguousText({...row,status:'linked'});assert.equal(approved.fields.unit_price,'1.23456');
 });
