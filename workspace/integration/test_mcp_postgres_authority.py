@@ -250,3 +250,54 @@ class PostgresMCPTest(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+class CurrentPortfolioEvidenceTest(unittest.TestCase):
+    def test_old_chat_balance_is_not_used_when_summary_has_no_positions(self):
+        historical_chat = {'balance': '1000', 'date': '2026-01-01'}
+        def fake(path):
+            if path == '/api/portfolio/summary': return {'review_count': 2, 'mode': 'postgres', 'authoritative': True}
+            if path == '/api/portfolio/positions': return {'positions': [{'owner': 'Jorge', 'asset_class': 'private_pension', 'market_value_minor': '250000', 'reference_date': '2026-11-05', 'currency': 'BRL'}], 'portfolio_version': 'v2', 'valuation_complete': False, 'mode': 'postgres', 'authoritative': True}
+            raise AssertionError(path)
+        with patch.object(mcp_server, 'api', side_effect=fake):
+            result = mcp_server.consultar_patrimonio('summary', propietario='Jorge', clase='private_pension')
+        self.assertTrue(result['summary_does_not_verify_positions'])
+        current = result['current_positions']['positions'][0]
+        self.assertEqual(current['market_value_minor'], '250000')
+        self.assertNotEqual(current['market_value_minor'], historical_chat['balance'])
+        self.assertEqual(current['valuation_date'], '2026-11-05')
+        self.assertIn('fund', current['missing_current_fields'])
+        self.assertIn('plan_number', current['missing_current_fields'])
+        self.assertFalse(result['current_positions']['valuation_complete'])
+
+    def test_summary_does_not_claim_current_value_when_positions_api_fails(self):
+        def fake(path):
+            if path == '/api/portfolio/summary': return {'review_count': 1}
+            raise OSError('offline')
+        with patch.object(mcp_server, 'api', side_effect=fake):
+            result = mcp_server.consultar_patrimonio('summary')
+        self.assertEqual(result['current_positions']['status'], 'unavailable')
+        self.assertFalse(result['current_positions']['values_verified'])
+        self.assertEqual(result['current_positions']['positions'], [])
+
+    def test_positions_rejects_unverified_authority_and_filters_current_owner(self):
+        with patch.object(mcp_server, 'api', return_value={'positions': [], 'mode': 'shadow', 'authoritative': False}):
+            self.assertFalse(mcp_server.consultar_patrimonio('positions')['values_verified'])
+        payload = {'mode': 'postgres', 'authoritative': True, 'positions': [
+            {'owner': 'Jorge', 'asset_class': 'private_pension', 'reference_date': '2026-10-20', 'currency': 'BRL'},
+            {'owner': 'Julia', 'asset_class': 'private_pension', 'reference_date': '2026-11-01', 'currency': 'BRL'}]}
+        with patch.object(mcp_server, 'api', return_value=payload):
+            result = mcp_server.consultar_patrimonio('positions', propietario='Julia', clase='private_pension')
+        self.assertEqual(result['count'], 1)
+        self.assertEqual(result['positions'][0]['owner'], 'Julia')
+        self.assertEqual(result['positions'][0]['valuation_date'], '2026-11-01')
+        self.assertIn('market_value', result['positions'][0]['missing_current_fields'])
+
+    def test_snapshot_publication_requires_direct_status_and_preserves_failure(self):
+        def fake(path):
+            if path.endswith('/b3/snapshots'): return {'snapshots': [{'document_id': 'd1', 'owner': 'Jorge', 'published': True, 'latest': True}]}
+            raise OSError('offline')
+        with patch.object(mcp_server, 'api', side_effect=fake):
+            result = mcp_server.consultar_patrimonio('extractos')
+        self.assertTrue(result['sources']['b3']['snapshots'][0]['published'])
+        self.assertEqual(result['sources']['external']['status'], 'unavailable')
+        self.assertIn('ausencia', result['coverage_note'])

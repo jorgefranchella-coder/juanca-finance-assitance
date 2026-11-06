@@ -290,3 +290,6 @@ La lectura `avenue-confirmation-v2-2026-11-05` conserva página y línea por ope
 
 
 La lectura de previdencia `pension-statement-v3-dates-2026-11-05` verifica fechas reales y conserva `quote_date`; una fecha inválida produce cero posiciones y una tarea de revisión idempotente con referencia al PDF. La valoración compara `quantity × unit_price` con `market_value` en decimal exacto y tolerancia absoluta de R$ 0,01, sin reemplazar el original. La comprobación se repite en la publicación incluso para lecturas anteriores. Las correcciones coherentes se guardan como revisiones inmutables con actor y fuente; la publicación exige la versión de la decisión presentada al usuario.
+
+
+La herramienta MCP `consultar_patrimonio` distingue `summary` (contadores, con lectura separada de posiciones actuales), `positions` (con filtros opcionales y campos faltantes explícitos) y `extractos` (estado y detalle de snapshots consultados). La lectura de posiciones exige autoridad PostgreSQL confirmada; ante error devuelve `unavailable` y nunca utiliza el historial como fuente de datos actuales. Las fechas y la cobertura proceden de la respuesta y no se inventan. Los listados de extractos pueden ser parciales.

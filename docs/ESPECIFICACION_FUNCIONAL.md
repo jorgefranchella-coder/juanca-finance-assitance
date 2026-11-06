@@ -61,6 +61,8 @@ Avenue aporta extractos de posición y confirmaciones; la previsión aporta el s
 
 El chat transaccional interpreta texto o comprobantes y prepara una propuesta. Toda propuesta debe quedar ligada a una evidencia escrita o foto pendiente del mismo titular; esa evidencia se consume una sola vez y se conserva enlazada al evento aprobado. Antes de aprobar se muestran titular, activo, lado, cantidad, precio, moneda, fecha, cuenta, evidencia y comisiones disponibles. Campos ausentes o ambiguos requieren completar o revisar. Aprobar o rechazar es una acción explícita; una consulta nunca aprueba. La aprobación debe ser idempotente y no puede aplicar dos veces una misma propuesta. No se ejecutan órdenes de inversión.
 
+Cuando se consulta el patrimonio actual desde Hermes, la lectura de posiciones debe identificar el titular, la clase, la fecha de valoración y la cobertura de cada dato disponible. Los contadores de `summary` no acreditan saldos ni el estado de un documento. Si falta plan, fondo, cuenta o institución, se informa la ausencia y se puede consultar el detalle de extractos, identificando su fecha y sin inferir que corresponda a la posición actual. Si la fuente no responde, el historial conversacional no sustituye la consulta actual.
+
 El chat guiado propio responde consultas habituales sin Hermes. El chat libre mediante Hermes permanece como integración heredada opcional. **Objetivo:** todos los recorridos patrimoniales habituales funcionan con Hermes detenido; un modelo directo puede ayudar a interpretar lenguaje libre, pero no decide custodia, deduplicación ni aprobaciones.
 
 ### Revisiones y costos

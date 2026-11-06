@@ -5,6 +5,7 @@ import mimetypes
 import re
 import uuid
 from decimal import Decimal, InvalidOperation
+from datetime import datetime, timezone
 from pathlib import Path
 from urllib.request import Request, urlopen
 from urllib.error import HTTPError
@@ -196,16 +197,87 @@ def prepare_postgres_transaction(owner, message, account_id=None, photo_evidence
             'proposal_created': True, 'portfolio_changed': False,
             'next_step': 'Propuesta pendiente en PostgreSQL; requiere revisión y aprobación explícitas.'}
 
+def _current_positions(owner='', asset_class=''):
+    """Read current positions from the authoritative API; never substitute chat history."""
+    try:
+        result = api('/api/portfolio/positions')
+    except (ValueError, OSError, TimeoutError):
+        return {'status': 'unavailable', 'positions': [], 'values_verified': False,
+                'message': 'No se pudieron consultar las posiciones actuales; no uses saldos del historial como actuales.'}
+    if not isinstance(result, dict) or not isinstance(result.get('positions'), list) or result.get('mode') != 'postgres' or result.get('authoritative') is not True:
+        return {'status': 'unavailable', 'positions': [], 'values_verified': False,
+                'message': 'La respuesta no contiene posiciones; no uses saldos del historial como actuales.'}
+    rows = [dict(row) for row in result['positions'] if isinstance(row, dict)
+            and (not owner or row.get('owner') == owner)
+            and (not asset_class or row.get('asset_class') == asset_class)]
+    for row in rows:
+        missing = []
+        for key in ('institution', 'account', 'product_name', 'reference_date', 'currency', 'quantity'):
+            if row.get(key) in (None, ''):
+                missing.append(key)
+        if row.get('asset_class') == 'private_pension':
+            for key in ('plan_number', 'fund'):
+                if row.get(key) in (None, ''):
+                    missing.append(key)
+        if row.get('market_value_minor') is None and row.get('market_value_cents') is None:
+            missing.append('market_value')
+        row['missing_current_fields'] = missing
+        row['valuation_date'] = row.get('price_as_of') or row.get('reference_date')
+        row['valuation_date_kind'] = 'price_as_of' if row.get('price_as_of') else 'source_reference_date' if row.get('reference_date') else None
+        if not row['valuation_date']:
+            missing.append('valuation_date')
+    return {'status': 'available', 'values_verified': True, 'positions': rows, 'count': len(rows),
+            'queried_at': datetime.now(timezone.utc).isoformat(),
+            'filter': {'owner': owner or None, 'asset_class': asset_class or None},
+            'reference_date': result.get('reference_date'), 'portfolio_version': result.get('portfolio_version'),
+            'valuation_complete': result.get('valuation_complete'),
+            'mode': result.get('mode'), 'authoritative': result.get('authoritative'),
+            'message': 'Solo los campos presentes en estas posiciones están verificados por esta consulta. '
+                       'Las fechas corresponden a cada posición; datos del historial no están verificados. '
+                       'Una lista vacía solo indica que no hay coincidencias en esta respuesta y no demuestra ausencia de patrimonio.'}
+
+def _snapshot_publication_status():
+    sources = {}
+    for name in ('b3', 'external'):
+        try:
+            result = api('/api/shadow/reconciliation/' + name + '/snapshots')
+            if not isinstance(result, dict) or not isinstance(result.get('snapshots'), list):
+                raise ValueError('Respuesta inválida')
+            sources[name] = {'status': 'available', 'snapshots': [
+                {**{key: row.get(key) for key in ('document_id', 'owner', 'source_system', 'original_name', 'effective_as_of', 'registered_at', 'published', 'latest')},
+                 'position_details': [{key: position.get(key) for key in ('instrument_code', 'plan_number', 'fund', 'fund_cnpj', 'position_reference_date', 'quantity', 'market_value', 'valuation_basis', 'identity_status', 'identity_decision_revision')} for position in (row.get('position_details') or []) if isinstance(position, dict)]}
+                for row in result['snapshots'] if isinstance(row, dict)]}
+        except (ValueError, OSError, TimeoutError):
+            sources[name] = {'status': 'unavailable', 'snapshots': []}
+    return {'sources': sources, 'queried_at': datetime.now(timezone.utc).isoformat(),
+            'coverage_note': 'Cada listado puede estar limitado; la ausencia de un documento no prueba su estado. Los detalles son evidencia del extracto y su fecha: no afirmes que describen la posición actual sin verificar la correspondencia de titular, cuenta, instrumento y vigencia. Las confirmaciones de movimientos no son extractos de posición.'}
+
 @mcp.tool()
-def consultar_patrimonio(vista: str = 'dashboard') -> dict:
-    """Consulta dashboard, summary, positions, cost-basis, fixed-income-projection o chat. Incluye los propietarios Jorge y Julia cuando hay datos."""
+def consultar_patrimonio(vista: str = 'dashboard', propietario: str = '', clase: str = '') -> dict:
+    """Para saldos o detalle usa positions y filtra propietario/clase (previdencia: private_pension). summary cuenta revisiones y nunca prueba saldos; se acompaña de una lectura actual separada. Para estado de publicación de extractos usa extractos. No completes campos ausentes con el historial ni infieras el estado de un documento ausente."""
     paths = {v: '/api/portfolio/' + v for v in ('dashboard', 'summary', 'positions')}
     paths['cost-basis'] = '/api/shadow/position-identities/acquisition-reconciliation'
     paths['fixed-income-projection'] = '/api/shadow/fixed-income-projection'
     paths['chat'] = '/api/shadow/conversations/family/messages'
+    if vista == 'extractos':
+        return _snapshot_publication_status()
     if vista not in paths:
         raise ValueError('Vista no permitida')
-    return api(paths[vista])
+    if propietario and propietario not in {'Jorge', 'Julia'}:
+        raise ValueError('Titular inválido')
+    if clase and not re.fullmatch(r'[a-z_]{1,50}', clase):
+        raise ValueError('Clase inválida')
+    if vista == 'positions':
+        return _current_positions(propietario, clase)
+    result = api(paths[vista])
+    if vista == 'summary':
+        if not isinstance(result, dict):
+            raise ValueError('Respuesta inválida del resumen')
+        return {**result, 'scope': 'operational_counts_only', 'summary_scope': 'all_household',
+                'summary_does_not_verify_positions': True,
+                'summary_does_not_verify_document_status': True,
+                'current_positions': _current_positions(propietario, clase)}
+    return result
 
 @mcp.tool()
 def proponer_transaccion(propietario: str, mensaje: str, cuenta_id: str = '', evidencia_foto_id: str = '') -> dict:
