@@ -155,3 +155,22 @@ test('one action and two quantified securities are separate candidate trades',()
  const single=interpretManualTrade('Bought 10 AAPL at USD 30.00 on 2026-11-03; reference MSFT',null);
  assert.ok(!single.review_reasons.includes('multiple_operations_require_separate_evidence'));
 });
+
+test('execution negations and non-final orders remain pending in three languages',()=>{
+ for(const status of ['Ordem não executada','La orden no fue ejecutada','Order not executed','Order unfilled','ordem cancelada','orden pendiente','order pending','Order partially filled','ordem parcialmente executada']){
+  const result=interpretManualTrade(`Compra limitada PETR4 cantidad 10 precio R$ 30,00 fecha 2026-11-02. ${status}.`,null);
+  assert.equal(result.status,'needs_manual_review',status);assert.ok(result.review_reasons.includes('execution_unconfirmed'),status);assert.equal(result.fields.quantity,'10');
+ }
+});
+
+test('affirmative, partial and conflicting signals are distinguished',()=>{
+ const prefix='Compra limitada PETR4 cantidad 10 precio R$ 30,00 fecha 2026-11-02. ';
+ const affirmative=interpretManualTrade(prefix+'Orden ejecutada.',null);assert.ok(!affirmative.review_reasons.includes('execution_unconfirmed'));
+ const partial=interpretManualTrade(prefix+'Orden ejecutada parcialmente.',null);assert.ok(partial.review_reasons.includes('partial_execution_requires_review'));
+ const conflict=interpretManualTrade(prefix+'Orden ejecutada. Orden no ejecutada.',null);assert.ok(conflict.review_reasons.includes('execution_signals_conflict'));assert.ok(conflict.review_reasons.includes('execution_unconfirmed'));
+});
+
+test('saved pending text is rechecked without overwriting prior interpretation',()=>{
+ const row={status:'awaiting_review',original_text:'Compra limitada PETR4 cantidad 10 precio R$ 30,00 fecha 2026-11-02. Orden no ejecutada.',occurred_on:null,fields:{quantity:'10',unit_price:'30.00'},interpretation_status:'parsed_review',review_reasons:[] as string[],parser_version:'manual-trade-v7-multiple-operations'};
+ const checked=guardAmbiguousText(row);assert.equal(checked.interpretation_status,'needs_manual_review');assert.ok(checked.review_reasons.includes('execution_unconfirmed'));assert.equal(row.interpretation_status,'parsed_review');
+});

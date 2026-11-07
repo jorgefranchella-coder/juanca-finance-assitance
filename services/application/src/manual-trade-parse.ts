@@ -1,6 +1,6 @@
 import {Decimal} from 'decimal.js';
 
-export const MANUAL_TRADE_PARSER_VERSION='manual-trade-v7-multiple-operations';
+export const MANUAL_TRADE_PARSER_VERSION='manual-trade-v8-execution-status';
 const VERSION=MANUAL_TRADE_PARSER_VERSION;
 const ExactDecimal=Decimal.clone({precision:60});
 type Side='buy'|'sell';
@@ -165,9 +165,18 @@ export function interpretManualTrade(text:string,occurredOn:string|null) {
  if(!price.value)reviewReasons.push('unit_price_unresolved');
  if(!tradeDate)reviewReasons.push('trade_date_unresolved');
  if(!price.currency)reviewReasons.push('currency_unresolved');
- // A broker's order request is evidence of intent, not proof that the trade executed.
- const orderRequest=/\b(?:compra|venda|venta) limitada\b|\bordem limitada\b|\bdata de solicitacao\b|\blimit order\b/.test(flat);
- const executionConfirmed=/\b(?:executad[ao]|ejecutad[ao]|executed|filled|preenchid[ao]|comprei|vendi|bought|sold)\b/.test(flat);
- if(orderRequest&&!executionConfirmed)reviewReasons.push('execution_unconfirmed');
+ // An order, cancellation, partial fill or explicit negation does not prove a full execution.
+ const orderRequest=/\b(?:compra|venda|venta) limitada\b|\b(?:ordem|orden) limitada\b|\bdata de solicitacao\b|\blimit order\b|\b(?:ordem|orden|order)\s+(?:pendente|pendiente|pending|aberta|abierto|open)\b/.test(flat);
+ const negative=/\b(?:nao|no|not|never|nunca)\s+(?:(?:foi|fue|was|has been|ha sido|se ha|se|esta|is|been|fully|totalmente|ainda|yet)\s+){0,3}(?:executad[ao]s?|ejecutad[ao]s?|executed|filled|preenchid[ao]s?)\b|\b(?:unexecuted|unfilled)\b/g;
+ const negated=[...flat.matchAll(negative)].length>0;
+ const unnegated=flat.replace(negative,match=>' '.repeat(match.length));
+ const positive=/\b(?:executad[ao]s?|ejecutad[ao]s?|executed|filled|preenchid[ao]s?|comprei|vendi|bought|sold)\b/.test(unnegated);
+ const cancelled=/\b(?:cancelad[ao]s?|cancelled|canceled|cancelamento|cancelacion|cancellation|rejeitad[ao]s?|rechazad[ao]s?|rejected|expired|expirad[ao]s?)\b/.test(flat);
+ const pending=/\b(?:pendente|pendiente|pending|awaiting execution|aguardando execucao|en espera de ejecucion)\b/.test(flat);
+ const partial=/\b(?:parcial(?:mente)?|partial(?:ly)?)\b.{0,35}\b(?:executad[ao]s?|ejecutad[ao]s?|executed|filled|preenchid[ao]s?|execucao|ejecucion|execution|fill)\b|\b(?:executad[ao]s?|ejecutad[ao]s?|executed|filled|execucao|ejecucion|execution|fill)\b.{0,35}\b(?:parcial(?:mente)?|partial(?:ly)?)\b/.test(flat);
+ if(negated||cancelled||pending||partial||(orderRequest&&!positive))reviewReasons.push('execution_unconfirmed');
+ if(partial)reviewReasons.push('partial_execution_requires_review');
+ if(positive&&(negated||cancelled||pending))reviewReasons.push('execution_signals_conflict');
+
  return {parser_version:VERSION,...(multiple?{candidates}:{}),status:!detected?'not_detected':reviewReasons.length?'needs_manual_review':'parsed_review',fields,review_reasons:reviewReasons};
 }
