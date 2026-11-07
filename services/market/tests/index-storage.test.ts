@@ -68,3 +68,10 @@ test('verified calendar and DI import commit together and can be replayed',async
  assert.equal((await listCalendar(db,'b3-di','2026-10-30','2026-10-31')).coverage,'missing');
  const first=await storeVerifiedB3Di2026(db,verified),again=await storeVerifiedB3Di2026(db,verified);assert.equal(first.calendar_replayed,false);assert.equal(again.calendar_replayed,true);assert.equal(again.index_replayed,true);assert.equal((await listDiObservations(db,'2026-10-30','2026-10-30')).observations[0].rate_pct,'13.65');
 });
+
+test('automatic DI import rejects changed confirmed rates and keeps the old observation',async()=>{
+ const make=async(rate:string)=>verifyB3DiCalendar2026({from:'2026-11-03',to:'2026-11-03',as_of:'2026-11-04'},async(from,to)=>({provider:'B3_DI_FTP',source_uri:'ftp://fixture',requested_from:from,requested_to:to,version:(rate==='13.65'?'c':'d').repeat(64),observations:[{date:from,rate_pct:rate,unit:'annual_effective_252',indexer:'CDI',source_uri:'ftp://fixture',version:(rate==='13.65'?'c':'d').repeat(64)}]}));
+ const first=await make('13.65'),changed=await make('13.66');assert.equal(first.status,'complete');assert.equal(changed.status,'complete');if(first.status!=='complete'||changed.status!=='complete')return;
+ await storeVerifiedB3Di2026(db,first);await assert.rejects(()=>storeVerifiedB3Di2026(db,changed),/EXISTING_DI_DATA_DISAGREEMENT/);
+ assert.equal((await listDiObservations(db,'2026-11-03','2026-11-03')).observations[0].rate_pct,'13.65');
+});
