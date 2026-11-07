@@ -1,3 +1,4 @@
+import {reviewPage,finishReviewPage} from './review-pagination.ts';
 import {createHash} from 'node:crypto';
 import type pg from 'pg';
 import {accountId,hash,ownerId,publishInTransaction} from './migration.ts';
@@ -12,9 +13,10 @@ type Raw=Record<string,unknown>;
 const clean=(value:unknown)=>String(value??'').trim().replace(/\s+/g,' ');
 const sha=(value:string)=>createHash('sha256').update(value).digest('hex');
 
-export async function listExternalPositionSnapshots(db:pg.Pool,household:string){
+export async function listExternalPositionSnapshots(db:pg.Pool,household:string,limit=50,cursorValue?:string|null){
+ const cursor=reviewPage(limit,cursorValue);
  const result=await db.query(`SELECT d.id AS document_id,d.owner_id,o.display_name AS owner,d.source_system,d.original_name,d.content_sha256,d.registered_at,
-   d.effective_as_of::text AS effective_as_of,d.status,count(a.id)::int AS rows,
+   d.effective_as_of::text AS effective_as_of,to_char(d.registered_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS cursor_created_at,d.status,count(a.id)::int AS rows,
    jsonb_agg(jsonb_build_object('assertion_id',a.id,'identity_decision_id',pd.id,'identity_decision_revision',pd.revision,'identity_decision_locator',pd.source_locator,'instrument_code',COALESCE('PREV-'||pd.fund_cnpj,a.instrument_code),'product_name',a.raw_row->>'product_name','fund',COALESCE(pd.fund_name,a.raw_row->>'fund'),
      'fund_cnpj',COALESCE(pd.fund_cnpj,a.raw_row->>'fund_cnpj'),'plan_number',COALESCE(pd.plan_number,a.raw_row->>'plan_number'),'identity_status',a.raw_row->>'identity_status','identity_review_reasons',a.raw_row->'identity_review_reasons','identity_evidence',a.raw_row->'identity_evidence','quantity',COALESCE(vd.quantity,a.quantity)::text,'unit_price',COALESCE(vd.unit_price::text,a.raw_row->>'unit_price'),'quote_date',a.raw_row->>'quote_date','valuation_decision_id',vd.id,'valuation_decision_revision',vd.revision,'market_value',COALESCE(vd.market_value::text,a.raw_row->>'market_value'),'gross_balance',a.raw_row->>'gross_balance','net_balance',a.raw_row->>'net_balance',
      'valuation_basis',a.raw_row->>'valuation_basis','position_reference_date',COALESCE(a.raw_row->>'position_reference_date',a.asserted_on::text),'carry_from',a.raw_row->'carry_from','evidence_refs',COALESCE(a.raw_row->'evidence_refs','[]'::jsonb),'plans',COALESCE(a.raw_row->'plans','[]'::jsonb)) ORDER BY a.source_sheet,a.source_row) AS position_details,
@@ -32,14 +34,15 @@ export async function listExternalPositionSnapshots(db:pg.Pool,household:string)
    LEFT JOIN LATERAL (SELECT d2.id FROM app.source_documents d2 WHERE d2.household_id=d.household_id AND d2.owner_id=d.owner_id AND d2.source_system=d.source_system AND d2.report_kind='position' AND d2.status<>'superseded'
      AND EXISTS(SELECT 1 FROM app.source_assertions a2 WHERE a2.household_id=d2.household_id AND a2.document_id=d2.id AND a2.assertion_kind='position')
      ORDER BY d2.effective_as_of DESC NULLS LAST,d2.registered_at DESC,d2.id DESC LIMIT 1) latest ON true
-   WHERE d.household_id=$1 AND d.source_system<>'B3' AND d.report_kind='position'
+   WHERE d.household_id=$1 AND d.source_system<>'B3' AND d.report_kind='position' AND ($2::timestamptz IS NULL OR (d.registered_at,d.id)<($2::timestamptz,$3::text))
    GROUP BY d.id,d.owner_id,o.display_name,d.source_system,d.original_name,d.content_sha256,d.effective_as_of,d.status,d.registered_at
-   ORDER BY d.effective_as_of DESC,d.registered_at DESC LIMIT 50`,[household]);
+   ORDER BY d.registered_at DESC,d.id DESC LIMIT $4`,[household,cursor?.created_at??null,cursor?.id??null,limit+1]);
+ const page=finishReviewPage(result.rows,limit);
  const current=await db.query(`SELECT v.effective_as_of::text AS portfolio_effective_as_of,v.view,s.facts_revision::text,s.latest_version FROM app.household_state s
    JOIN app.portfolio_versions v ON v.household_id=s.household_id AND v.id=s.latest_version WHERE s.household_id=$1`,[household]);
  // Read-only preview of the exact historical balances that would otherwise
  // collide with a plan-level publication. It never alters these balances.
- for(const snapshot of result.rows){
+ for(const snapshot of page.items){
   if(snapshot.source_system!=='Avenue'){for(const position of snapshot.position_details as Raw[]){const check=pensionValuationCheck(position,position.quantity);position.valuation_reconciliation=check;if(!snapshot.published&&check.status!=='consistent')snapshot.invalid_rows++;}}
   snapshot.legacy_positions=[];
   snapshot.legacy_basis=current.rowCount?{facts_revision:String(current.rows[0].facts_revision),portfolio_version:String(current.rows[0].latest_version)}:null;
@@ -57,7 +60,7 @@ export async function listExternalPositionSnapshots(db:pg.Pool,household:string)
   }
   snapshot.legacy_positions.sort((a:Raw,b:Raw)=>JSON.stringify([a.account_id,a.instrument_code,a.currency]).localeCompare(JSON.stringify([b.account_id,b.instrument_code,b.currency])));
  }
- return{snapshots:result.rows,portfolio_effective_as_of:current.rows[0]?.portfolio_effective_as_of??null,mode:'shadow',authoritative:false};
+ return{snapshots:page.items,next_cursor:page.next_cursor,portfolio_effective_as_of:current.rows[0]?.portfolio_effective_as_of??null,mode:'shadow',authoritative:false};
 }
 
 /** Queue a new parser revision for an existing unpublished Avenue original. */

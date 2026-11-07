@@ -300,3 +300,5 @@ La relectura Avenue reutiliza los bytes originales y crea un trabajo idempotente
 
 
 La sincronización diaria DI separa la ventana por año civil y exige una fuente B3 independiente para cada año antes de descargar o escribir. Las fechas confirmadas y sus tasas se guardan en una única transacción y un desacuerdo con datos previos bloquea el lote para revisión; las estimaciones no reemplazan confirmaciones. La fuente oficial de 2027 aún debe incorporarse y revisarse: si no está disponible, el proceso devuelve `calendar_source_unavailable` con los años pendientes y conserva los datos. El calendario de negociación de acciones no basta para inferir cierres del DI.
+
+La bandeja de Revisiones recupera todas las páginas de confirmaciones, textos, fotos y extractos mediante cursores de fecha y documento; los filtros se aplican luego de reunirlas. El conteo de confirmaciones abiertas se consulta por separado, y el resumen recorre las páginas de extractos. Si falla una fuente, se indica carga parcial. La carga automática completa puede volverse costosa con historiales grandes; una interfaz de paginación progresiva queda pendiente.

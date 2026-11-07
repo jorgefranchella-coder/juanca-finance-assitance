@@ -421,9 +421,18 @@ class Gateway(BaseHTTPRequestHandler):
                 else:
                     confirmations = get('/v1/confirmations?status=open')
                     proposals = get('/v1/proposals?status=pending')
-                    b3 = get('/v1/reconciliation/b3/snapshots')
-                    external = get('/v1/reconciliation/external/snapshots')
-                    snapshots = [*b3.get('snapshots', []), *external.get('snapshots', [])]
+                    def all_snapshots(target):
+                        rows, cursor, seen = [], None, set()
+                        while True:
+                            page = get(target + ('?cursor=' + cursor if cursor else ''))
+                            rows.extend(page.get('snapshots', []))
+                            cursor = page.get('next_cursor')
+                            if not cursor:
+                                return rows
+                            if cursor in seen:
+                                raise RuntimeError('INVALID_SNAPSHOT_CURSOR')
+                            seen.add(cursor)
+                    snapshots = [*all_snapshots('/v1/reconciliation/b3/snapshots'), *all_snapshots('/v1/reconciliation/external/snapshots')]
                     published = sum(1 for row in snapshots if row.get('published'))
                     publishable = sum(1 for row in snapshots if row.get('latest') and not row.get('published'))
                     review_count = int(confirmations.get('open_count', 0)) + len(proposals.get('proposals', [])) + publishable

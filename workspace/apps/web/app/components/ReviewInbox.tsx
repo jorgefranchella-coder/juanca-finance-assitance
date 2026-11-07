@@ -19,6 +19,12 @@ function relatedLabel(card:ReviewCard){const parts:string[]=[];if(card.related_t
 
 async function jsonFetch<T>(path:string):Promise<T>{const response=await fetch(path,{cache:'no-store'});if(!response.ok)throw new Error(`No se pudo cargar ${path.split('/').at(-1)??'la bandeja'}.`);return response.json() as Promise<T>;}
 
+async function allPages<T>(path:string,limit:number,key:"items"|"snapshots"="items"){
+ const items:T[]=[];let cursor:string|null=null;const seen=new Set<string>();
+ do{const page=await jsonFetch<{items?:T[];snapshots?:T[];next_cursor:string|null}>(`${path}?limit=${limit}${cursor?`&cursor=${encodeURIComponent(cursor)}`:''}`);items.push(...(page[key]??[]));cursor=page.next_cursor??null;if(cursor&&seen.has(cursor))throw new Error('No se pudo continuar la lista de evidencias.');if(cursor)seen.add(cursor);}while(cursor);
+ return {items};
+}
+
 function PhotoTradeDraft({photo,accounts,positions,onSaved}:{photo:PhotoEvidence;accounts:Account[];positions:Position[];onSaved:()=>Promise<void>}){
  const fields=photo.ocr_trade_interpretation?.fields;
  const multiple=photo.ocr_trade_interpretation?.review_reasons?.includes('multiple_operations_require_separate_evidence');
@@ -53,9 +59,9 @@ export default function ReviewInbox(){
  const[choices,setChoices]=useState<Record<string,string>>({}),[notes,setNotes]=useState<Record<string,string>>({});
  const load=useCallback(async()=>{
   const results=await Promise.allSettled([
-   jsonFetch<{proposals:Proposal[]}>('/api/shadow/proposals'),jsonFetch<{items:Confirmation[]}>('/api/shadow/confirmations'),
-   jsonFetch<{items:TextEvidence[]}>('/api/shadow/evidence/text'),jsonFetch<{items:PhotoEvidence[]}>('/api/shadow/evidence/photos'),
-   jsonFetch<{snapshots:Snapshot[]}>('/api/shadow/reconciliation/b3/snapshots'),jsonFetch<{snapshots:Snapshot[]}>('/api/shadow/reconciliation/external/snapshots'),
+   jsonFetch<{proposals:Proposal[]}>('/api/shadow/proposals'),allPages<Confirmation>('/api/shadow/confirmations',200),
+   allPages<TextEvidence>('/api/shadow/evidence/text',100),allPages<PhotoEvidence>('/api/shadow/evidence/photos',100),
+   allPages<Snapshot>('/api/shadow/reconciliation/b3/snapshots',100,'snapshots').then(r=>({snapshots:r.items})),allPages<Snapshot>('/api/shadow/reconciliation/external/snapshots',100,'snapshots').then(r=>({snapshots:r.items})),
    jsonFetch<{facts_revision:string|number;effective_as_of?:string;positions:Position[]}>('/api/shadow/portfolio'),jsonFetch<{accounts:Account[]}>('/api/shadow/accounts')
   ]);
   const names=['movimientos','confirmaciones','textos','fotos','extractos B3','extractos externos','cartera','cuentas'];

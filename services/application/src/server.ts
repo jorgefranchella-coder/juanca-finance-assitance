@@ -32,7 +32,7 @@ const server=createServer(async(req,res)=>{
   const provided=createHash('sha256').update(req.headers.authorization??'').digest();const expected=createHash('sha256').update('Bearer '+config.token).digest();
   if(!timingSafeEqual(provided,expected))throw new Conflict('UNAUTHENTICATED',401);
   if(url.pathname==='/v1/authority/readiness'&&req.method==='GET'){reply(200,await authorityReadiness(db,config.household_id));return;}
-  if(url.pathname==='/v1/confirmations'&&req.method==='GET'){reply(200,await listConfirmations(db,config.household_id,url.searchParams.get('status')??undefined));return;}
+  if(url.pathname==='/v1/confirmations'&&req.method==='GET'){reply(200,await listConfirmations(db,config.household_id,url.searchParams.get('status')??undefined,{limit:url.searchParams.has('limit')?Number(url.searchParams.get('limit')):undefined,cursor:url.searchParams.get('cursor')??undefined}));return;}
   if(url.pathname==='/v1/confirmations'&&req.method==='POST'){
    if(process.env.JUANCA_CONFIRMATIONS_WRITABLE!=='true')throw new Conflict('SHADOW_READ_ONLY',405);
    reply(201,await createConfirmation(db,config.household_id,String(req.headers['x-juanca-actor']??''),await readJson(req)));return;
@@ -68,14 +68,14 @@ const server=createServer(async(req,res)=>{
   if(url.pathname==='/v1/evidence/text'&&req.method==='POST'){reply(201,await recordText(db,config.household_id,await readJson(req)));return;}
   if(url.pathname==='/v1/evidence/text'&&req.method==='GET'){
    const limit=url.searchParams.has('limit')?Number(url.searchParams.get('limit')):50;if(!Number.isInteger(limit)||limit<1||limit>100)throw new Conflict('VALIDATION',422);
-   reply(200,await listTextIntakes(db,config.household_id,limit));return;
+   reply(200,await listTextIntakes(db,config.household_id,limit,url.searchParams.get('cursor')));return;
   }
   const textMatch=url.pathname.match(/^\/v1\/evidence\/text\/([0-9a-f-]{36})$/i);
   if(textMatch&&req.method==='GET'){reply(200,await textStatus(db,config.household_id,textMatch[1]));return;}
   if(url.pathname==='/v1/evidence/photos'&&req.method==='POST'){reply(202,await startPhoto(db,config.household_id,req,await readJson(req)));return;}
   if(url.pathname==='/v1/evidence/photos'&&req.method==='GET'){
    const limit=url.searchParams.has('limit')?Number(url.searchParams.get('limit')):50;if(!Number.isInteger(limit)||limit<1||limit>100)throw new Conflict('VALIDATION',422);
-   reply(200,await listPhotoEvidence(db,config.household_id,limit));return;
+   reply(200,await listPhotoEvidence(db,config.household_id,limit,url.searchParams.get('cursor')));return;
   }
   const photoContentMatch=url.pathname.match(/^\/v1\/evidence\/photos\/([0-9a-f-]{36})\/content$/i);
   if(photoContentMatch&&req.method==='GET'){
@@ -96,10 +96,10 @@ const server=createServer(async(req,res)=>{
    reply(200,await listB3SnapshotReviews(db,config.household_id,rawLimit));return;
   }
   if(url.pathname==='/v1/reconciliation/b3/snapshots'&&req.method==='GET'){
-   reply(200,await listB3PositionSnapshots(db,config.household_id));return;
+   reply(200,await listB3PositionSnapshots(db,config.household_id,url.searchParams.has('limit')?Number(url.searchParams.get('limit')):50,url.searchParams.get('cursor')));return;
   }
   if(url.pathname==='/v1/reconciliation/external/snapshots'&&req.method==='GET'){
-   reply(200,await listExternalPositionSnapshots(db,config.household_id));return;
+   reply(200,await listExternalPositionSnapshots(db,config.household_id,url.searchParams.has('limit')?Number(url.searchParams.get('limit')):50,url.searchParams.get('cursor')));return;
   }
   if(url.pathname==='/v1/reconciliation/external/manual-snapshots'&&req.method==='POST'){
    const actor=String(req.headers['x-juanca-actor']??'');reply(201,await createManualExternalPositionSnapshot(db,config.household_id,actor,await readJson(req,100000)));return;

@@ -18,7 +18,7 @@ import {summaryHash,hash,ownerId,accountId,importEnvelope,publish,type Envelope}
 import {portfolio,positionPage} from '../src/queries.ts';
 import {answerGuided,chatHistory,classify,sendChat} from '../src/conversation.ts';
 import {confirmSameAccount} from '../src/resolution.ts';
-import {recordText,textStatus} from '../src/manual-intake.ts';
+import {recordText,textStatus,listTextIntakes} from '../src/manual-intake.ts';
 import {receiveMarketEvent} from '../src/market-bridge.ts';
 import {listB3DuplicateMovementCandidates,recordB3DuplicateMovementDecision} from '../src/b3-duplicate-candidates.ts';
 import {publishB3PositionSnapshot,listB3PositionSnapshots} from '../src/b3-snapshot-publications.ts';
@@ -693,4 +693,32 @@ test('partial pension update splits a published legacy group and preserves the u
   await publishExternalPositionSnapshot(db,h,actor,draft.document_id,{request_key:'fixture-publish-partial',content_sha256:draft.content_sha256,legacy_confirmation:{...view.legacy_basis,positions,identities}});
   const final=await portfolio(db,h),pension=final.positions.filter((p:{asset_class:string})=>p.asset_class==='private_pension');assert.equal(pension.length,2);assert.ok(pension.some((p:{reference_date:string;market_value_minor:string})=>p.reference_date==='2026-10-24'&&p.market_value_minor==='5000'));assert.ok(pension.some((p:{reference_date:string;market_value_minor:string})=>p.reference_date==='2026-11-02'&&p.market_value_minor==='12000'));
  }finally{await rm(dir,{recursive:true,force:true});}
+});
+
+test('confirmation count is complete and cursor reaches older items without duplicates',async()=>{
+ const h='confirm-pages-'+randomUUID(),other='confirm-other-'+randomUUID();await db.query('INSERT INTO app.households VALUES($1),($2)',[h,other]);
+ await db.query(`INSERT INTO app.confirmation_items(household_id,id,source_key,owner,category,title,context,evidence,actions,status,created_at,updated_at)
+ SELECT $1,'item-'||lpad(n::text,4,'0'),'key-'||n,'Jorge','test','Fixture','{}','[]','[]','open','2026-01-01'::timestamptz + n * interval '1 second',now() FROM generate_series(1,201) n`,[h]);
+ const first=await listConfirmations(db,h,'open',{limit:100});assert.equal(first.open_count,201);assert.equal(first.items.length,100);assert.ok(first.next_cursor);
+ await db.query(`INSERT INTO app.confirmation_items(household_id,id,source_key,owner,category,title,context,evidence,actions,status,created_at,updated_at) VALUES($1,'new','new','Julia','test','New','{}','[]','[]','open','2027-01-01',now())`,[h]);
+ const second=await listConfirmations(db,h,'open',{limit:100,cursor:first.next_cursor!});assert.equal(second.open_count,202);assert.ok(second.next_cursor);
+ const third=await listConfirmations(db,h,'open',{limit:100,cursor:second.next_cursor!});assert.equal(third.items.length,1);
+ const ids=[...first.items,...second.items,...third.items].map(x=>x.id);assert.equal(new Set(ids).size,201);assert.ok(ids.includes('item-0001'));assert.equal((await listConfirmations(db,other)).open_count,0);
+ await assert.rejects(()=>listConfirmations(db,h,'open',{cursor:'bad'}),/VALIDATION/);
+});
+
+
+test('manual text pagination keeps older evidence and preserves family isolation',async()=>{
+ const h='text-pages-'+randomUUID(),other='text-pages-'+randomUUID();await db.query('INSERT INTO app.households VALUES($1),($2)',[h,other]);await db.query("INSERT INTO app.owners VALUES($1,'owner','Jorge'),($2,'owner','Julia')",[h,other]);
+ for(let n=0;n<51;n++)await db.query("INSERT INTO app.manual_intakes(household_id,id,request_key,request_hash,owner_id,original_text,received_at) VALUES($1,$2,$3,$4,'owner','fixture',$5::timestamptz)",[h,randomUUID(),'text-key-'+n,'a'.repeat(64),`2026-10-01T00:00:${String(n).padStart(2,'0')}.000001Z`]);
+ const first=await listTextIntakes(db,h,50);assert.equal(first.items.length,50);assert.ok(first.next_cursor);
+ const second=await listTextIntakes(db,h,50,first.next_cursor);assert.equal(second.items.length,1);assert.equal(second.next_cursor,null);assert.equal(new Set([...first.items,...second.items].map(x=>x.id)).size,51);assert.equal((await listTextIntakes(db,other,50)).items.length,0);
+});
+
+
+test('snapshot pages retain the latest record for every owner and institution beyond 50 documents',async()=>{
+ const h='snap-pages-'+randomUUID();await db.query('INSERT INTO app.households VALUES($1)',[h]);await db.query("INSERT INTO app.owners VALUES($1,'j','Jorge'),($1,'u','Julia')",[h]);
+ for(let n=0;n<52;n++){const id='doc-'+String(n).padStart(3,'0'),owner=n===0?'u':'j',source=n===0?'Avenue':'B3';await db.query(`INSERT INTO app.source_documents(household_id,id,owner_id,source_system,report_kind,original_name,content_sha256,storage_key,effective_as_of,date_basis,registered_at) VALUES($1,$2,$3,$4,'position','fixture',$5,'fixture','2026-10-01','declared','2026-10-01'::timestamptz+$6 * interval '1 second')`,[h,id,owner,source,hash(id),n]);await db.query(`INSERT INTO app.source_assertions(household_id,id,document_id,owner_id,source_sheet,source_row,assertion_kind,instrument_code,quantity,raw_row,interpretation_status) VALUES($1,$2,$3,$4,'fixture',2,'position','PETR4',1,'{}','observed')`,[h,'assert-'+id,id,owner]);}
+ const first=await listB3PositionSnapshots(db,h,50);assert.equal(first.snapshots.length,50);assert.ok(first.next_cursor);const second=await listB3PositionSnapshots(db,h,50,first.next_cursor);assert.equal(second.snapshots.length,1);assert.equal(new Set([...first.snapshots,...second.snapshots].map(x=>x.document_id)).size,51);
+ const external=await listExternalPositionSnapshots(db,h,50);assert.equal(external.snapshots.length,1);assert.equal(external.snapshots[0].owner,'Julia');assert.equal(external.snapshots[0].latest,true);
 });

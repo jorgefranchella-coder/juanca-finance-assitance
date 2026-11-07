@@ -30,16 +30,22 @@ export async function createConfirmation(db:pg.Pool,household:string,actor:strin
  }catch(error){await c.query('ROLLBACK');throw error;}finally{c.release();}
 }
 
-export async function listConfirmations(db:pg.Pool,household:string,status?:string){
+export async function listConfirmations(db:pg.Pool,household:string,status?:string,page:{limit?:number;cursor?:string}={}){
+ const limit=page.limit??200;if(!Number.isInteger(limit)||limit<1||limit>200)throw new Conflict('VALIDATION',422);
+ let cursor:{created_at:string;id:string}|null=null;
+ if(page.cursor){try{const value=JSON.parse(Buffer.from(page.cursor,'base64url').toString('utf8'));if(!value||typeof value.created_at!=='string'||!Number.isFinite(Date.parse(value.created_at))||typeof value.id!=='string'||!value.id||value.id.length>240)throw new Error();cursor=value;}catch{throw new Conflict('VALIDATION',422);}}
  if(status&&!['open','resolved'].includes(status))throw new Conflict('VALIDATION',422);
  const r=await db.query(`SELECT i.id,i.owner,i.category,i.title,i.context,i.evidence,i.actions,i.source_key,i.status,i.created_at,i.updated_at,
+   to_char(i.created_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS cursor_created_at,
    COALESCE(jsonb_agg(jsonb_build_object('action_key',d.action_key,'note',d.note,'decided_at',d.created_at) ORDER BY d.ordinal)
      FILTER(WHERE d.ordinal IS NOT NULL),'[]'::jsonb) AS decisions
    FROM app.confirmation_items i LEFT JOIN app.confirmation_decisions d ON d.household_id=i.household_id AND d.item_id=i.id
-   WHERE i.household_id=$1 AND ($2::text IS NULL OR i.status=$2)
-   GROUP BY i.household_id,i.id ORDER BY CASE i.status WHEN 'open' THEN 0 ELSE 1 END,i.created_at DESC LIMIT 200`,[household,status??null]);
- const items=r.rows.map((x:any)=>({...x,decision:x.decisions.at(-1)??null}));
- return {items,open_count:items.filter((x:any)=>x.status==='open').length};
+   WHERE i.household_id=$1 AND ($2::text IS NULL OR i.status=$2) AND ($3::timestamptz IS NULL OR (i.created_at,i.id)<($3::timestamptz,$4::text))
+   GROUP BY i.household_id,i.id ORDER BY i.created_at DESC,i.id DESC LIMIT $5`,[household,status??null,cursor?.created_at??null,cursor?.id??null,limit+1]);
+ const more=r.rows.length>limit,rows=r.rows.slice(0,limit),items=rows.map((x:any)=>{const {cursor_created_at,...item}=x;return {...item,decision:x.decisions.at(-1)??null};});
+ const count=await db.query("SELECT count(*)::int AS n FROM app.confirmation_items WHERE household_id=$1 AND status='open'",[household]);
+ const last=rows.at(-1);const next_cursor=more&&last?Buffer.from(JSON.stringify({created_at:last.cursor_created_at,id:last.id})).toString('base64url'):null;
+ return {items,open_count:count.rows[0].n,next_cursor};
 }
 
 export async function recordConfirmationDecision(db:pg.Pool,household:string,actor:string,id:string,input:unknown){

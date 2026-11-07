@@ -1,3 +1,4 @@
+import {reviewPage,finishReviewPage} from './review-pagination.ts';
 import {createHash,randomUUID} from 'node:crypto';
 import type pg from 'pg';
 import {accountId,hash,ownerId,publishInTransaction} from './migration.ts';
@@ -12,8 +13,9 @@ const isoDate=(value:unknown)=>{const text=clean(value),br=/^(\d{2})\/(\d{2})\/(
 const normalized=(value:unknown)=>clean(value).normalize('NFD').replace(/[\u0300-\u036f]/g,'').toUpperCase().replace(/[^A-Z0-9]+/g,' ').trim().replace(/\s+/g,' ');
 const assetClass:Record<string,string>={Acoes:'equity',BDR:'bdr',ETF:'etf','Fundo de Investimento':'fund','Renda Fixa':'fixed_income','Tesouro Direto':'treasury'};
 
-export async function listB3PositionSnapshots(db:pg.Pool,household:string){
-  const result=await db.query(`SELECT d.id AS document_id,d.owner_id,o.display_name AS owner,d.original_name,d.content_sha256,d.effective_as_of::text AS effective_as_of,d.registered_at,d.status,
+export async function listB3PositionSnapshots(db:pg.Pool,household:string,limit=50,cursorValue?:string|null){
+ const cursor=reviewPage(limit,cursorValue);
+  const result=await db.query(`SELECT d.id AS document_id,d.owner_id,o.display_name AS owner,d.original_name,d.content_sha256,d.effective_as_of::text AS effective_as_of,d.registered_at,to_char(d.registered_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS cursor_created_at,d.status,
    count(a.id)::int AS rows,count(*) FILTER(WHERE a.instrument_code IS NULL OR a.quantity IS NULL OR a.quantity<=0 OR
     COALESCE(NULLIF(a.raw_row->>'Valor Atualizado MTM',''),NULLIF(a.raw_row->>'Valor Atualizado FECHAMENTO',''),NULLIF(a.raw_row->>'Valor Atualizado CURVA',''),NULLIF(a.raw_row->>'Valor Atualizado','')) IS NULL)::int AS invalid_rows,
    count(*) FILTER(WHERE a.custody_account_id IS NULL)::int AS account_pending,
@@ -24,11 +26,12 @@ export async function listB3PositionSnapshots(db:pg.Pool,household:string){
    LEFT JOIN LATERAL (SELECT d2.id FROM app.source_documents d2 WHERE d2.household_id=d.household_id AND d2.owner_id=d.owner_id AND d2.source_system='B3' AND d2.report_kind='position' AND d2.status<>'superseded'
      AND EXISTS(SELECT 1 FROM app.source_assertions a2 WHERE a2.household_id=d2.household_id AND a2.document_id=d2.id AND a2.assertion_kind='position')
      ORDER BY d2.effective_as_of DESC NULLS LAST,d2.registered_at DESC,d2.id DESC LIMIT 1) latest ON true
-   WHERE d.household_id=$1 AND d.source_system='B3' AND d.report_kind='position'
-   GROUP BY d.id,d.owner_id,d.original_name,d.content_sha256,d.effective_as_of,d.status,d.registered_at,o.display_name ORDER BY d.effective_as_of DESC,d.registered_at DESC LIMIT 50`,[household]);
+   WHERE d.household_id=$1 AND d.source_system='B3' AND d.report_kind='position' AND ($2::timestamptz IS NULL OR (d.registered_at,d.id)<($2::timestamptz,$3::text))
+   GROUP BY d.id,d.owner_id,d.original_name,d.content_sha256,d.effective_as_of,d.status,d.registered_at,o.display_name ORDER BY d.registered_at DESC,d.id DESC LIMIT $4`,[household,cursor?.created_at??null,cursor?.id??null,limit+1]);
+ const page=finishReviewPage(result.rows,limit);
  const current=await db.query(`SELECT v.effective_as_of::text AS portfolio_effective_as_of FROM app.household_state s
    JOIN app.portfolio_versions v ON v.household_id=s.household_id AND v.id=s.latest_version WHERE s.household_id=$1`,[household]);
- return {snapshots:result.rows,portfolio_effective_as_of:current.rows[0]?.portfolio_effective_as_of??null,mode:'shadow',authoritative:false};
+ return {snapshots:page.items,next_cursor:page.next_cursor,portfolio_effective_as_of:current.rows[0]?.portfolio_effective_as_of??null,mode:'shadow',authoritative:false};
 }
 
 /** A call by an owner/approver is the explicit approval to publish this whole B3 position cut. */
