@@ -254,6 +254,14 @@ class GatewayEvidenceTest(unittest.TestCase):
                 method, path, body, headers = ShadowStub.calls[-1]
                 self.assertEqual((method, path, body), ('POST', f'/v1/reconciliation/external/snapshots/{document_id}/publish', payload))
                 self.assertEqual(headers['X-Juanca-Actor'], server.CONFIG['user_id'])
+                connection = http.client.HTTPConnection('127.0.0.1', gateway.server_port)
+                connection.request('POST', f'/api/shadow/reconciliation/external/snapshots/{document_id}/reprocess', body=b'', headers={
+                    'Authorization': 'Bearer ' + server.CONFIG['token'], 'X-Juanca-Actor': 'attacker-controlled',
+                })
+                response = connection.getresponse();self.assertEqual(response.status, 201);response.read();connection.close()
+                method, path, body, headers = ShadowStub.calls[-1]
+                self.assertEqual((method, path, body), ('POST', f'/v1/reconciliation/external/snapshots/{document_id}/reprocess', b''))
+                self.assertEqual(headers['X-Juanca-Actor'], server.CONFIG['user_id'])
             finally:
                 server.SHADOW_CONFIG_PATH = old
                 gateway.shutdown();stub.shutdown();gateway.server_close();stub.server_close()

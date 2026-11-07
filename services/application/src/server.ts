@@ -14,7 +14,7 @@ import {listB3DuplicateMovementCandidates,recordB3DuplicateMovementDecision} fro
 import {listAcquisitionLots,listAcquisitionReconciliation,listPositionAccountCandidates,listPositionIdentities,recordAcquisitionLot,recordPositionIdentityResolution} from './acquisition-lots.ts';
 import {authorityReadiness} from './authority-readiness.ts';
 import {listB3PositionSnapshots,publishB3PositionSnapshot} from './b3-snapshot-publications.ts';
-import {listExternalPositionSnapshots,publishExternalPositionSnapshot} from './external-snapshot-publications.ts';
+import {listExternalPositionSnapshots,publishExternalPositionSnapshot,reprocessAvenueStatement} from './external-snapshot-publications.ts';
 import {recordPensionIdentityDecision} from './pension-identity-decisions.ts';
 import {createManualExternalPositionSnapshot} from './manual-external-snapshots.ts';
 import {fixedIncomeProjection} from './fixed-income.ts';
@@ -110,6 +110,8 @@ const server=createServer(async(req,res)=>{
   if(externalPublish&&req.method==='POST'){
    const actor=String(req.headers['x-juanca-actor']??'');reply(201,await publishExternalPositionSnapshot(db,config.household_id,actor,externalPublish[1],await readJson(req)));return;
   }
+  const avenueReprocess=url.pathname.match(/^\/v1\/reconciliation\/external\/snapshots\/([A-Za-z0-9._:-]+)\/reprocess$/);
+  if(avenueReprocess&&req.method==='POST'){reply(202,await reprocessAvenueStatement(db,config.household_id,String(req.headers['x-juanca-actor']??''),avenueReprocess[1]));return;}
   const b3Publish=url.pathname.match(/^\/v1\/reconciliation\/b3\/snapshots\/([^/]+)\/publish$/);
   if(b3Publish&&req.method==='POST'){
    const actor=String(req.headers['x-juanca-actor']??'');

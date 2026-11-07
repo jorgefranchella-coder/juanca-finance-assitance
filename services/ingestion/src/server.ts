@@ -9,6 +9,7 @@ import type pg from 'pg';
 import {pool} from './db.ts';
 import {config} from './config.ts';
 import {objectPath,publishObject} from './object-store.ts';
+import {AVENUE_PARSER_VERSION} from './avenue-parser.ts';
 
 const MAX_BYTES=30_000_000;
 const CONTENT_TYPES=new Set(['application/pdf','application/vnd.openxmlformats-officedocument.spreadsheetml.sheet','text/csv','application/csv']);
@@ -71,6 +72,18 @@ export async function startIngestion(){
      }
      reply(409,{code:'IDEMPOTENCY_MISMATCH',details,request_id:requestId});return;}job=previous;}
     reply(202,{upload_id:job.id,status:job.status,content_url:`/v1/uploads/${job.id}/content`,request_id:requestId});return;
+   }
+   const reprocessMatch=url.pathname.match(/^\/v1\/documents\/([0-9a-f-]{36})\/reprocess-avenue$/i);
+   if(reprocessMatch&&req.method==='POST'){
+    const household=String(req.headers['x-household-ref']??''),owner=String(req.headers['x-owner-ref']??'');
+    if(!household||!owner){reply(422,{code:'HOUSEHOLD_AND_OWNER_REQUIRED',request_id:requestId});return;}
+    const c=await db.connect();try{await c.query('BEGIN');
+     const matches=await c.query(`SELECT a.id AS assignment_id,u.id AS upload_id FROM ingestion.document_assignments a JOIN LATERAL (SELECT id FROM ingestion.upload_jobs WHERE assignment_id=a.id AND status='stored' ORDER BY created_at DESC LIMIT 1) u ON true WHERE a.document_id=$1 AND a.household_ref=$2 AND a.owner_ref=$3 AND a.source='avenue' AND a.file_type='avenue_statement' FOR UPDATE OF a`,[reprocessMatch[1],household,owner]);
+     if(matches.rowCount!==1){await c.query('ROLLBACK');reply(matches.rowCount?409:404,{code:matches.rowCount?'AMBIGUOUS_ASSIGNMENT':'NOT_FOUND',request_id:requestId});return;}
+     const row=matches.rows[0],existing=await c.query(`SELECT id,status,parser_version FROM ingestion.import_jobs WHERE document_id=$1 AND assignment_id=$2 AND (parser_version=$3 OR status IN ('queued','parsing','failed_retryable')) ORDER BY CASE WHEN parser_version=$3 THEN 0 ELSE 1 END,created_at DESC LIMIT 1`,[reprocessMatch[1],row.assignment_id,AVENUE_PARSER_VERSION]);
+     if(existing.rowCount){await c.query('COMMIT');reply(200,{import_job_id:existing.rows[0].id,status:existing.rows[0].status,parser_version:existing.rows[0].parser_version,replayed:true,portfolio_published:false,request_id:requestId});return;}
+     const id=randomUUID();await c.query(`INSERT INTO ingestion.import_jobs(id,upload_job_id,document_id,assignment_id,status,parser_version) VALUES($1,$2,$3,$4,'queued',$5)`,[id,row.upload_id,reprocessMatch[1],row.assignment_id,AVENUE_PARSER_VERSION]);await c.query('COMMIT');reply(202,{import_job_id:id,status:'queued',parser_version:AVENUE_PARSER_VERSION,replayed:false,portfolio_published:false,request_id:requestId});return;
+    }catch(error){await c.query('ROLLBACK');throw error;}finally{c.release();}
    }
    const contentMatch=url.pathname.match(/^\/v1\/uploads\/([0-9a-f-]{36})\/content$/);
    if(contentMatch&&req.method==='PUT'){

@@ -5,6 +5,7 @@ import {Conflict} from './commands.ts';
 import {exact,minor} from './money.ts';
 import {pensionIdentity,pensionCustodyId} from './pension-identity.ts';
 import {pensionValuationCheck} from './pension-valuation.ts';
+import {ingestionCall} from './manual-intake.ts';
 
 const KEY=/^[A-Za-z0-9._:-]{8,128}$/;
 type Raw=Record<string,unknown>;
@@ -23,6 +24,7 @@ export async function listExternalPositionSnapshots(db:pg.Pool,household:string)
    bool_or(p.document_id IS NOT NULL) AS published,bool_or(d.id=latest.id) AS latest
    FROM app.source_documents d JOIN app.owners o ON o.household_id=d.household_id AND o.id=d.owner_id
    JOIN app.source_assertions a ON a.household_id=d.household_id AND a.document_id=d.id AND a.assertion_kind='position'
+     AND (d.source_system<>'Avenue' OR a.source_sheet='Statement-v2' OR NOT EXISTS (SELECT 1 FROM app.source_assertions av2 WHERE av2.household_id=d.household_id AND av2.document_id=d.id AND av2.assertion_kind='position' AND av2.source_sheet='Statement-v2'))
    LEFT JOIN app.custody_accounts ca ON ca.household_id=a.household_id AND ca.id=a.custody_account_id
    LEFT JOIN LATERAL (SELECT * FROM app.pension_identity_decisions z WHERE z.household_id=a.household_id AND z.assertion_id=a.id ORDER BY z.revision DESC LIMIT 1) pd ON d.source_system<>'Avenue'
    LEFT JOIN LATERAL (SELECT * FROM app.pension_valuation_decisions z WHERE z.household_id=a.household_id AND z.assertion_id=a.id ORDER BY z.revision DESC LIMIT 1) vd ON d.source_system<>'Avenue'
@@ -56,6 +58,20 @@ export async function listExternalPositionSnapshots(db:pg.Pool,household:string)
   snapshot.legacy_positions.sort((a:Raw,b:Raw)=>JSON.stringify([a.account_id,a.instrument_code,a.currency]).localeCompare(JSON.stringify([b.account_id,b.instrument_code,b.currency])));
  }
  return{snapshots:result.rows,portfolio_effective_as_of:current.rows[0]?.portfolio_effective_as_of??null,mode:'shadow',authoritative:false};
+}
+
+/** Queue a new parser revision for an existing unpublished Avenue original. */
+export async function reprocessAvenueStatement(db:pg.Pool,household:string,actor:string,documentId:string){
+ const c=await db.connect();try{await c.query('BEGIN');
+  const member=await c.query("SELECT 1 FROM app.memberships WHERE household_id=$1 AND actor_id=$2 AND role IN ('reviewer','owner','approver')",[household,actor]);if(!member.rowCount)throw new Conflict('FORBIDDEN',403);
+  await c.query('SELECT pg_advisory_xact_lock(hashtextextended($1,0))',[`${household}:external-position-publication:${documentId}`]);
+  const doc=await c.query("SELECT owner_id,storage_key FROM app.source_documents WHERE household_id=$1 AND id=$2 AND source_system='Avenue' AND report_kind='position' FOR UPDATE",[household,documentId]);if(!doc.rowCount)throw new Conflict('NOT_FOUND',404);
+  if((await c.query('SELECT 1 FROM app.external_position_snapshot_publications WHERE household_id=$1 AND document_id=$2',[household,documentId])).rowCount)throw new Conflict('PUBLISHED_SNAPSHOT_REPROCESS_REQUIRES_CORRECTION',409);
+  const match=/^ingestion:([0-9a-f-]{36})$/i.exec(String(doc.rows[0].storage_key));if(!match)throw new Conflict('ORIGINAL_DOCUMENT_UNAVAILABLE',409);
+  const result=await ingestionCall(`/v1/documents/${match[1]}/reprocess-avenue`,'POST',undefined,{'X-Household-Ref':household,'X-Owner-Ref':String(doc.rows[0].owner_id)});
+  if(result.replayed!==true)await c.query("INSERT INTO app.audit_log(household_id,actor_id,action,resource_id,details) VALUES($1,$2,'avenue_statement_reprocess_requested',$3,$4)",[household,actor,documentId,{import_job_id:result.import_job_id,parser_version:result.parser_version??null}]);
+  await c.query('COMMIT');return{...result,document_id:documentId,portfolio_published:false};
+ }catch(error){await c.query('ROLLBACK');throw error;}finally{c.release();}
 }
 
 /** Publish a complete reviewed Avenue or pension position cut, never movements or cash. */
@@ -96,9 +112,9 @@ export async function publishExternalPositionSnapshot(db:pg.Pool,household:strin
       vd.id AS valuation_decision_id,vd.quantity::text AS valuation_quantity,vd.unit_price::text AS valuation_unit_price,vd.market_value::text AS valuation_market_value,ca.owner_id,ca.institution_id,ca.external_reference,ca.identity_basis,ci.kind AS institution_kind
     FROM app.source_assertions a LEFT JOIN LATERAL (SELECT * FROM app.pension_identity_decisions z WHERE z.household_id=a.household_id AND z.assertion_id=a.id ORDER BY z.revision DESC LIMIT 1) pd ON true LEFT JOIN LATERAL (SELECT * FROM app.pension_valuation_decisions z WHERE z.household_id=a.household_id AND z.assertion_id=a.id ORDER BY z.revision DESC LIMIT 1) vd ON true LEFT JOIN app.custody_accounts ca ON ca.household_id=a.household_id AND ca.id=a.custody_account_id
     LEFT JOIN app.custody_institutions ci ON ci.id=ca.institution_id
-    WHERE a.household_id=$1 AND a.document_id=$2 AND a.assertion_kind='position' ORDER BY a.source_sheet,a.source_row`,[household,documentId]);
+    WHERE a.household_id=$1 AND a.document_id=$2 AND a.assertion_kind='position' AND ($3<>'Avenue' OR a.source_sheet='Statement-v2' OR NOT EXISTS (SELECT 1 FROM app.source_assertions av2 WHERE av2.household_id=a.household_id AND av2.document_id=a.document_id AND av2.assertion_kind='position' AND av2.source_sheet='Statement-v2')) ORDER BY a.source_sheet,a.source_row`,[household,documentId,sourceSystem]);
   if(!source.rowCount)throw new Conflict('EMPTY_POSITION_SNAPSHOT',422);
-  if(sourceSystem==='Avenue'){const checked=await c.query("SELECT count(DISTINCT a.id)::int AS n FROM app.source_assertions a JOIN app.source_interpretations i ON i.household_id=a.household_id AND i.assertion_id=a.id AND i.parser_version='avenue-statement-v2-coverage-2026-11-06' WHERE a.household_id=$1 AND a.document_id=$2 AND a.assertion_kind='position' AND a.raw_row->>'statement_coverage'='verified'",[household,documentId]);if(Number(checked.rows[0]?.n)!==source.rowCount)throw new Conflict('AVENUE_STATEMENT_COVERAGE_REQUIRED',409);}
+  if(sourceSystem==='Avenue'){const checked=await c.query("SELECT count(DISTINCT a.id)::int AS n FROM app.source_assertions a JOIN app.source_interpretations i ON i.household_id=a.household_id AND i.assertion_id=a.id AND i.parser_version='avenue-statement-v2-coverage-2026-11-06' WHERE a.household_id=$1 AND a.document_id=$2 AND a.assertion_kind='position' AND a.raw_row->>'statement_coverage'='verified' AND (a.source_sheet='Statement-v2' OR NOT EXISTS (SELECT 1 FROM app.source_assertions av2 WHERE av2.household_id=a.household_id AND av2.document_id=a.document_id AND av2.assertion_kind='position' AND av2.source_sheet='Statement-v2'))",[household,documentId]);if(Number(checked.rows[0]?.n)!==source.rowCount)throw new Conflict('AVENUE_STATEMENT_COVERAGE_REQUIRED',409);}
   const decisions=source.rows.filter(row=>row.valuation_decision_id).map(row=>({assertion_id:String(row.id),decision_id:String(row.valuation_decision_id)})).sort((a,b)=>a.assertion_id.localeCompare(b.assertion_id));const preview=Array.isArray(input.valuation_preview)?input.valuation_preview.map(v=>({assertion_id:String((v as Raw).assertion_id),decision_id:String((v as Raw).decision_id)})).sort((a,b)=>a.assertion_id.localeCompare(b.assertion_id)):[];if(JSON.stringify(decisions)!==JSON.stringify(preview))throw new Conflict('PENSION_VALUATION_PREVIEW_CHANGED',409);
   const carryIds=[...new Set(source.rows.map(row=>(row.raw_row as Raw)?.carry_from).filter(value=>value&&typeof value==='object'&&!Array.isArray(value)).map(value=>String((value as Raw).assertion_id??'')))].sort();for(const id of carryIds)await c.query('SELECT pg_advisory_xact_lock(hashtextextended($1,0))',[`${household}:pension-identity:${id}`]);
   const seen=new Set<string>(),legacyDocuments=new Map<string,string>(),legacyPositions=new Map<string,{account_id:string;instrument_code:string;currency:string;quantity:string;opening_as_of:string|null}>(),rows=[] as Array<{id:string;assertion:string;account:string;custody:string;code:string;currency:string;quantity:string;unitPrice:string;marketMinor:string;assetClass:string;asOf:string;payload:Raw}>;

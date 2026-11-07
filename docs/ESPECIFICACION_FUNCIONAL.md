@@ -190,3 +190,5 @@ En comprobantes manuales, Juanca distingue precio unitario, total bruto, total n
 Si una evidencia manual o una foto describe varias operaciones, Revisiones muestra los fragmentos detectados y solicita registrar cada movimiento por separado. La creación y la aprobación vuelven a comprobar la evidencia; una lectura OCR anterior se actualiza antes de permitir continuar.
 
 Los extractos de posiciones Avenue recorren todas las páginas admitidas y conservan el localizador de cada fila. Antes de publicar, el total de inversiones debe conciliar con el total de cartera y la caja identificada; un extracto con cobertura no verificada genera una tarea para revisión y no sustituye posiciones. Las lecturas antiguas que no acreditan cobertura quedan bloqueadas para nuevas publicaciones.
+
+Los extractos Avenue anteriores sin cobertura verificada pueden volver a leerse desde Revisiones usando el mismo original. Se conserva la lectura previa; cuando la nueva está completa, se presenta para aprobación separada. Si sigue incompleta, la tarea conserva los motivos y no se publica patrimonio. Los extractos ya publicados requieren un flujo de corrección histórica.
