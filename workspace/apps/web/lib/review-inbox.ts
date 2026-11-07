@@ -64,3 +64,10 @@ export function buildReviewCards(input:ReviewInput):ReviewCard[]{
  const lanes:Record<ReviewLane,number>={decision:0,evidence:1,follow_up:2,history:3};
  return cards.sort((a,b)=>lanes[a.lane]-lanes[b.lane]||Date.parse(b.received_at)-Date.parse(a.received_at)||a.id.localeCompare(b.id));
 }
+
+/** Preserve already loaded evidence when a page overlaps after a refresh. */
+export function mergeReviewPage<T extends Record<string,unknown>>(current:T[],incoming:unknown[],id:string):T[]{
+ const seen=new Set(current.map(row=>String(row[id]))),items=[...current];
+ for(const value of incoming){if(!value||typeof value!=='object')continue;const row=value as T,key=String(row[id]);if(!seen.has(key)){seen.add(key);items.push(row);}}
+ return items;
+}

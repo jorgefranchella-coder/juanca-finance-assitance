@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {buildReviewCards,custodyLabel} from '../lib/review-inbox.ts';
+import {buildReviewCards,custodyLabel,mergeReviewPage} from '../lib/review-inbox.ts';
 
 const proposal=(id,date,received='2026-10-28T12:00:00Z')=>({id,owner:'Jorge',owner_id:'owner-1',account_id:'account-1',account_scope:'["Jorge","custody:c1"]',instrument_code:'CSAN3',currency:'BRL',side:'sell',quantity:'8',unit_price:'2.73',fees_minor:'0',effective_date:date,version:1,summary_hash:'hash',status:'pending',source_evidence_kind:'manual_photo',source_evidence_id:'photo-1',source_evidence_received_at:received});
 const text=(id,date)=>({id,owner:'Jorge',original_text:'Venta ejecutada: 8 acciones de CSAN3',occurred_on:null,received_at:'2026-10-28T13:00:00Z',status:'awaiting_review',fields:{side:'sell',instrument_code:'CSAN3',quantity:'8',trade_date:date},interpretation_status:'parsed_review'});
@@ -45,4 +45,10 @@ test('pension snapshot moves from missing data to approval and history',()=>{
  assert.equal(buildReviewCards(input({external:[snapshot]}))[0].lane,'evidence');
  assert.equal(buildReviewCards(input({external:[{...snapshot,invalid_rows:0}]}))[0].lane,'decision');
  assert.equal(buildReviewCards(input({external:[{...snapshot,invalid_rows:0,published:true}]}))[0].lane,'history');
+});
+
+
+test('progressive pages preserve loaded items and avoid duplicates',()=>{
+ const merged=mergeReviewPage([{id:'new'}],[{id:'new'},{id:'old'}],'id');assert.deepEqual(merged.map(x=>x.id),['new','old']);
+ const photos=mergeReviewPage([{upload_id:'a'}],[{upload_id:'a'},{upload_id:'b'}],'upload_id');assert.equal(photos.length,2);
 });

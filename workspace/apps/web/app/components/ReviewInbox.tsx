@@ -1,12 +1,18 @@
 "use client";
 
-import {useCallback,useEffect,useMemo,useState,type FormEvent} from "react";
+import {useCallback,useEffect,useMemo,useRef,useState,type FormEvent} from "react";
 import PensionIdentityReview from './PensionIdentityReview';
 import PensionBalanceDraft from './PensionBalanceDraft';
-import {buildReviewCards,isPensionBalanceEvidence,type Confirmation,type PhotoEvidence,type Position,type Proposal,type ReviewCard,type ReviewKind,type ReviewLane,type Snapshot,type TextEvidence} from "../../lib/review-inbox";
+import {buildReviewCards,isPensionBalanceEvidence,mergeReviewPage,type Confirmation,type PhotoEvidence,type Position,type Proposal,type ReviewCard,type ReviewKind,type ReviewLane,type Snapshot,type TextEvidence} from "../../lib/review-inbox";
 
 type Account={id:string;owner_id:string;owner:string;identity_status:string;account_scope:string};
-type InboxData={cards:ReviewCard[];factsRevision:string;portfolioDate:string|null;accounts:Account[];positions:Position[]};
+type InboxData={cards:ReviewCard[];factsRevision:string;portfolioDate:string|null;accounts:Account[];positions:Position[];sources:ReviewSources;cursors:ReviewCursors;incomplete:boolean};
+type ReviewSources={proposals:Proposal[];confirmations:Confirmation[];texts:TextEvidence[];photos:PhotoEvidence[];b3:Snapshot[];external:Snapshot[];positions:Position[]};
+type PagedKind='confirmations'|'texts'|'photos'|'b3'|'external';
+type ReviewCursors=Record<PagedKind,string|null>;
+const PAGE_SOURCES:Record<PagedKind,{path:string;key:'items'|'snapshots';limit:number}>={confirmations:{path:'/api/shadow/confirmations',key:'items',limit:50},texts:{path:'/api/shadow/evidence/text',key:'items',limit:50},photos:{path:'/api/shadow/evidence/photos',key:'items',limit:50},b3:{path:'/api/shadow/reconciliation/b3/snapshots',key:'snapshots',limit:50},external:{path:'/api/shadow/reconciliation/external/snapshots',key:'snapshots',limit:50}};
+type SourcePage={items?:unknown[];snapshots?:unknown[];next_cursor?:string|null};
+function fetchPage(kind:PagedKind,cursor?:string|null){const source=PAGE_SOURCES[kind];return jsonFetch<SourcePage>(`${source.path}?limit=${source.limit}${cursor?`&cursor=${encodeURIComponent(cursor)}`:''}`);}
 const EMPTY_CARDS:ReviewCard[]=[];
 const date=(value:string|null)=>{if(!value)return "Sin fecha";const parsed=new Date(/^\d{4}-\d{2}-\d{2}$/.test(value)?`${value}T12:00:00Z`:value);return Number.isNaN(parsed.getTime())?value:new Intl.DateTimeFormat("es-AR",{day:"2-digit",month:"2-digit",year:"numeric",timeZone:"America/Sao_Paulo"}).format(parsed);};
 const money=(value:string,currency:string)=>new Intl.NumberFormat("es-AR",{style:"currency",currency:currency==='USD'?'USD':'BRL'}).format(Number(value));
@@ -18,12 +24,6 @@ const codeMessage:Record<string,string>={PUBLISHED_SNAPSHOT_REPROCESS_REQUIRES_C
 function relatedLabel(card:ReviewCard){const parts:string[]=[];if(card.related_texts.length)parts.push(`${card.related_texts.length} ${card.related_texts.length===1?'texto':'textos'}`);if(card.related_photos.length)parts.push(`${card.related_photos.length} ${card.related_photos.length===1?'foto':'fotos'}`);return parts.length?` · ${parts.join(' y ')} adjuntos`:'';}
 
 async function jsonFetch<T>(path:string):Promise<T>{const response=await fetch(path,{cache:'no-store'});if(!response.ok)throw new Error(`No se pudo cargar ${path.split('/').at(-1)??'la bandeja'}.`);return response.json() as Promise<T>;}
-
-async function allPages<T>(path:string,limit:number,key:"items"|"snapshots"="items"){
- const items:T[]=[];let cursor:string|null=null;const seen=new Set<string>();
- do{const page=await jsonFetch<{items?:T[];snapshots?:T[];next_cursor:string|null}>(`${path}?limit=${limit}${cursor?`&cursor=${encodeURIComponent(cursor)}`:''}`);items.push(...(page[key]??[]));cursor=page.next_cursor??null;if(cursor&&seen.has(cursor))throw new Error('No se pudo continuar la lista de evidencias.');if(cursor)seen.add(cursor);}while(cursor);
- return {items};
-}
 
 function PhotoTradeDraft({photo,accounts,positions,onSaved}:{photo:PhotoEvidence;accounts:Account[];positions:Position[];onSaved:()=>Promise<void>}){
  const fields=photo.ocr_trade_interpretation?.fields;
@@ -56,22 +56,43 @@ function PhotoTradeDraft({photo,accounts,positions,onSaved}:{photo:PhotoEvidence
 export default function ReviewInbox(){
  const[data,setData]=useState<InboxData|null>(null),[loading,setLoading]=useState(true),[error,setError]=useState(''),[notice,setNotice]=useState(''),[saving,setSaving]=useState('');
  const[owner,setOwner]=useState('Todos'),[kind,setKind]=useState('Todos'),[custody,setCustody]=useState('Todas'),[lane,setLane]=useState<ReviewLane|'all'>('decision'),[search,setSearch]=useState('');
- const[choices,setChoices]=useState<Record<string,string>>({}),[notes,setNotes]=useState<Record<string,string>>({});
+ const[choices,setChoices]=useState<Record<string,string>>({}),[notes,setNotes]=useState<Record<string,string>>({}),[loadingMore,setLoadingMore]=useState(false);
+ const loadGeneration=useRef(0);
  const load=useCallback(async()=>{
-  const results=await Promise.allSettled([
-   jsonFetch<{proposals:Proposal[]}>('/api/shadow/proposals'),allPages<Confirmation>('/api/shadow/confirmations',200),
-   allPages<TextEvidence>('/api/shadow/evidence/text',100),allPages<PhotoEvidence>('/api/shadow/evidence/photos',100),
-   allPages<Snapshot>('/api/shadow/reconciliation/b3/snapshots',100,'snapshots').then(r=>({snapshots:r.items})),allPages<Snapshot>('/api/shadow/reconciliation/external/snapshots',100,'snapshots').then(r=>({snapshots:r.items})),
-   jsonFetch<{facts_revision:string|number;effective_as_of?:string;positions:Position[]}>('/api/shadow/portfolio'),jsonFetch<{accounts:Account[]}>('/api/shadow/accounts')
-  ]);
+  const generation=++loadGeneration.current;
+  const kinds=Object.keys(PAGE_SOURCES) as PagedKind[];
+  const results=await Promise.allSettled([jsonFetch<{proposals:Proposal[]}>('/api/shadow/proposals'),...kinds.map(kind=>fetchPage(kind)),jsonFetch<{facts_revision:string|number;effective_as_of?:string;positions:Position[]}>('/api/shadow/portfolio'),jsonFetch<{accounts:Account[]}>('/api/shadow/accounts')]);
+  if(generation!==loadGeneration.current)return;
   const names=['movimientos','confirmaciones','textos','fotos','extractos B3','extractos externos','cartera','cuentas'];
   const failed=results.flatMap((result,index)=>result.status==='rejected'?[names[index]]:[]);
   if(failed.length===results.length)throw new Error('No se pudo cargar ninguna fuente de Revisiones.');
-  const take=<T,>(index:number,fallback:T):T=>results[index].status==='fulfilled'?(results[index] as PromiseFulfilledResult<T>).value:fallback;
-  const proposals=take(0,{proposals:[] as Proposal[]}),confirmations=take(1,{items:[] as Confirmation[]}),texts=take(2,{items:[] as TextEvidence[]}),photos=take(3,{items:[] as PhotoEvidence[]}),b3=take(4,{snapshots:[] as Snapshot[]}),external=take(5,{snapshots:[] as Snapshot[]}),portfolio=take(6,{facts_revision:'',positions:[] as Position[],effective_as_of:null as string|null}),accounts=take(7,{accounts:[] as Account[]});
-  setData({cards:buildReviewCards({proposals:proposals.proposals??[],confirmations:confirmations.items??[],texts:texts.items??[],photos:photos.items??[],b3:b3.snapshots??[],external:external.snapshots??[],positions:portfolio.positions??[]}),factsRevision:String(portfolio.facts_revision??''),portfolioDate:portfolio.effective_as_of??null,accounts:accounts.accounts??[],positions:portfolio.positions??[]});
+  const value=(index:number)=>results[index].status==='fulfilled'?(results[index] as PromiseFulfilledResult<any>).value:null;
+  const proposals=value(0),portfolio=value(6),accounts=value(7),pages=kinds.map((_,index)=>value(index+1) as SourcePage|null);
+  const rows=(index:number)=>pages[index]?.[PAGE_SOURCES[kinds[index]].key]??[];
+  const sources:ReviewSources={proposals:proposals?.proposals??[],confirmations:rows(0) as Confirmation[],texts:rows(1) as TextEvidence[],photos:rows(2) as PhotoEvidence[],b3:rows(3) as Snapshot[],external:rows(4) as Snapshot[],positions:portfolio?.positions??[]};
+  const cursors=Object.fromEntries(kinds.map((kind,index)=>[kind,pages[index]?.next_cursor??null])) as ReviewCursors;
+  setData({sources,cursors,incomplete:failed.length>0,cards:buildReviewCards(sources),factsRevision:String(portfolio?.facts_revision??''),portfolioDate:portfolio?.effective_as_of??null,accounts:accounts?.accounts??[],positions:sources.positions});
   if(failed.length)setError(`Carga parcial: faltan ${failed.join(', ')}. Actualiza la bandeja para volver a intentarlo.`);
  },[]);
+ const loadMore=useCallback(async()=>{
+  if(!data||loadingMore)return;
+  const generation=loadGeneration.current,kinds=(Object.keys(PAGE_SOURCES) as PagedKind[]).filter(kind=>data.cursors[kind]);
+  if(!kinds.length)return;setLoadingMore(true);setError('');
+  try{
+   const results=await Promise.allSettled(kinds.map(kind=>fetchPage(kind,data.cursors[kind])));
+   if(generation!==loadGeneration.current)return;
+   const failures:string[]=[];const sources={...data.sources},cursors={...data.cursors};
+   for(let i=0;i<kinds.length;i++){const kind=kinds[i],result=results[i];if(result.status==='rejected'){failures.push(kind);continue;}const page=result.value,next=page.next_cursor??null;
+    if(next&&next===data.cursors[kind]){failures.push(kind);continue;}
+    const values=page[PAGE_SOURCES[kind].key]??[];
+    // The cursor advances on immutable receipt time and identifier; deduplicate defensively.
+    const current=sources[kind] as Array<Record<string,unknown>>,id=kind==='photos'?'upload_id':kind==='b3'||kind==='external'?'document_id':'id';
+    (sources as unknown as Record<string,unknown>)[kind]=mergeReviewPage(current,values,id);cursors[kind]=next;
+   }
+   setData({...data,sources,cursors,cards:buildReviewCards(sources)});
+   if(failures.length)setError('No se pudieron cargar algunas páginas. Intenta nuevamente; los resultados visibles están incompletos.');
+  }finally{setLoadingMore(false);}
+ },[data,loadingMore]);
  const refresh=useCallback(async()=>{setLoading(true);setError('');try{await load();}catch(problem){setError(problem instanceof Error?problem.message:'No se pudo cargar Revisiones.');}finally{setLoading(false);}},[load]);
  useEffect(()=>{const timer=window.setTimeout(()=>void refresh(),0);const updated=()=>void refresh();window.addEventListener('shadow-evidence-updated',updated);window.addEventListener('confirmations-updated',updated);window.addEventListener('shadow-portfolio-updated',updated);window.addEventListener('juanca-reviews-refresh',updated);return()=>{window.clearTimeout(timer);window.removeEventListener('shadow-evidence-updated',updated);window.removeEventListener('confirmations-updated',updated);window.removeEventListener('shadow-portfolio-updated',updated);window.removeEventListener('juanca-reviews-refresh',updated);};},[refresh]);
  const cards=data?.cards??EMPTY_CARDS;
@@ -81,6 +102,7 @@ export default function ReviewInbox(){
   if(lane!=='all'&&card.lane!==lane||owner!=='Todos'&&card.owner!==owner||kind!=='Todos'&&card.kind!==kind||custody!=='Todas'&&card.custodian!==custody)return false;
   const query=search.trim().toLocaleLowerCase();return !query||[card.title,card.owner,card.source,card.custodian,card.kind==='proposal'?(card.data as Proposal).instrument_code:'',card.kind==='proposal'?(card.data as Proposal).account_scope:''].join(' ').toLocaleLowerCase().includes(query);
  }),[cards,lane,owner,kind,custody,search]);
+ const hasMore=Boolean(data&&Object.values(data.cursors).some(Boolean)),partial=Boolean(data&&(hasMore||data.incomplete));
  const counts={decision:cards.filter(card=>card.lane==='decision').length,evidence:cards.filter(card=>card.lane==='evidence').length,follow_up:cards.filter(card=>card.lane==='follow_up').length,history:cards.filter(card=>card.lane==='history').length};
 
  async function decideProposal(proposal:Proposal,action:'approve'|'reject'){
@@ -150,7 +172,9 @@ export default function ReviewInbox(){
   <nav className="review-inbox-lanes" aria-label="Estado de revisiones">{([['decision','Para decidir',counts.decision],['evidence','Faltan datos',counts.evidence],['follow_up','En seguimiento',counts.follow_up],['history','Historial',counts.history]] as const).map(([value,label,count])=><button type="button" key={value} className={lane===value?'active':''} aria-current={lane===value?'page':undefined} onClick={()=>{setLane(value);setOwner('Todos');setKind('Todos');setCustody('Todas');setSearch('');}}>{label} <strong>{count}</strong></button>)}</nav>
   <div className="review-inbox-filters"><label>Buscar<input type="search" placeholder="Ticker, cuenta o asunto" value={search} onChange={event=>setSearch(event.target.value)}/></label><label>Titular<select value={owner} onChange={event=>setOwner(event.target.value)}><option>Todos</option>{owners.map(value=><option key={value}>{value}</option>)}</select></label><label>Tipo<select value={kind} onChange={event=>setKind(event.target.value)}><option>Todos</option>{(Object.entries(kindLabel) as [ReviewKind,string][]).map(([value,label])=><option value={value} key={value}>{label}</option>)}</select></label><label>Custodia<select value={custody} onChange={event=>setCustody(event.target.value)}><option>Todas</option>{custodians.map(value=><option key={value}>{value}</option>)}</select></label></div>
   {error&&<p className="chat-error" role="alert">{error}</p>}{notice&&<p className="form-status" role="status">{notice}</p>}
-  {loading&&!data&&<p>Cargando revisiones…</p>}{!loading&&data&&filtered.length===0&&<p className="review-inbox-empty">No hay casos para estos filtros.</p>}
+  {partial&&<p role="status">Los contadores y filtros corresponden solo a los resultados cargados y pueden cambiar al cargar más. Puede haber casos anteriores sin mostrar.</p>}
+  {loading&&!data&&<p>Cargando revisiones…</p>}{!loading&&data&&filtered.length===0&&<p className="review-inbox-empty">{partial?'No hay casos entre los resultados cargados para estos filtros.':'No hay casos para estos filtros.'}</p>}
   <div className="review-inbox-list">{filtered.map(card=><article className="review-inbox-card" key={card.id}><div className="review-inbox-main"><div><span className="review-inbox-type">{kindLabel[card.kind]} · {card.owner}</span><h3>{card.title}</h3><p>{card.custodian&&`${card.custodian} · `}{card.event_date?`${card.kind==='b3_snapshot'||card.kind==='external_snapshot'?'Corte':'Operación'}: ${date(card.event_date)} · `:''}Recibido: {date(card.received_at)}</p><small>{card.kind==='external_snapshot'&&(card.data as Snapshot).invalid_rows>0&&!((card.data as Snapshot).published)?((card.data as Snapshot).source_system==='Avenue'?'Falta verificar el extracto completo':'Falta confirmar la identidad del plan'):statusLabel[card.status]??card.status}{ageLabel(card.received_at,card.lane)}{relatedLabel(card)}</small></div></div><details><summary>{card.lane==='history'?'Ver detalle':card.lane==='follow_up'?'Ver seguimiento':card.kind==='proposal'?'Revisar movimiento':card.kind==='confirmation'?'Responder duda':card.kind==='external_snapshot'&&(card.data as Snapshot).invalid_rows>0?'Completar datos del extracto':card.kind==='b3_snapshot'||card.kind==='external_snapshot'?'Revisar extracto':'Revisar evidencia'}</summary><div className="review-inbox-detail">{renderDetails(card)}</div></details></article>)}</div>
+  {hasMore&&<div className="review-inbox-final"><button type="button" className="proposal-approve" disabled={loadingMore||loading} onClick={()=>void loadMore()}>{loadingMore?'Cargando más…':'Cargar más revisiones'}</button></div>}
  </section>;
 }
