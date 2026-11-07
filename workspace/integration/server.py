@@ -124,6 +124,7 @@ SHADOW_ROUTES = {
     '/api/shadow/portfolio': {'GET'},
     '/api/shadow/authority/readiness': {'GET'},
     '/api/shadow/confirmations': {'GET', 'POST'},
+    '/api/shadow/reviews/counts': {'GET'},
     '/api/shadow/positions': {'GET'},
     '/api/shadow/fixed-income-projection': {'GET'},
     '/api/shadow/fixed-income-terms': {'GET', 'POST'},
@@ -419,23 +420,9 @@ class Gateway(BaseHTTPRequestHandler):
                     acquisitions = get('/v1/position-identities/acquisition-reconciliation')
                     result = authoritative_positions(view, acquisitions)
                 else:
-                    confirmations = get('/v1/confirmations?status=open')
-                    proposals = get('/v1/proposals?status=pending')
-                    def all_snapshots(target):
-                        rows, cursor, seen = [], None, set()
-                        while True:
-                            page = get(target + ('?cursor=' + cursor if cursor else ''))
-                            rows.extend(page.get('snapshots', []))
-                            cursor = page.get('next_cursor')
-                            if not cursor:
-                                return rows
-                            if cursor in seen:
-                                raise RuntimeError('INVALID_SNAPSHOT_CURSOR')
-                            seen.add(cursor)
-                    snapshots = [*all_snapshots('/v1/reconciliation/b3/snapshots'), *all_snapshots('/v1/reconciliation/external/snapshots')]
-                    published = sum(1 for row in snapshots if row.get('published'))
-                    publishable = sum(1 for row in snapshots if row.get('latest') and not row.get('published'))
-                    review_count = int(confirmations.get('open_count', 0)) + len(proposals.get('proposals', [])) + publishable
+                    review_counts = get('/v1/reviews/counts')
+                    published = int(review_counts['published_snapshots'])
+                    review_count = int(review_counts['open_count'])
                     result = {'import_count': published, 'review_count': review_count,
                               'reviews': [], 'mode': 'postgres', 'authoritative': True}
                 self.reply_json(200, result, {'X-Juanca-Portfolio-Authority': 'postgres'})

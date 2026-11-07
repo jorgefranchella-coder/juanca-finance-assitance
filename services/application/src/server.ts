@@ -1,3 +1,4 @@
+import {reviewCounts} from './review-counts.ts';
 import {recordPensionValuationDecision} from './pension-valuation-decisions.ts';
 import {createServer} from 'node:http';
 import {readFile} from 'node:fs/promises';
@@ -32,6 +33,7 @@ const server=createServer(async(req,res)=>{
   const provided=createHash('sha256').update(req.headers.authorization??'').digest();const expected=createHash('sha256').update('Bearer '+config.token).digest();
   if(!timingSafeEqual(provided,expected))throw new Conflict('UNAUTHENTICATED',401);
   if(url.pathname==='/v1/authority/readiness'&&req.method==='GET'){reply(200,await authorityReadiness(db,config.household_id));return;}
+  if(url.pathname==='/v1/reviews/counts'&&req.method==='GET'){reply(200,await reviewCounts(db,config.household_id));return;}
   if(url.pathname==='/v1/confirmations'&&req.method==='GET'){reply(200,await listConfirmations(db,config.household_id,url.searchParams.get('status')??undefined,{limit:url.searchParams.has('limit')?Number(url.searchParams.get('limit')):undefined,cursor:url.searchParams.get('cursor')??undefined}));return;}
   if(url.pathname==='/v1/confirmations'&&req.method==='POST'){
    if(process.env.JUANCA_CONFIRMATIONS_WRITABLE!=='true')throw new Conflict('SHADOW_READ_ONLY',405);

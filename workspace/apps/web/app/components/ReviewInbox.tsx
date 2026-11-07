@@ -6,7 +6,8 @@ import PensionBalanceDraft from './PensionBalanceDraft';
 import {buildReviewCards,isPensionBalanceEvidence,mergeReviewPage,type Confirmation,type PhotoEvidence,type Position,type Proposal,type ReviewCard,type ReviewKind,type ReviewLane,type Snapshot,type TextEvidence} from "../../lib/review-inbox";
 
 type Account={id:string;owner_id:string;owner:string;identity_status:string;account_scope:string};
-type InboxData={cards:ReviewCard[];factsRevision:string;portfolioDate:string|null;accounts:Account[];positions:Position[];sources:ReviewSources;cursors:ReviewCursors;incomplete:boolean};
+type ReviewCounts={decision:number;evidence:number;follow_up:number;history:number};
+type InboxData={totals:ReviewCounts|null;cards:ReviewCard[];factsRevision:string;portfolioDate:string|null;accounts:Account[];positions:Position[];sources:ReviewSources;cursors:ReviewCursors;incomplete:boolean};
 type ReviewSources={proposals:Proposal[];confirmations:Confirmation[];texts:TextEvidence[];photos:PhotoEvidence[];b3:Snapshot[];external:Snapshot[];positions:Position[]};
 type PagedKind='confirmations'|'texts'|'photos'|'b3'|'external';
 type ReviewCursors=Record<PagedKind,string|null>;
@@ -61,9 +62,9 @@ export default function ReviewInbox(){
  const load=useCallback(async()=>{
   const generation=++loadGeneration.current;
   const kinds=Object.keys(PAGE_SOURCES) as PagedKind[];
-  const results=await Promise.allSettled([jsonFetch<{proposals:Proposal[]}>('/api/shadow/proposals'),...kinds.map(kind=>fetchPage(kind)),jsonFetch<{facts_revision:string|number;effective_as_of?:string;positions:Position[]}>('/api/shadow/portfolio'),jsonFetch<{accounts:Account[]}>('/api/shadow/accounts')]);
+  const results=await Promise.allSettled([jsonFetch<{proposals:Proposal[]}>('/api/shadow/proposals'),...kinds.map(kind=>fetchPage(kind)),jsonFetch<{facts_revision:string|number;effective_as_of?:string;positions:Position[]}>('/api/shadow/portfolio'),jsonFetch<{accounts:Account[]}>('/api/shadow/accounts'),jsonFetch<{counts:ReviewCounts}>('/api/shadow/reviews/counts')]);
   if(generation!==loadGeneration.current)return;
-  const names=['movimientos','confirmaciones','textos','fotos','extractos B3','extractos externos','cartera','cuentas'];
+  const names=['movimientos','confirmaciones','textos','fotos','extractos B3','extractos externos','cartera','cuentas','conteos completos'];
   const failed=results.flatMap((result,index)=>result.status==='rejected'?[names[index]]:[]);
   if(failed.length===results.length)throw new Error('No se pudo cargar ninguna fuente de Revisiones.');
   const value=(index:number)=>results[index].status==='fulfilled'?(results[index] as PromiseFulfilledResult<any>).value:null;
@@ -71,7 +72,7 @@ export default function ReviewInbox(){
   const rows=(index:number)=>pages[index]?.[PAGE_SOURCES[kinds[index]].key]??[];
   const sources:ReviewSources={proposals:proposals?.proposals??[],confirmations:rows(0) as Confirmation[],texts:rows(1) as TextEvidence[],photos:rows(2) as PhotoEvidence[],b3:rows(3) as Snapshot[],external:rows(4) as Snapshot[],positions:portfolio?.positions??[]};
   const cursors=Object.fromEntries(kinds.map((kind,index)=>[kind,pages[index]?.next_cursor??null])) as ReviewCursors;
-  setData({sources,cursors,incomplete:failed.length>0,cards:buildReviewCards(sources),factsRevision:String(portfolio?.facts_revision??''),portfolioDate:portfolio?.effective_as_of??null,accounts:accounts?.accounts??[],positions:sources.positions});
+  setData({totals:value(8)?.counts??null,sources,cursors,incomplete:failed.length>0,cards:buildReviewCards(sources),factsRevision:String(portfolio?.facts_revision??''),portfolioDate:portfolio?.effective_as_of??null,accounts:accounts?.accounts??[],positions:sources.positions});
   if(failed.length)setError(`Carga parcial: faltan ${failed.join(', ')}. Actualiza la bandeja para volver a intentarlo.`);
  },[]);
  const loadMore=useCallback(async()=>{
@@ -103,7 +104,8 @@ export default function ReviewInbox(){
   const query=search.trim().toLocaleLowerCase();return !query||[card.title,card.owner,card.source,card.custodian,card.kind==='proposal'?(card.data as Proposal).instrument_code:'',card.kind==='proposal'?(card.data as Proposal).account_scope:''].join(' ').toLocaleLowerCase().includes(query);
  }),[cards,lane,owner,kind,custody,search]);
  const hasMore=Boolean(data&&Object.values(data.cursors).some(Boolean)),partial=Boolean(data&&(hasMore||data.incomplete));
- const counts={decision:cards.filter(card=>card.lane==='decision').length,evidence:cards.filter(card=>card.lane==='evidence').length,follow_up:cards.filter(card=>card.lane==='follow_up').length,history:cards.filter(card=>card.lane==='history').length};
+ const loadedCounts={decision:cards.filter(card=>card.lane==='decision').length,evidence:cards.filter(card=>card.lane==='evidence').length,follow_up:cards.filter(card=>card.lane==='follow_up').length,history:cards.filter(card=>card.lane==='history').length};
+ const counts=data?.totals??loadedCounts;
 
  async function decideProposal(proposal:Proposal,action:'approve'|'reject'){
   if(!data?.factsRevision){setError('Falta la revisión vigente de la cartera. Actualiza la bandeja.');return;}
@@ -172,7 +174,7 @@ export default function ReviewInbox(){
   <nav className="review-inbox-lanes" aria-label="Estado de revisiones">{([['decision','Para decidir',counts.decision],['evidence','Faltan datos',counts.evidence],['follow_up','En seguimiento',counts.follow_up],['history','Historial',counts.history]] as const).map(([value,label,count])=><button type="button" key={value} className={lane===value?'active':''} aria-current={lane===value?'page':undefined} onClick={()=>{setLane(value);setOwner('Todos');setKind('Todos');setCustody('Todas');setSearch('');}}>{label} <strong>{count}</strong></button>)}</nav>
   <div className="review-inbox-filters"><label>Buscar<input type="search" placeholder="Ticker, cuenta o asunto" value={search} onChange={event=>setSearch(event.target.value)}/></label><label>Titular<select value={owner} onChange={event=>setOwner(event.target.value)}><option>Todos</option>{owners.map(value=><option key={value}>{value}</option>)}</select></label><label>Tipo<select value={kind} onChange={event=>setKind(event.target.value)}><option>Todos</option>{(Object.entries(kindLabel) as [ReviewKind,string][]).map(([value,label])=><option value={value} key={value}>{label}</option>)}</select></label><label>Custodia<select value={custody} onChange={event=>setCustody(event.target.value)}><option>Todas</option>{custodians.map(value=><option key={value}>{value}</option>)}</select></label></div>
   {error&&<p className="chat-error" role="alert">{error}</p>}{notice&&<p className="form-status" role="status">{notice}</p>}
-  {partial&&<p role="status">Los contadores y filtros corresponden solo a los resultados cargados y pueden cambiar al cargar más. Puede haber casos anteriores sin mostrar.</p>}
+  {partial&&<p role="status">{data?.totals?'Los contadores incluyen todas las revisiones. ':'Los contadores corresponden a los resultados cargados. '}Los filtros buscan entre los resultados cargados; puede haber casos anteriores sin mostrar.</p>}
   {loading&&!data&&<p>Cargando revisiones…</p>}{!loading&&data&&filtered.length===0&&<p className="review-inbox-empty">{partial?'No hay casos entre los resultados cargados para estos filtros.':'No hay casos para estos filtros.'}</p>}
   <div className="review-inbox-list">{filtered.map(card=><article className="review-inbox-card" key={card.id}><div className="review-inbox-main"><div><span className="review-inbox-type">{kindLabel[card.kind]} · {card.owner}</span><h3>{card.title}</h3><p>{card.custodian&&`${card.custodian} · `}{card.event_date?`${card.kind==='b3_snapshot'||card.kind==='external_snapshot'?'Corte':'Operación'}: ${date(card.event_date)} · `:''}Recibido: {date(card.received_at)}</p><small>{card.kind==='external_snapshot'&&(card.data as Snapshot).invalid_rows>0&&!((card.data as Snapshot).published)?((card.data as Snapshot).source_system==='Avenue'?'Falta verificar el extracto completo':'Falta confirmar la identidad del plan'):statusLabel[card.status]??card.status}{ageLabel(card.received_at,card.lane)}{relatedLabel(card)}</small></div></div><details><summary>{card.lane==='history'?'Ver detalle':card.lane==='follow_up'?'Ver seguimiento':card.kind==='proposal'?'Revisar movimiento':card.kind==='confirmation'?'Responder duda':card.kind==='external_snapshot'&&(card.data as Snapshot).invalid_rows>0?'Completar datos del extracto':card.kind==='b3_snapshot'||card.kind==='external_snapshot'?'Revisar extracto':'Revisar evidencia'}</summary><div className="review-inbox-detail">{renderDetails(card)}</div></details></article>)}</div>
   {hasMore&&<div className="review-inbox-final"><button type="button" className="proposal-approve" disabled={loadingMore||loading} onClick={()=>void loadMore()}>{loadingMore?'Cargando más…':'Cargar más revisiones'}</button></div>}
