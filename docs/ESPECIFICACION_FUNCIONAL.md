@@ -194,3 +194,5 @@ Los extractos de posiciones Avenue recorren todas las páginas admitidas y conse
 Los extractos Avenue anteriores sin cobertura verificada pueden volver a leerse desde Revisiones usando el mismo original. Se conserva la lectura previa; cuando la nueva está completa, se presenta para aprobación separada. Si sigue incompleta, la tarea conserva los motivos y no se publica patrimonio. Los extractos ya publicados requieren un flujo de corrección histórica.
 
 Las órdenes manuales con ejecución negada, pendiente, cancelada o parcial se conservan como evidencia pendiente de revisión. Señales contradictorias se muestran explícitamente y las interpretaciones pendientes anteriores se verifican nuevamente sin sobrescribir su lectura original; ninguna interpretación confirma una operación por sí sola.
+
+Las consultas conversacionales de vencimientos permiten elegir titular y horizonte. Juanca informa las fechas conocidas y distingue los importes contractuales disponibles de los pendientes de cálculo.

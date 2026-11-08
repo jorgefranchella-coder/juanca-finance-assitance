@@ -1,11 +1,13 @@
 """Juanca tools share the web application's authenticated API and storage."""
 import json
+import base64
 import hashlib
 import mimetypes
 import re
 import uuid
 from decimal import Decimal, InvalidOperation
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 from pathlib import Path
 from urllib.request import Request, urlopen
 from urllib.error import HTTPError
@@ -278,7 +280,7 @@ def _snapshot_publication_status():
 
 @mcp.tool()
 def consultar_patrimonio(vista: str = 'dashboard', propietario: str = '', clase: str = '') -> dict:
-    """Para saldos o detalle usa positions y filtra propietario/clase (previdencia: private_pension). summary cuenta revisiones y nunca prueba saldos; se acompaña de una lectura actual separada. Para estado de publicación de extractos usa extractos. No completes campos ausentes con el historial ni infieras el estado de un documento ausente."""
+    """Para saldos o detalle usa positions y filtra propietario/clase (previdencia: private_pension). summary cuenta revisiones y nunca prueba saldos; se acompaña de una lectura actual separada. Para próximos vencimientos usa consultar_vencimientos. Para estado de publicación de extractos usa extractos. No completes campos ausentes con el historial ni infieras el estado de un documento ausente."""
     paths = {v: '/api/portfolio/' + v for v in ('dashboard', 'summary', 'positions')}
     paths['cost-basis'] = '/api/shadow/position-identities/acquisition-reconciliation'
     paths['fixed-income-projection'] = '/api/shadow/fixed-income-projection'
@@ -294,6 +296,13 @@ def consultar_patrimonio(vista: str = 'dashboard', propietario: str = '', clase:
     if vista == 'positions':
         return _current_positions(propietario, clase)
     result = api(paths[vista])
+    if vista == 'fixed-income-projection':
+        if not isinstance(result, dict) or not isinstance(result.get('items'), list):
+            raise ValueError('Proyección de renta fija no disponible o incompleta')
+        return {'reference_date': result.get('reference_date'), 'summary': result.get('summary'),
+                'contractual_summary': result.get('contractual_summary'), 'mode': result.get('mode'),
+                'authoritative': result.get('authoritative'), 'details_omitted': True,
+                'next_step': 'Para próximos vencimientos usa consultar_vencimientos con titular y horizonte; la matriz detallada está disponible en la aplicación.'}
     if vista == 'summary':
         if not isinstance(result, dict):
             raise ValueError('Respuesta inválida del resumen')
@@ -302,6 +311,80 @@ def consultar_patrimonio(vista: str = 'dashboard', propietario: str = '', clase:
                 'summary_does_not_verify_document_status': True,
                 'current_positions': _current_positions(propietario, clase)}
     return result
+
+def _maturity_date(value):
+    try:
+        if not isinstance(value, str) or not re.fullmatch(r'\d{4}-\d{2}-\d{2}', value):
+            return None
+        return date.fromisoformat(value)
+    except ValueError:
+        return None
+
+
+def _compact_maturities(projection, owner, horizon, category, cutoff, limit, cursor=''):
+    if not isinstance(projection, dict) or not isinstance(projection.get('items'), list):
+        raise ValueError('Proyección de renta fija no disponible o incompleta')
+    today = _maturity_date(cutoff)
+    if today is None:
+        raise ValueError('Fecha de corte inválida; usa AAAA-MM-DD')
+    if owner not in ('', 'Jorge', 'Julia') or category not in ('futuros', 'vencidos', 'sin_fecha'):
+        raise ValueError('Titular o categoría inválida')
+    if isinstance(horizon, bool) or not isinstance(horizon, int) or not 1 <= horizon <= 3650 or isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= 50:
+        raise ValueError('Horizonte debe ser 1–3650 días y límite 1–50')
+    counts = {'futuros': 0, 'vencidos': 0, 'sin_fecha': 0}
+    rows = []
+    for item in projection['items']:
+        if not isinstance(item, dict):
+            raise ValueError('Posición de renta fija inválida; no se puede afirmar cobertura completa')
+        if owner and item.get('owner') != owner:
+            continue
+        maturity = _maturity_date(item.get('maturity_date'))
+        state = 'sin_fecha' if maturity is None else 'vencidos' if maturity < today else 'futuros'
+        counts[state] += 1
+        if state != category or (state == 'futuros' and maturity > today + timedelta(days=horizon)) or (state == 'vencidos' and maturity < today - timedelta(days=horizon)):
+            continue
+        contract = item.get('contractual') if isinstance(item.get('contractual'), dict) else {}
+        complete = contract.get('status') == 'complete'
+        rows.append({'instrumento': item.get('instrument_code'), 'producto': item.get('product_name'),
+                     'titular': item.get('owner'), 'custodia': item.get('institution'), 'cuenta': item.get('account'),
+                     'emisor': item.get('issuer'), 'moneda': item.get('currency'),
+                     'vencimiento': maturity.isoformat() if maturity else None, 'estado_vencimiento': state,
+                     'fecha_referencia': item.get('reference_date') or None,
+                     'proyeccion_contractual': {'estado': contract.get('status') or 'no_disponible',
+                         'importe_bruto_centavos': contract.get('gross_maturity_cents') if complete else None,
+                         'motivos': contract.get('missing') or []},
+                     'fecha_conocida': maturity is not None})
+    rows.sort(key=lambda item: (item['vencimiento'] or '9999-12-31', item['titular'] or '', item['custodia'] or '', item['cuenta'] or '', item['instrumento'] or '', json.dumps(item, sort_keys=True, ensure_ascii=True)))
+    signature = hashlib.sha256(json.dumps({'rows': rows, 'owner': owner, 'horizon': horizon, 'category': category, 'cutoff': cutoff, 'limit': limit}, sort_keys=True, ensure_ascii=True, separators=(',', ':')).encode()).hexdigest()
+    offset = 0
+    if cursor:
+        try:
+            data = json.loads(base64.urlsafe_b64decode(cursor + '=' * (-len(cursor) % 4)))
+            if data.get('signature') != signature or not isinstance(data.get('offset'), int) or isinstance(data['offset'], bool) or not 0 < data['offset'] < len(rows):
+                raise ValueError()
+            offset = data['offset']
+        except (ValueError, TypeError, KeyError, AttributeError):
+            raise ValueError('Cursor inválido o datos modificados; inicia una nueva consulta')
+    end = min(offset + limit, len(rows))
+    next_cursor = base64.urlsafe_b64encode(json.dumps({'signature': signature, 'offset': end}, separators=(',', ':')).encode()).decode().rstrip('=') if end < len(rows) else None
+    return {'estado': 'disponible', 'fecha_consulta': datetime.now(timezone.utc).isoformat(),
+            'fecha_corte': cutoff, 'fecha_referencia_cartera': projection.get('reference_date') or None,
+            'filtro': {'titular': owner or None, 'horizonte_dias': horizon, 'categoria': category},
+            'cobertura': {'posiciones_por_estado': counts, 'coincidencias_en_horizonte': len(rows),
+                          'alcance': 'posiciones de renta fija incluidas en la proyección vigente',
+                          'nota': 'Una fecha conocida se muestra aunque la proyección contractual esté incompleta; la fecha de referencia puede ser anterior al corte.'},
+            'vencimientos': rows[offset:end], 'siguiente_cursor': next_cursor}
+
+
+@mcp.tool()
+def consultar_vencimientos(propietario: str = '', horizonte_dias: int = 365, categoria: str = 'futuros', fecha_corte: str = '', limite: int = 20, cursor: str = '') -> dict:
+    """Próximos vencimientos de renta fija sin volcar calendarios de proyección. propietario: Jorge, Julia o vacío; horizonte_dias: 1–3650; categoria: futuros (desde fecha_corte inclusive), vencidos o sin_fecha; fecha_corte AAAA-MM-DD (por defecto hoy en São Paulo); limite: 1–50. Para más resultados repite exactamente los parámetros y pasa siguiente_cursor. Si no hay proyección contractual no inventes el importe; la fecha conocida sigue visible. Para preguntas en español o portugués usa esta herramienta, no inventes vistas de consultar_patrimonio."""
+    if authority_mode() != 'postgres':
+        raise ValueError('No se pudo confirmar la autoridad PostgreSQL para consultar vencimientos')
+    cutoff = fecha_corte or datetime.now(ZoneInfo('America/Sao_Paulo')).date().isoformat()
+    result = api('/api/shadow/fixed-income-projection')
+    return _compact_maturities(result, propietario, horizonte_dias, categoria, cutoff, limite, cursor)
+
 
 @mcp.tool()
 def proponer_transaccion(propietario: str, mensaje: str, cuenta_id: str = '', evidencia_foto_id: str = '') -> dict:

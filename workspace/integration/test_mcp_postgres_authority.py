@@ -315,3 +315,58 @@ class CurrentPortfolioEvidenceTest(unittest.TestCase):
         self.assertTrue(result['sources']['b3']['snapshots'][0]['published'])
         self.assertEqual(result['sources']['external']['status'], 'unavailable')
         self.assertIn('ausencia', result['coverage_note'])
+
+class MaturityQueriesTest(unittest.TestCase):
+    def fixture(self):
+        items = []
+        for n in range(120):
+            items.append({'owner': 'Jorge' if n % 2 == 0 else 'Julia', 'instrument_code': f'CDB{n:03}',
+                          'institution': 'Fixture', 'account': 'account', 'currency': 'BRL',
+                          'maturity_date': '2027-01-15', 'reference_date': '2026-10-01',
+                          'contractual': {'status': 'incomplete', 'missing': ['tasa'], 'calendar': ['x' * 3000]},
+                          'observations': ['x' * 100]})
+        items.extend([{'owner': 'Jorge', 'instrument_code': 'OLD', 'maturity_date': '2026-01-01'},
+                      {'owner': 'Jorge', 'instrument_code': 'NO_DATE', 'maturity_date': ''}])
+        return {'items': items, 'reference_date': '2026-10-01'}
+
+    def test_compact_pages_order_owner_and_missing_projection(self):
+        projection = self.fixture()
+        self.assertGreater(len(json.dumps(projection)), 267600)
+        first = mcp_server._compact_maturities(projection, 'Jorge', 365, 'futuros', '2026-11-08', 20)
+        self.assertEqual(len(first['vencimientos']), 20)
+        self.assertLess(len(json.dumps(first)), 25000)
+        self.assertEqual(first['cobertura']['posiciones_por_estado'], {'futuros': 60, 'vencidos': 1, 'sin_fecha': 1})
+        self.assertIsNone(first['vencimientos'][0]['proyeccion_contractual']['importe_bruto_centavos'])
+        cursor = first['siguiente_cursor']; rows = list(first['vencimientos'])
+        while cursor:
+            page = mcp_server._compact_maturities(projection, 'Jorge', 365, 'futuros', '2026-11-08', 20, cursor)
+            rows.extend(page['vencimientos']); cursor = page['siguiente_cursor']
+        self.assertEqual(len(rows), 60)
+        self.assertEqual(len({row['instrumento'] for row in rows}), 60)
+        self.assertEqual(rows[-1]['instrumento'], 'CDB118')
+        missing = mcp_server._compact_maturities(projection, 'Jorge', 365, 'sin_fecha', '2026-11-08', 20)
+        self.assertEqual(missing['vencimientos'][0]['instrumento'], 'NO_DATE')
+        expired = mcp_server._compact_maturities(projection, 'Jorge', 365, 'vencidos', '2026-11-08', 20)
+        self.assertEqual(expired['vencimientos'][0]['instrumento'], 'OLD')
+        empty = mcp_server._compact_maturities(projection, 'Julia', 2, 'futuros', '2026-11-08', 20)
+        self.assertEqual(empty['vencimientos'], [])
+        self.assertEqual(empty['cobertura']['posiciones_por_estado']['futuros'], 60)
+        with self.assertRaisesRegex(ValueError, 'Cursor inválido'):
+            mcp_server._compact_maturities(projection, 'Julia', 365, 'futuros', '2026-11-08', 20, first['siguiente_cursor'])
+
+    def test_spanish_and_portuguese_use_supported_compact_tool(self):
+        projection = self.fixture()
+        with patch.object(mcp_server, 'authority_mode', return_value='postgres'), patch.object(mcp_server, 'api', return_value=projection) as api:
+            for question in ('Próximos vencimientos de Jorge', 'Quais os próximos vencimentos do Jorge?'):
+                result = mcp_server.consultar_vencimientos('Jorge', 365, 'futuros', '2026-11-08', 5)
+                self.assertEqual(len(result['vencimientos']), 5, question)
+                self.assertEqual(result['vencimientos'][0]['vencimiento'], '2027-01-15')
+            self.assertEqual(api.call_args.args[0], '/api/shadow/fixed-income-projection')
+
+    def test_legacy_projection_view_never_returns_large_calendar(self):
+        projection = self.fixture()
+        with patch.object(mcp_server, 'api', return_value=projection):
+            result = mcp_server.consultar_patrimonio('fixed-income-projection')
+        self.assertTrue(result['details_omitted'])
+        self.assertNotIn('items', result)
+        self.assertIn('consultar_vencimientos', result['next_step'])
