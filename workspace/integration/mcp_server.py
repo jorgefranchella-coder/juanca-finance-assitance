@@ -414,6 +414,64 @@ def registrar_evidencia_foto(propietario: str, ruta: str) -> dict:
             'next_step': 'Foto conservada en PostgreSQL para revisión; no modifica la cartera.'}
 
 @mcp.tool()
+def aclarar_evidencia_foto(propietario: str, datos_json: str, evidencia_id: str = '', procedencia: str = '') -> dict:
+    """Guarda y verifica una aclaración aportada por el usuario sobre una foto pendiente, sin publicar ni modificar cartera. datos_json admite reference_date (AAAA-MM-DD), institution, plan_number, fund_name, fund_cnpj y source_locator. Fondo o CNPJ requieren plan_number para no mezclar planes. procedencia describe el mensaje o fuente de la aclaración. Si hay más de una foto pendiente pide evidencia_id; no prometas que quedó guardado hasta recibir saved=true. Usa esta herramienta cuando el usuario complete o corrija datos después de enviar la foto."""
+    if propietario not in ('Jorge', 'Julia') or not procedencia.strip():
+        raise ValueError('Indica titular y procedencia de la aclaración')
+    if authority_mode() != 'postgres':
+        raise ValueError('La aclaración no se guardó: PostgreSQL no está disponible como autoridad')
+    try:
+        data = json.loads(datos_json)
+    except (ValueError, TypeError):
+        raise ValueError('Los datos deben ser un objeto JSON válido')
+    if not isinstance(data, dict) or not data:
+        raise ValueError('Indica los datos de la aclaración')
+    candidates, cursor, seen = [], '', set()
+    while True:
+        response = api('/api/shadow/evidence/photos?limit=100' + ('&cursor=' + quote(cursor, safe='') if cursor else ''))
+        if not isinstance(response, dict) or not isinstance(response.get('items'), list):
+            raise ValueError('No se pudo verificar la lista de evidencias; no se guardó la aclaración')
+        candidates.extend(x for x in response['items'] if isinstance(x, dict) and x.get('owner') == propietario and x.get('proposal_evidence_status') == 'awaiting_review')
+        cursor = response.get('next_cursor') or ''
+        if not cursor:
+            break
+        if cursor in seen:
+            raise ValueError('No se pudo completar la búsqueda de evidencias; no se guardó la aclaración')
+        seen.add(cursor)
+    if evidencia_id:
+        selected = [x for x in candidates if x.get('upload_id') == evidencia_id]
+        if len(selected) != 1:
+            raise ValueError('La evidencia no corresponde al titular o ya no está pendiente; no se guardó la aclaración')
+    elif len(candidates) != 1:
+        return {'saved': False, 'reason': 'evidence_ambiguous' if candidates else 'evidence_not_found',
+                'candidates': [{k: x.get(k) for k in ('upload_id','file_name','created_at','owner')} for x in candidates],
+                'next_step': 'Identifica la foto por su evidencia_id antes de guardar la aclaración.', 'portfolio_changed': False}
+    else:
+        selected = candidates
+    photo_id = selected[0]['upload_id']
+    payload_key = json.dumps([photo_id, data, procedencia.strip()], sort_keys=True, separators=(',', ':'), ensure_ascii=False).encode()
+    request_key = stable_request_id(propietario, payload_key, prefix='photo-clarification')
+    path = '/api/shadow/evidence/photos/' + quote(photo_id, safe='') + '/clarifications'
+    saved = api(path, {'request_key': request_key, 'metadata': data, 'provenance': procedencia.strip()}, method='POST')
+    persisted = api(path)
+    records = persisted.get('clarifications', []) if isinstance(persisted, dict) else []
+    match = next((item for item in records if isinstance(item, dict) and item.get('id') == saved.get('clarification_id') and item.get('revision') == saved.get('revision')), None)
+    if not match:
+        return {'saved': False, 'reason': 'verification_failed', 'next_step': 'No se pudo verificar la aclaración; consulta la evidencia antes de volver a intentarlo.', 'portfolio_changed': False}
+    return {'saved': True, 'upload_id': photo_id, 'clarification': match, 'replayed': saved.get('replayed', False), 'portfolio_changed': False}
+
+
+@mcp.tool()
+def consultar_aclaraciones_foto(evidencia_id: str) -> dict:
+    """Recupera la historia auditada de aclaraciones de una foto por upload_id, incluso en una sesión nueva. No modifica la evidencia ni la cartera."""
+    if not re.fullmatch(r'[0-9a-fA-F-]{36}', evidencia_id):
+        raise ValueError('Indica un identificador de evidencia válido')
+    if authority_mode() != 'postgres':
+        raise ValueError('No se pueden verificar aclaraciones sin autoridad PostgreSQL')
+    return api('/api/shadow/evidence/photos/' + quote(evidencia_id, safe='') + '/clarifications')
+
+
+@mcp.tool()
 def registrar_snapshot_previdencia(propietario: str, instituicao: str, data_referencia: str,
                                    base_valor: str, planos_json: str, evidencias_json: str = '[]',
                                    alcance: str = 'complete', identidade_pendente: bool = False) -> dict:
@@ -449,6 +507,48 @@ def registrar_snapshot_previdencia(propietario: str, instituicao: str, data_refe
             if source in normalized:
                 normalized.setdefault(target, normalized.pop(source))
         normalized_plans.append(normalized)
+    # Reuse the latest recorded clarification for each exact photo and plan;
+    # conflicting facts require a new clarification rather than silent selection.
+    clarifications = []
+    for ref in evidence_refs:
+        if not isinstance(ref, dict) or ref.get('kind') != 'manual_photo':
+            continue
+        photo_id = ref.get('upload_id')
+        if not isinstance(photo_id, str) or not re.fullmatch(r'[0-9a-fA-F-]{36}', photo_id):
+            raise ValueError('Identificador de foto inválido')
+        history = api('/api/shadow/evidence/photos/' + quote(photo_id, safe='') + '/clarifications')
+        if not isinstance(history, dict) or not isinstance(history.get('clarifications'), list):
+            raise ValueError('No se pudieron consultar las aclaraciones; no se preparó el snapshot')
+        latest = {}
+        for row in history['clarifications']:
+            if isinstance(row, dict) and isinstance(row.get('scope'), str):
+                old = latest.get(row['scope'])
+                if old is None or row.get('revision', 0) > old.get('revision', 0):
+                    latest[row['scope']] = row
+        clarifications.extend(latest.values())
+    def apply_value(current, value, label):
+        if not value:
+            return current
+        if current and str(current).strip() != str(value).strip():
+            raise ValueError('La aclaración guardada difiere de ' + label + '; revisa la evidencia antes de continuar')
+        return current or value
+    for row in clarifications:
+        values = row.get('metadata') or {}
+        if not isinstance(values, dict):
+            raise ValueError('Aclaración inválida; no se preparó el snapshot')
+        data_referencia = apply_value(data_referencia, values.get('reference_date'), 'la fecha')
+        instituicao = apply_value(instituicao, values.get('institution'), 'la institución')
+        plan_number = values.get('plan_number')
+        if plan_number:
+            matching = [p for p in normalized_plans if str(p.get('plan_number', '')).strip() == str(plan_number).strip()]
+            if len(matching) != 1:
+                raise ValueError('La aclaración corresponde a un plan no identificado de forma única')
+            plan = matching[0]
+            plan['fund'] = apply_value(plan.get('fund'), values.get('fund_name'), 'el fondo del plan')
+            plan['fund_cnpj'] = apply_value(plan.get('fund_cnpj'), values.get('fund_cnpj'), 'el CNPJ del plan')
+        evidence_refs.append({'kind':'photo_clarification','id':row['id'],'revision':row['revision']})
+    if len(evidence_refs) > 20:
+        raise ValueError('Demasiadas referencias de evidencia; no se preparó el snapshot')
     # A single fund CNPJ identifies the same underlying fund across separate plans.
     funds_by_cnpj = {}
     for plan in normalized_plans:

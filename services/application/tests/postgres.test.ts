@@ -722,3 +722,17 @@ test('snapshot pages retain the latest record for every owner and institution be
  const first=await listB3PositionSnapshots(db,h,50);assert.equal(first.snapshots.length,50);assert.ok(first.next_cursor);const second=await listB3PositionSnapshots(db,h,50,first.next_cursor);assert.equal(second.snapshots.length,1);assert.equal(new Set([...first.snapshots,...second.snapshots].map(x=>x.document_id)).size,51);
  const external=await listExternalPositionSnapshots(db,h,50);assert.equal(external.snapshots.length,1);assert.equal(external.snapshots[0].owner,'Julia');assert.equal(external.snapshots[0].latest,true);
 });
+
+test('photo clarifications are owner-scoped, immutable, versioned and idempotent without changing portfolio',async()=>{
+ const {recordPhotoClarification,listPhotoClarifications}=await import('../src/photo-clarifications.ts');
+ const h='clarification-'+randomUUID(),other='clarification-'+randomUUID(),actor='actor-'+randomUUID(),id=randomUUID();
+ await db.query('INSERT INTO app.households VALUES($1),($2)',[h,other]);await db.query("INSERT INTO app.actors VALUES($1,'fixture')",[actor]);await db.query("INSERT INTO app.memberships VALUES($1,$2,'approver')",[h,actor]);await db.query("INSERT INTO app.owners VALUES($1,'owner','Jorge'),($2,'owner','Julia')",[h,other]);
+ await db.query("INSERT INTO app.manual_photo_evidence(household_id,upload_id,owner_id,file_name,content_sha256) VALUES($1,$2,'owner','fixture.png',$3)",[h,id,'a'.repeat(64)]);
+ const body={request_key:'clarification-date-01',metadata:{reference_date:'2026-11-02'},provenance:'Telegram: usuario confirmó fecha'};
+ const first=await recordPhotoClarification(db,h,actor,id,body),replay=await recordPhotoClarification(db,h,actor,id,body);assert.equal(first.revision,1);assert.equal(replay.replayed,true);assert.equal(first.clarification_id,replay.clarification_id);
+ const correction=await recordPhotoClarification(db,h,actor,id,{...body,request_key:'clarification-date-02',metadata:{reference_date:'2026-11-03'}});assert.equal(correction.revision,2);
+ for(const plan of ['100','200'])await recordPhotoClarification(db,h,actor,id,{request_key:'clarification-plan-'+plan,metadata:{institution:'BTG',plan_number:plan,fund_name:'Fondo común',fund_cnpj:'12345678000100',source_locator:'mensaje del usuario'},provenance:'Telegram: usuario confirmó identidad'});
+ const read=await listPhotoClarifications(db,h,id);assert.equal(read.clarifications.length,4);assert.equal(read.clarifications[1].supersedes_id,first.clarification_id);assert.equal(read.portfolio_changed,false);assert.equal(read.evidence_status,'awaiting_review');
+ await assert.rejects(()=>listPhotoClarifications(db,other,id),/NOT_FOUND/);await assert.rejects(()=>recordPhotoClarification(db,h,actor,id,{...body,request_key:'clarification-no-plan',metadata:{fund_name:'Fondo'}}),/PLAN_REQUIRED/);
+ await assert.rejects(()=>db.query('UPDATE app.photo_evidence_clarifications SET provenance=$3 WHERE household_id=$1 AND id=$2',[h,first.clarification_id,'changed']),/PHOTO_CLARIFICATION_IMMUTABLE/);
+});

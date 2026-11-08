@@ -370,3 +370,46 @@ class MaturityQueriesTest(unittest.TestCase):
         self.assertTrue(result['details_omitted'])
         self.assertNotIn('items', result)
         self.assertIn('consultar_vencimientos', result['next_step'])
+
+class PhotoClarificationTest(unittest.TestCase):
+    def test_ambiguous_photo_never_writes(self):
+        photos={'items':[{'upload_id':'11111111-1111-4111-8111-111111111111','owner':'Jorge','proposal_evidence_status':'awaiting_review'}, {'upload_id':'22222222-2222-4222-8222-222222222222','owner':'Jorge','proposal_evidence_status':'awaiting_review'}],'next_cursor':None}
+        with patch.object(mcp_server,'authority_mode',return_value='postgres'),patch.object(mcp_server,'api',return_value=photos) as api:
+            result=mcp_server.aclarar_evidencia_foto('Jorge','{"reference_date":"2026-11-02"}',procedencia='Telegram: fecha confirmada')
+        self.assertFalse(result['saved']);self.assertEqual(result['reason'],'evidence_ambiguous');self.assertEqual(len(result['candidates']),2);self.assertEqual(api.call_count,1)
+
+    def test_write_requires_readback_and_retries_use_same_request(self):
+        photo='11111111-1111-4111-8111-111111111111';saved='22222222-2222-4222-8222-222222222222';requests=[]
+        def fake(path,payload=None,**kwargs):
+            if path.startswith('/api/shadow/evidence/photos?'):return {'items':[{'upload_id':photo,'owner':'Jorge','proposal_evidence_status':'awaiting_review'}],'next_cursor':None}
+            if kwargs.get('method')=='POST':requests.append(payload);return {'clarification_id':saved,'revision':1,'replayed':len(requests)>1}
+            return {'clarifications':[{'id':saved,'revision':1,'metadata':{'reference_date':'2026-11-02'}}]}
+        with patch.object(mcp_server,'authority_mode',return_value='postgres'),patch.object(mcp_server,'api',side_effect=fake):
+            a=mcp_server.aclarar_evidencia_foto('Jorge','{"reference_date":"2026-11-02"}',procedencia='Telegram: fecha confirmada')
+            b=mcp_server.aclarar_evidencia_foto('Jorge','{"reference_date":"2026-11-02"}',procedencia='Telegram: fecha confirmada')
+        self.assertTrue(a['saved']);self.assertTrue(b['replayed']);self.assertEqual(requests[0]['request_key'],requests[1]['request_key']);self.assertFalse(a['portfolio_changed'])
+
+    def test_failed_readback_never_claims_success(self):
+        photo='11111111-1111-4111-8111-111111111111'
+        def fake(path,payload=None,**kwargs):
+            if path.startswith('/api/shadow/evidence/photos?'):return {'items':[{'upload_id':photo,'owner':'Jorge','proposal_evidence_status':'awaiting_review'}]}
+            if kwargs.get('method')=='POST':return {'clarification_id':'missing','revision':1}
+            return {'clarifications':[]}
+        with patch.object(mcp_server,'authority_mode',return_value='postgres'),patch.object(mcp_server,'api',side_effect=fake):
+            result=mcp_server.aclarar_evidencia_foto('Jorge','{"reference_date":"2026-11-02"}',procedencia='Telegram')
+        self.assertFalse(result['saved']);self.assertEqual(result['reason'],'verification_failed')
+
+    def test_pension_snapshot_reuses_each_plan_clarification_without_publishing(self):
+        photo='11111111-1111-4111-8111-111111111111';sent=[]
+        def fake(path,payload=None,**kwargs):
+            if path.endswith('/clarifications'):
+                return {'clarifications':[{'id':'a','scope':'evidence','revision':1,'metadata':{'reference_date':'2026-11-02','institution':'BTG'}},
+                  {'id':'b','scope':'plan:100','revision':1,'metadata':{'plan_number':'100','fund_name':'Fondo','fund_cnpj':'12345678000100'}},
+                  {'id':'c','scope':'plan:200','revision':1,'metadata':{'plan_number':'200','fund_name':'Fondo','fund_cnpj':'12345678000100'}}]}
+            if path.endswith('/manual-snapshots'):
+                sent.append(payload);return {'status':'evidence_only','portfolio_published':False}
+            raise AssertionError(path)
+        plans=[{'plan_number':p,'product_name':'PGBL','gross_balance':'100','net_balance':'90','tax_regime':'regressive'} for p in ('100','200')]
+        with patch.object(mcp_server,'authority_mode',return_value='postgres'),patch.object(mcp_server,'api',side_effect=fake):
+            result=mcp_server.registrar_snapshot_previdencia('Jorge','','','gross',json.dumps(plans),json.dumps([{'kind':'manual_photo','upload_id':photo}]))
+        self.assertFalse(result['portfolio_changed']);self.assertEqual(sent[0]['reference_date'],'2026-11-02');self.assertEqual(sent[0]['institution'],'BTG');self.assertEqual([p['fund'] for p in sent[0]['plans']],['Fondo','Fondo']);self.assertEqual(len(sent[0]['evidence_refs']),4)

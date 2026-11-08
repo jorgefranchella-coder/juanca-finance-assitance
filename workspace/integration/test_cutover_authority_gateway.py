@@ -41,6 +41,7 @@ class PortfolioStub(BaseHTTPRequestHandler):
                  'currency': 'BRL', 'custody_identity_resolved': True, 'status': 'matches_snapshot',
                  'weighted_average_unit_price': '40'},
             ]},
+            '/v1/evidence/photos/11111111-1111-4111-8111-111111111111/clarifications': {'clarifications': [], 'portfolio_changed': False},
             '/v1/reviews/counts': {'open_count': 4, 'published_snapshots': 2, 'counts': {'decision': 3, 'evidence': 1, 'follow_up': 0, 'history': 2}},
             '/v1/confirmations?status=open': {'open_count': 2, 'items': []},
             '/v1/proposals?status=pending': {'proposals': [{'id': 'pending-1'}]},
@@ -138,6 +139,14 @@ class CutoverAuthorityGatewayTests(unittest.TestCase):
         self.assertEqual(status, 200); self.assertEqual(portfolio['mode'], 'postgres'); self.assertTrue(portfolio['authoritative'])
         status, projection = self.request('GET', '/api/shadow/fixed-income-projection')
         self.assertEqual(status, 200); self.assertEqual(projection['mode'], 'postgres'); self.assertTrue(projection['authoritative'])
+
+    def test_photo_clarification_routes_read_and_authenticated_actor(self):
+        path = '/api/shadow/evidence/photos/11111111-1111-4111-8111-111111111111/clarifications'
+        status, body = self.request('GET', path)
+        self.assertEqual(status, 200); self.assertEqual(body['clarifications'], [])
+        status, body = self.request('POST', path, {'request_key': 'fixture-clarification', 'metadata': {'reference_date': '2026-11-02'}, 'provenance': 'fixture'})
+        self.assertEqual(status, 201); self.assertTrue(body['saved'])
+        self.assertIn(('POST', '/v1/evidence/photos/11111111-1111-4111-8111-111111111111/clarifications', 'fixture-user'), PortfolioStub.calls)
 
     def test_legacy_writes_are_blocked_and_quality_summary_uses_postgres(self):
         status, result = self.request('POST', '/api/import/b3', {'file': 'not forwarded'})

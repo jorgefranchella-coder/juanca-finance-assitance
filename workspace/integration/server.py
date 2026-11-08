@@ -147,6 +147,7 @@ SHADOW_ROUTES = {
     '/api/shadow/accounts': {'GET'},
     '/api/shadow/owners': {'GET'},
 }
+SHADOW_PHOTO_CLARIFICATIONS = re.compile(r'^/api/shadow/evidence/photos/([0-9a-fA-F-]{36})/clarifications$')
 SHADOW_ITEM = re.compile(r'^/api/shadow/evidence/(text|photos|documents)/([0-9a-fA-F-]{36})(/content)?$')
 SHADOW_PROPOSAL_COMMAND = re.compile(r'^/api/shadow/proposals/([0-9a-fA-F-]{36})/(approve|reject)$')
 SHADOW_B3_PUBLISH = re.compile(r'^/api/shadow/reconciliation/b3/snapshots/([A-Za-z0-9._:-]+)/publish$')
@@ -245,12 +246,15 @@ class Gateway(BaseHTTPRequestHandler):
         methods = SHADOW_ROUTES.get(path)
         if methods is None:
             match = SHADOW_ITEM.fullmatch(path)
+            photo_clarifications = SHADOW_PHOTO_CLARIFICATIONS.fullmatch(path)
             proposal_command = SHADOW_PROPOSAL_COMMAND.fullmatch(path)
             b3_publish = SHADOW_B3_PUBLISH.fullmatch(path)
             external_publish = SHADOW_EXTERNAL_PUBLISH.fullmatch(path)
             position_acquisitions = SHADOW_POSITION_ACQUISITIONS.fullmatch(path)
             confirmation_decision = SHADOW_CONFIRMATION_DECISION.fullmatch(path)
-            if proposal_command:
+            if photo_clarifications:
+                methods = {'GET', 'POST'}
+            elif proposal_command:
                 methods = {'POST'}
             elif b3_publish:
                 methods = {'POST'}
@@ -292,6 +296,7 @@ class Gateway(BaseHTTPRequestHandler):
                     path == '/api/shadow/confirmations' and self.command == 'POST' or
                     path == '/api/shadow/fixed-income-terms' and self.command == 'POST' or
                     SHADOW_CONFIRMATION_DECISION.fullmatch(path) or
+                    SHADOW_PHOTO_CLARIFICATIONS.fullmatch(path) or
                     path == '/api/shadow/proposals' and self.command == 'POST' or
                     SHADOW_PROPOSAL_COMMAND.fullmatch(path)) and self.command == 'POST':
                 headers['X-Juanca-Actor'] = CONFIG['user_id']

@@ -1,3 +1,4 @@
+import {listPhotoClarifications,recordPhotoClarification} from './photo-clarifications.ts';
 import {reviewCounts} from './review-counts.ts';
 import {recordPensionValuationDecision} from './pension-valuation-decisions.ts';
 import {createServer} from 'node:http';
@@ -79,6 +80,9 @@ const server=createServer(async(req,res)=>{
    const limit=url.searchParams.has('limit')?Number(url.searchParams.get('limit')):50;if(!Number.isInteger(limit)||limit<1||limit>100)throw new Conflict('VALIDATION',422);
    reply(200,await listPhotoEvidence(db,config.household_id,limit,url.searchParams.get('cursor')));return;
   }
+  const clarificationMatch=url.pathname.match(/^\/v1\/evidence\/photos\/([0-9a-f-]{36})\/clarifications$/i);
+  if(clarificationMatch&&req.method==='GET'){reply(200,await listPhotoClarifications(db,config.household_id,clarificationMatch[1]));return;}
+  if(clarificationMatch&&req.method==='POST'){reply(201,await recordPhotoClarification(db,config.household_id,String(req.headers['x-juanca-actor']??''),clarificationMatch[1],await readJson(req)));return;}
   const photoContentMatch=url.pathname.match(/^\/v1\/evidence\/photos\/([0-9a-f-]{36})\/content$/i);
   if(photoContentMatch&&req.method==='GET'){
    const content=await getPhotoContent(config.household_id,photoContentMatch[1]);res.statusCode=200;res.setHeader('Content-Type',content.contentType);res.setHeader('Content-Length',String(content.bytes.length));res.setHeader('Content-Disposition','inline');res.end(content.bytes);return;
