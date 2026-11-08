@@ -157,3 +157,6 @@ La cabecera de Revisiones ofrece un botón visible **Refrescar revisiones**. Al 
 El formulario preparado permite seleccionar base civil o DI B3 e ingresar el código de calendario y la fuente y fecha del supuesto futuro. La base DI muestra cobertura incompleta si faltan datos. El código de calendario cargado es `b3-di`; las fechas futuras son estimadas y se muestran como tales.
 
 Cuando la proyección usa fechas futuras estimadas de calendario, el detalle del título indica cuántas fechas dependen de ese escenario y que pueden cambiar.
+
+
+La sección Renda fixa agrupa alertas calculadas por vencimiento, cobertura insuficiente y evaluación bloqueada. La ventana de vencimientos es de 90 días y exige coincidencia inequívoca con una posición vigente y fotografía de hasta 31 días. Se informa fecha, versión de regla y fuente. Las evaluaciones se recalculan al consultar y no mantienen historial persistente.

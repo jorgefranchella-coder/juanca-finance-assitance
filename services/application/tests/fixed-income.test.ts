@@ -14,7 +14,8 @@ test('shadow fixed-income projection rebuilds historical prices and current hold
  assert.equal(result.reference_date,'2026-10-01');assert.equal(result.summary.total_count,2);assert.equal(result.summary.total_current_cents,2400000);
  const cdb=result.items.find(item=>item.instrument_code==='CDBTEST')!;assert.equal(cdb.owner,owner);assert.equal(cdb.issuer,'Fixture Bank');assert.equal(cdb.observationCount,2);
  assert.equal(cdb.firstDate,'2026-01-01');assert.equal(cdb.lastDate,'2026-10-01');assert.ok((cdb.projected_value_cents??0)>cdb.current_value_cents);
- assert.equal(result.authoritative,false);
+ assert.equal(result.authoritative,true);
+ assert.equal(cdb.maturity_review_status,'unknown');assert.equal(cdb.maturity_source_id,'import-new');
 });
 
 test('published B3 maturity dates in Brazilian day/month/year format are normalized for projection',async()=>{

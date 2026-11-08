@@ -4,6 +4,7 @@ export type FixedIncomeGroup = {
   currency: string;
   quantity: number; maturityDate: string; latestDate: string; currentUnitPrice: number;
   currentValueCents: number; priceSource: string; observations: PriceObservation[]; isCurrent: boolean;
+  maturityReviewStatus?: "clear" | "pending" | "unknown"; maturitySourceId?: string;
 };
 export type CostBasisPoint = { owner: string; instrument_code: string; average_unit_cost: number; as_of: string; source?: string; currency?: string; quantity?: number; source_verified?: boolean };
 
@@ -108,6 +109,7 @@ export function buildFixedIncomeProjectionItems(groups: Iterable<FixedIncomeGrou
       institution: group.institution, issuer: group.issuer || "Emissor não identificado",
       asset_class: group.assetClass, currency: group.currency, quantity: group.quantity,
       maturity_date: group.maturityDate, reference_date: group.latestDate,
+      maturity_review_status: group.maturityReviewStatus ?? "unknown", maturity_source_id: group.maturitySourceId ?? null,
       current_unit_price: group.currentUnitPrice, current_value_cents: group.currentValueCents,
       price_source: group.priceSource, projected_value_cents: projectedValueCents,
       projected_gain_cents: projectedValueCents === null ? null : projectedValueCents - group.currentValueCents,

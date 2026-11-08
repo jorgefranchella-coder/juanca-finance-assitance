@@ -16,6 +16,7 @@ import ShadowProposalWorkspace from "./ShadowProposalWorkspace";
 import ShadowPortfolioPanel from "./ShadowPortfolioPanel";
 import ShadowMarketPanel from "./ShadowMarketPanel";
 import ReviewInbox from "./ReviewInbox";
+import CalculatedAlerts from "./CalculatedAlerts";
 
 const tabs = [
   { id: "overview", label: "Visão geral", eyebrow: "Patrimônio consolidado", title: "Bom dia, Jorge.", subtitle: "Uma visão confiável do patrimônio de Jorge e Julia." },
@@ -96,7 +97,7 @@ export default function TabbedWorkspace() {
         {active === "postgres-shadow" && <><ShadowPortfolioPanel /><ShadowMarketPanel /><ShadowProposalWorkspace /></>}
         {active === "juanca" && <JuancaChat />}
         {active === "imports" && <DataImportPanel />}
-        {active === "fixed-income" && <FixedIncomeProjection endpoint="/api/shadow/fixed-income-projection" shadow />}
+        {active === "fixed-income" && <><CalculatedAlerts /><FixedIncomeProjection endpoint="/api/shadow/fixed-income-projection" shadow /></>}
         {active === "projections" && <ProjectionPanel />}
         {active === "recommendations" && <RecommendationsPanel />}
       </section>
