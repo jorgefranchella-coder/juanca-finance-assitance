@@ -64,7 +64,7 @@ export async function listExternalPositionSnapshots(db:pg.Pool,household:string,
 }
 
 /** Queue a new parser revision for an existing unpublished Avenue original. */
-export async function reprocessAvenueStatement(db:pg.Pool,household:string,actor:string,documentId:string){
+export async function reprocessAvenueStatement(db:pg.Pool,household:string,actor:string,documentId:string):Promise<Record<string,unknown> & {document_id:string;portfolio_published:boolean}>{
  const c=await db.connect();try{await c.query('BEGIN');
   const member=await c.query("SELECT 1 FROM app.memberships WHERE household_id=$1 AND actor_id=$2 AND role IN ('reviewer','owner','approver')",[household,actor]);if(!member.rowCount)throw new Conflict('FORBIDDEN',403);
   await c.query('SELECT pg_advisory_xact_lock(hashtextextended($1,0))',[`${household}:external-position-publication:${documentId}`]);

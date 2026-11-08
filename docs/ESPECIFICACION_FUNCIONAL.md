@@ -120,6 +120,8 @@ Esta matriz describe disponibilidad, no certifica aceptación integral. Una capa
 | Alertas calculadas | Pendiente | Las tarjetas existentes no sustituyen reglas calculadas con evidencia; seguimiento #4. |
 | Escenarios guardados | Pendiente | La simulación visible no implica persistencia ni versionado; seguimiento #3. |
 
+**Registro de validación (08/11/2026):** sobre el código de proyección y autoridad de `b7e7adc`, pasaron 31 pruebas sintéticas de autoridad, tasa fija, índices, cupones, amortizaciones, cobertura incompleta y convención DI/252. Son pruebas del cálculo y del diagnóstico, no una certificación de los contratos o importes reales. La activación productiva de la interfaz contractual se verificó el 01/11/2026 y está detallada en la especificación técnica. Los issues #1 y #2 fueron cerrados por decisión del usuario; su cierre no constituye una validación adicional. La continuidad DI se sigue en #7, y escenarios y alertas en #3 y #4. El estado del OCR HEIC se sigue en el historial de #5, cerrado; no se presume por ello una nueva prueba de documentos reales.
+
 ## 8. Reglas P0 aprobadas para implementación
 
 Estas reglas precisan el objetivo; no implican que las brechas ya estén resueltas en código.
