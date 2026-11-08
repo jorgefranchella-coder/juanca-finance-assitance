@@ -198,3 +198,5 @@ Las órdenes manuales con ejecución negada, pendiente, cancelada o parcial se c
 Las consultas conversacionales de vencimientos permiten elegir titular y horizonte. Juanca informa las fechas conocidas y distingue los importes contractuales disponibles de los pendientes de cálculo.
 
 Las aclaraciones posteriores sobre fotos se registran como revisiones inmutables vinculadas al identificador de evidencia y a su titular, con procedencia y ámbitos separados por plan. Hermes las confirma solo después de releer la revisión guardada; si existen varias fotos candidatas solicita una identificación. Al preparar un snapshot de previdencia, reutiliza las aclaraciones de las fotos explícitamente vinculadas, conserva referencias a sus revisiones y detiene la preparación ante conflictos o planes ambiguos. La aclaración no publica posiciones ni modifica el patrimonio.
+
+Las fotos HEIC también se leen como evidencia pendiente de revisión. El original se conserva y la lectura no publica movimientos ni posiciones.
