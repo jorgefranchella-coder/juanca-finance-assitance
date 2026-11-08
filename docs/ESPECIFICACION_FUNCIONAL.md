@@ -81,7 +81,7 @@ La pantalla presenta una matriz horizontal. Cada año ocupa una columna expandib
 
 La vista ya separa el método **Histórico** del **Contractual**. Este último usa términos por identidad de posición y cuenta, vinculados a un documento del mismo titular y a una ubicación concreta. Se registran tipo de tasa (fija o indexada), spread/tasa, índice, supuesto anual explícito del índice, calendario de cupones/amortizaciones por unidad e impuesto opcional. Cada corrección agrega una revisión inmutable; no modifica el patrimonio ni los hechos de cartera. Solo se proyectan posiciones con una identidad de custodia inequívoca y condiciones suficientes. Las faltantes se listan por título y permanecen fuera de la cobertura; no se copian tasas históricas como si fueran contractuales.
 
-El motor contractual distingue entre tasa que capitaliza el saldo y título cuyo interés se entrega mediante flujos explícitos. En el segundo caso, el principal no crece por la tasa y los flujos ingresados no se reinvierten; las amortizaciones reducen el principal pendiente. Para tasa capitalizada aplica días ACT/365,25. En títulos indexados se puede declarar una relación aditiva, compuesta o multiplicadora (p. ej., 110 % del CDI), con supuesto anual constante del índice explícito. El escenario no reproduce la convención brasileña de 252 días hábiles. La proyección neta solo aparece si se ingresó una alícuota tributaria plana; es un escenario indicativo, no un cálculo legal del impuesto o de su base. Ambas vistas muestran método, cobertura, fuente y versión (`contract-projection-v1`).
+El motor contractual distingue entre tasa que capitaliza el saldo y título cuyo interés se entrega mediante flujos explícitos. En el segundo caso, el principal no crece por la tasa y los flujos ingresados no se reinvierten; las amortizaciones reducen el principal pendiente. Para tasa capitalizada aplica días ACT/365,25. En títulos indexados se puede declarar una relación aditiva, compuesta o multiplicadora (p. ej., 110 % del CDI), con supuesto anual constante del índice explícito. La base civil usa ACT/365,25; la base DI/252 utiliza calendario y tasas verificadas cuando están disponibles y supuestos identificados para fechas futuras. La proyección neta solo aparece si se ingresó una alícuota tributaria plana; es un escenario indicativo, no un cálculo legal del impuesto o de su base. Ambas vistas muestran método, cobertura, fuente y versión (`contract-projection-v1`).
 
 El escenario parte del valor de la posición en su última fotografía, con fecha y método de valoración identificados. Si esa fotografía usa precio de mercado (MTM), el cálculo no reconstruye automáticamente la curva contractual ni garantiza el importe a recibir; para eso se necesita una base contractual verificable y las series aplicables. La cantidad se mantiene constante salvo las amortizaciones declaradas.
 
@@ -101,7 +101,7 @@ El escenario parte del valor de la posición en su última fotografía, con fech
 
 ## 6. Pendientes de producto
 
-El corte a PostgreSQL se completó el 24/10/2026. Las 29 diferencias del delta congelado fueron cubiertas por decisiones explícitas y permanecen como diferencias aceptadas entre la copia D1/R2 y la autoridad nueva. Mejoras posteriores: resolver confirmaciones B3 históricas que sigan abiertas, completar identidades/costos de adquisición cuando haya evidencia, y desarrollar escenarios guardados, alertas calculadas y proyección contractual. Ninguna implica revertir la autoridad.
+El corte a PostgreSQL se completó el 24/10/2026. Las 29 diferencias del delta congelado fueron cubiertas por decisiones explícitas y permanecen como diferencias aceptadas entre la copia D1/R2 y la autoridad nueva. Mejoras posteriores: resolver confirmaciones B3 históricas que sigan abiertas, completar identidades/costos de adquisición cuando haya evidencia, y desarrollar escenarios guardados y alertas calculadas, y completar las fuentes contractuales y de índices aún faltantes. Ninguna implica revertir la autoridad.
 
 ## 7. Estado verificable de capacidades (P0-02)
 
@@ -116,7 +116,9 @@ Esta matriz describe disponibilidad, no certifica aceptación integral. Una capa
 | Cartera versionada y mercado | Vigente en PostgreSQL | `services/application` y `services/market`; la valoración indica fecha, fuente y cobertura |
 | Aprobación PostgreSQL | Vigente | Requiere rol owner/approver, decisión explícita, idempotencia y auditoría |
 | Corrección integral con historial y publicación | Parcialmente vigente | Snapshots aprobados actualizan la cartera; conciliaciones históricas pendientes continúan en Revisiones |
-| Proyección contractual, alertas calculadas y escenarios guardados | Objetivo | No confundir con estimación histórica y tarjetas actuales |
+| Proyección contractual | Implementada y desplegada | Requiere condiciones y flujos con evidencia, identidad de custodia y cobertura de calendario e índices; impuestos y pagos no documentados no se inventan. Validación aislada registrada el 01/11/2026; continuidad DI 2027 pendiente en #7. |
+| Alertas calculadas | Pendiente | Las tarjetas existentes no sustituyen reglas calculadas con evidencia; seguimiento #4. |
+| Escenarios guardados | Pendiente | La simulación visible no implica persistencia ni versionado; seguimiento #3. |
 
 ## 8. Reglas P0 aprobadas para implementación
 

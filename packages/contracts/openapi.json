@@ -48,13 +48,15 @@
                   "type": "object",
                   "required": ["ready", "mode", "authoritative", "blockers", "counts", "gates", "note"],
                   "properties": {
-                    "ready": {"type": "boolean", "const": false},
-                    "mode": {"type": "string", "const": "shadow"},
-                    "authoritative": {"type": "boolean", "const": false},
+                    "ready": {"type": "boolean"},
+                    "mode": {"type": "string", "enum": ["shadow", "postgres", "freeze", "unknown"]},
+                    "authoritative": {"type": "boolean"},
                     "blockers": {"type": "array", "items": {"type": "string"}},
                     "counts": {"type": "object"},
                     "gates": {"type": "array", "items": {"type": "object", "required": ["id", "status", "detail", "next_action"], "properties": {"id": {"type": "string"}, "status": {"type": "string", "enum": ["blocked", "passed"]}, "detail": {"type": "string"}, "next_action": {"type": "string"}}}},
-                    "note": {"type": "string"}
+                    "note": {"type": "string"},
+                    "active_authority": {"type": "object", "properties": {"mode": {"enum": ["postgres", "legacy", "freeze", "unknown"]}, "authoritative": {"type": "boolean"}, "frozen": {"type": "boolean"}}},
+                    "cutover_evidence": {"type": "object", "properties": {"delta_verified": {"type": "boolean"}, "rehearsal_verified": {"type": "boolean"}}}
                   }
                 }
               }

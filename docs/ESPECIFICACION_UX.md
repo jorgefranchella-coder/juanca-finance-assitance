@@ -58,7 +58,7 @@ El botón **Registrar condiciones contractuales** abre un formulario por posici�
 
 ### Estado de preparación PostgreSQL
 
-La pestaña **Cartera y movimientos** muestra la cartera activa y el estado de autoridad. La comparación previa al corte se conserva como evidencia privada y no se presenta como comparación en vivo. El estado técnico no sustituye una aprobación de movimiento; las decisiones siguen ocurriendo en Revisões/Assistente con auditoría.
+La pestaña **Cartera y movimientos** muestra la cartera activa, el estado de autoridad y los controles de datos y evidencia por separado; una comprobación pendiente no implica que PostgreSQL haya dejado de ser la autoridad. La comparación previa al corte se conserva como evidencia privada y no se presenta como comparación en vivo. El estado técnico no sustituye una aprobación de movimiento; las decisiones siguen ocurriendo en Revisões/Assistente con auditoría.
 
 ### Cartera y calidad
 

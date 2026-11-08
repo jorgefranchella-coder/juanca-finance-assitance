@@ -177,18 +177,17 @@ class CutoverAuthorityGatewayTests(unittest.TestCase):
         self.assertEqual(status, 200); self.assertEqual(authority, {'mode': 'freeze', 'authoritative': False, 'frozen': True})
         self.assertEqual(PortfolioStub.calls, [])
 
-    def test_readiness_reports_postgres_cutover_only_with_complete_approval_attestation(self):
+    def test_readiness_does_not_infer_rehearsal_from_delta_or_hide_authority_mismatch(self):
         reports = self.root / 'reports'; reports.mkdir()
         (reports / 'cutover-approved-delta-2026-10-24.json').write_text(json.dumps({
             'format': 'juanca-cutover-approved-delta-v1', 'difference_count': 29, 'covered_count': 29,
             'uncovered': [], 'capture_stable': True, 'dates_match': True,
         }))
         status, result = self.request('GET', '/api/shadow/authority/readiness')
-        self.assertEqual(status, 200); self.assertTrue(result['ready'])
+        self.assertEqual(status, 200); self.assertFalse(result['ready'])
         self.assertEqual(result['mode'], 'postgres'); self.assertTrue(result['authoritative'])
-        self.assertEqual(result['active_authority'], {'mode': 'postgres', 'authoritative': True, 'frozen': False})
-        self.assertEqual(result['blockers'], [])
-        self.assertTrue(all(gate['status'] == 'passed' for gate in result['gates']))
+        self.assertIn('authority_config_mismatch', result['blockers'])
+        self.assertIn('cutover_and_rollback_not_rehearsed', result['blockers'])
 
 
 if __name__ == '__main__':

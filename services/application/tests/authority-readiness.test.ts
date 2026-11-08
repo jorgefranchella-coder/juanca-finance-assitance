@@ -56,3 +56,16 @@ test('external snapshot publication clears only the external-source verification
  assert.equal(result.gates.find(g=>g.id==='reviewed_external_snapshot_publication_not_verified')?.status,'passed');
  assert.equal(result.authoritative,false);
 });
+
+test('production authority is independent of quality and historical evidence gates',()=>{
+ const facts={command_account_total:1,command_account_known:1,unresolved_command_account_references:0,resolved_legacy_aliases:0,unused_unresolved_account_aliases:0,approver_membership_total:1,holding_total:1,holding_verified:1,portfolio_positions:1,portfolio_identity_unresolved:0,portfolio_commandable_identity_unresolved:0,b3_snapshot_publication_total:1,external_snapshot_publication_total:1,pending_proposals:0,applied_events:0};
+ const actual=assessAuthorityReadiness(facts,{mode:'postgres',delta_verified:true,rehearsal_verified:false});assert.equal(actual.mode,'postgres');assert.equal(actual.authoritative,true);assert.equal(actual.ready,false);assert.deepEqual(actual.blockers,['cutover_and_rollback_not_rehearsed']);assert.match(actual.gates.find(g=>g.id==='cutover_and_rollback_not_rehearsed')!.detail,/no hay una constancia/);
+ const complete=assessAuthorityReadiness(facts,{mode:'postgres',delta_verified:true,rehearsal_verified:true});assert.equal(complete.ready,true);
+ const unknown=assessAuthorityReadiness(facts,{mode:'unknown',delta_verified:false,rehearsal_verified:false});assert.equal(unknown.authoritative,false);assert.ok(unknown.blockers.includes('authority_unknown'));
+ const frozen=assessAuthorityReadiness(facts,{mode:'freeze',delta_verified:true,rehearsal_verified:true});assert.equal(frozen.authoritative,false);assert.ok(frozen.blockers.includes('authority_frozen'));
+});
+
+test('authority configuration and evidence fail closed when missing or malformed',async()=>{
+ const {mkdtemp,writeFile,rm}=await import('node:fs/promises'),{tmpdir}=await import('node:os'),{join}=await import('node:path'),{readRuntimeAuthority}=await import('../src/runtime-authority.ts');const root=await mkdtemp(join(tmpdir(),'juanca-authority-test-'));
+ try{const config=join(root,'authority.json');assert.equal((await readRuntimeAuthority(config,root)).mode,'unknown');await writeFile(config,'{"mode":"postgres"}');assert.deepEqual(await readRuntimeAuthority(config,root),{mode:'postgres',delta_verified:false,rehearsal_verified:false});await writeFile(join(root,'cutover-approved-delta-fixture.json'),JSON.stringify({format:'juanca-cutover-approved-delta-v1',difference_count:1,covered_count:1,uncovered:[],capture_stable:true,dates_match:true}));assert.equal((await readRuntimeAuthority(config,root)).delta_verified,true);await writeFile(config,'{"mode":"postgres","extra":true}');assert.equal((await readRuntimeAuthority(config,root)).mode,'unknown');}finally{await rm(root,{recursive:true,force:true});}
+});

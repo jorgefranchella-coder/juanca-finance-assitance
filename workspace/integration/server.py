@@ -313,32 +313,27 @@ class Gateway(BaseHTTPRequestHandler):
                 if path == '/api/shadow/authority/readiness' and response.status == 200:
                     readiness = json.loads(payload)
                     mode = portfolio_authority_mode()
+                    app_mode = readiness.get('active_authority', {}).get('mode', 'unknown')
                     readiness['active_authority'] = {
                         'mode': mode,
                         'authoritative': mode == 'postgres',
                         'frozen': mode == 'freeze',
                     }
-                    attestation = approved_cutover_delta() if mode == 'postgres' else None
-                    if attestation:
-                        readiness['mode'] = 'postgres'
-                        readiness['authoritative'] = True
-                        gates = {gate.get('id'): gate for gate in readiness.get('gates', [])}
-                        outcomes = {
-                            'legacy_financial_writers_still_active': 'PostgreSQL es la autoridad del gateway; las rutas de escritura financieras D1/R2 están bloqueadas.',
-                            'final_cutover_delta_not_verified': f"La captura congelada es estable y sus {attestation['covered_count']} diferencias tienen una decisión auditada.",
-                            'cutover_and_rollback_not_rehearsed': 'El cambio y la reversión aislada se ensayaron; ambos backups congelados pasaron la verificación de restauración.',
-                        }
-                        for gate_id, detail in outcomes.items():
-                            if gate_id in gates:
-                                gates[gate_id].update(status='passed', detail=detail, next_action='')
-                        readiness['blockers'] = [item for item in readiness.get('blockers', []) if item not in outcomes]
-                        readiness['ready'] = not readiness['blockers']
+                    if app_mode != mode:
+                        readiness['ready'] = False
+                        readiness['mode'] = mode
+                        readiness['authoritative'] = mode == 'postgres'
+                        readiness['blockers'] = list(dict.fromkeys([*readiness.get('blockers', []), 'authority_config_mismatch']))
+                        readiness.setdefault('gates', []).append({'id': 'authority_config_mismatch', 'status': 'blocked',
+                            'detail': 'La configuración observada por la aplicación difiere de la del gateway.',
+                            'next_action': 'Revisar ambas configuraciones antes de interpretar el diagnóstico.'})
                     payload = json.dumps(readiness, separators=(',', ':')).encode('utf-8')
                 elif path in POSTGRES_AUTHORITY_READS and response.status == 200:
                     result = json.loads(payload)
                     if isinstance(result, dict):
-                        result['mode'] = 'postgres'
-                        result['authoritative'] = True
+                        mode = portfolio_authority_mode()
+                        result['mode'] = 'shadow' if mode == 'legacy' else mode
+                        result['authoritative'] = mode == 'postgres'
                         payload = json.dumps(result, separators=(',', ':')).encode('utf-8')
                 self.reply(response.status, payload, mime)
             finally:

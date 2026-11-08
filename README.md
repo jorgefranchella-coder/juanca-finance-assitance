@@ -27,6 +27,8 @@ npm run typecheck
 
 `test:foundation` reconstruye el bundle Wrangler local y ejecuta nueve escenarios HTTP con una base D1 efímera y datos sintéticos: selección por fecha económica e importación fuera de orden, vencimiento de Jorge entre su referencia y la referencia posterior de Julia, exclusión de compra sin orden temporal el día del corte, FX ausente, concurrencia/idempotencia, origen de evidencia, borradores en español, importación B3 duplicada y cola de confirmaciones. El runner cierra su proceso local, elimina el estado temporal y restaura exactamente el `wrangler.json` generado por el build; no usa el D1 de producción.
 
+El diagnóstico distingue la autoridad configurada de la salud de la base y de los controles de datos y evidencia. El ensayo de cambio y reversión figura en el runbook, aunque no existe todavía una constancia estructurada verificable automáticamente.
+
 ## Respaldos de la autoridad PostgreSQL y recuperación
 
 El timer `juanca-shadow-backup.timer` ejecuta cada día, alrededor de las 03:30 (hora local), una copia PostgreSQL y un ensayo de restauración en una base temporal. PostgreSQL es la base productiva; las copias incluyen aplicación, ingesta, mercado y evidencia registrada. Se guardan fuera del repositorio con permisos privados. Estado: `systemctl --user status juanca-shadow-backup.timer`.

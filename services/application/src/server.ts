@@ -1,3 +1,4 @@
+import {readRuntimeAuthority} from './runtime-authority.ts';
 import {listPhotoClarifications,recordPhotoClarification} from './photo-clarifications.ts';
 import {reviewCounts} from './review-counts.ts';
 import {recordPensionValuationDecision} from './pension-valuation-decisions.ts';
@@ -30,7 +31,7 @@ const server=createServer(async(req,res)=>{
  const reply=(status:number,value:unknown)=>{res.statusCode=status;res.end(JSON.stringify(value));};
  try{
   const url=new URL(req.url??'/','http://localhost');
-  if(url.pathname==='/health/ready'&&req.method==='GET'){await db.query('SELECT 1');reply(200,{status:'ready',mode:'shadow',authoritative:false});return;}
+  if(url.pathname==='/health/ready'&&req.method==='GET'){await db.query('SELECT 1');const authority=await readRuntimeAuthority();reply(200,{status:'ready',scope:'process_and_database',mode:authority.mode,authoritative:authority.mode==='postgres',data_readiness:'not_assessed'});return;}
   const provided=createHash('sha256').update(req.headers.authorization??'').digest();const expected=createHash('sha256').update('Bearer '+config.token).digest();
   if(!timingSafeEqual(provided,expected))throw new Conflict('UNAUTHENTICATED',401);
   if(url.pathname==='/v1/authority/readiness'&&req.method==='GET'){reply(200,await authorityReadiness(db,config.household_id));return;}

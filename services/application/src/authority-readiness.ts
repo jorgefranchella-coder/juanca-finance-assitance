@@ -1,3 +1,4 @@
+import {readRuntimeAuthority,type RuntimeAuthority} from './runtime-authority.ts';
 import type pg from 'pg';
 
 export type AuthorityReadinessFacts={
@@ -9,7 +10,7 @@ export type AuthorityReadinessFacts={
  portfolio_positions:number;portfolio_identity_unresolved:number;portfolio_commandable_identity_unresolved:number;pending_proposals:number;applied_events:number;
 };
 
-export function assessAuthorityReadiness(f:AuthorityReadinessFacts){
+export function assessAuthorityReadiness(f:AuthorityReadinessFacts, runtime?:RuntimeAuthority){
  const blockers:string[]=[];
  if(f.command_account_known!==f.command_account_total||f.unresolved_command_account_references)blockers.push('unresolved_command_accounts');
  if(!f.holding_total||f.holding_verified!==f.holding_total)blockers.push('opening_holdings_not_fully_verified');
@@ -21,7 +22,7 @@ export function assessAuthorityReadiness(f:AuthorityReadinessFacts){
  if(f.b3_snapshot_publication_total<1)blockers.push('reviewed_b3_snapshot_publication_not_verified');
  if(f.external_snapshot_publication_total<1)blockers.push('reviewed_external_snapshot_publication_not_verified');
  blockers.push('final_cutover_delta_not_verified','cutover_and_rollback_not_rehearsed');
- return {ready:false,mode:'shadow',authoritative:false,blockers,counts:f,
+ const result={ready:false,mode:'shadow' as string,authoritative:false,blockers,counts:f,
   gates:[
    ...(f.command_account_known!==f.command_account_total||f.unresolved_command_account_references?[{id:'unresolved_command_accounts',status:'blocked',detail:`${f.command_account_known} de ${f.command_account_total} cuentas de operación tienen identidad conocida; ${f.unresolved_command_account_references} referencias siguen sin resolver.`,next_action:'Resolver custodio y cuenta por evidencia confirmada; no usar una cuenta provisional para aprobar operaciones.'}]:[]),
    ...(!f.holding_total||f.holding_verified!==f.holding_total?[{id:'opening_holdings_not_fully_verified',status:'blocked',detail:`${f.holding_verified} de ${f.holding_total} posiciones de apertura tienen evidencia verificada.`,next_action:'Vincular cada posición invertida a su snapshot fuente, titular, cuenta e instrumento; caja permanece fuera del alcance.'}]:[]),
@@ -34,6 +35,18 @@ export function assessAuthorityReadiness(f:AuthorityReadinessFacts){
    {id:'cutover_and_rollback_not_rehearsed',status:'blocked',detail:'Falta ensayar el cambio coordinado de lectura/escritura y la reversión con un único escritor.',next_action:'Ensayar en ventana controlada smoke tests de lectura/escritura en PostgreSQL y reversión a D1/R2 antes de reabrir operaciones.'},
   ],
   note:'La preparación de saldos iniciales no aprueba ni aplica movimientos. Esta lectura informa gates de datos y despliegue; no cambia el modo sombra.'};
+ if(!runtime)return result; // Compatibility for isolated pre-cutover fixtures.
+ result.mode=runtime.mode==='legacy'?'shadow':runtime.mode;result.authoritative=runtime.mode==='postgres';
+ const pass=(id:string,detail:string)=>{const gate=result.gates.find(g=>g.id===id);if(gate){gate.status='passed';gate.detail=detail;gate.next_action='';}result.blockers=result.blockers.filter(b=>b!==id);};
+ if(runtime.mode==='postgres')pass('legacy_financial_writers_still_active','La configuración activa indica PostgreSQL; el gateway bloquea las rutas financieras heredadas.');
+ else if(runtime.mode==='freeze'){const gate=result.gates.find(g=>g.id==='legacy_financial_writers_still_active');if(gate){gate.detail='La autoridad está en pausa; el gateway bloquea escrituras mientras dure la congelación.';gate.next_action='Verificar el estado operativo antes de reanudar.';}result.blockers.push('authority_frozen');}
+ else if(runtime.mode==='unknown'){const gate=result.gates.find(g=>g.id==='legacy_financial_writers_still_active');if(gate){gate.detail='La configuración de autoridad no pudo verificarse.';gate.next_action='Revisar la configuración operativa y el gateway.';}result.blockers.push('authority_unknown');}
+ if(runtime.delta_verified)pass('final_cutover_delta_not_verified','El informe de corte registra captura estable y diferencias cubiertas.');
+ if(runtime.rehearsal_verified)pass('cutover_and_rollback_not_rehearsed','La constancia operativa verifica el ensayo de cambio y reversión.');
+ else if(runtime.mode==='postgres'){const gate=result.gates.find(g=>g.id==='cutover_and_rollback_not_rehearsed');if(gate){gate.detail='El historial documenta un ensayo, pero no hay una constancia estructurada verificable automáticamente.';gate.next_action='Consultar el runbook y registrar una constancia verificable si se necesita ese diagnóstico automatizado.';}}
+ result.ready=result.authoritative&&result.blockers.length===0;
+ result.note='Diagnóstico de solo lectura: la autoridad observada proviene de la configuración; los gates históricos y de calidad de datos se evalúan por separado. No cambia permisos ni activa escrituras.';
+ return {...result,active_authority:{mode:runtime.mode,authoritative:runtime.mode==='postgres',frozen:runtime.mode==='freeze'},cutover_evidence:{delta_verified:runtime.delta_verified,rehearsal_verified:runtime.rehearsal_verified}};
 }
 
 export async function authorityReadiness(db:pg.Pool,household:string){
@@ -80,5 +93,5 @@ export async function authorityReadiness(db:pg.Pool,household:string){
   b3_snapshot_publication_total:(await db.query('SELECT count(*)::int AS total FROM app.b3_snapshot_publications WHERE household_id=$1',[household])).rows[0].total,
   external_snapshot_publication_total:(await db.query('SELECT count(*)::int AS total FROM app.external_position_snapshot_publications WHERE household_id=$1',[household])).rows[0].total,
   pending_proposals:proposals.rows[0].pending,applied_events:events.rows[0].applied};
- return assessAuthorityReadiness(facts);
+ return assessAuthorityReadiness(facts,await readRuntimeAuthority());
 }
