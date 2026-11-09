@@ -159,4 +159,4 @@ El formulario preparado permite seleccionar base civil o DI B3 e ingresar el có
 Cuando la proyección usa fechas futuras estimadas de calendario, el detalle del título indica cuántas fechas dependen de ese escenario y que pueden cambiar.
 
 
-La sección Renda fixa agrupa alertas calculadas por vencimiento, cobertura insuficiente y evaluación bloqueada. La ventana de vencimientos es de 90 días y exige coincidencia inequívoca con una posición vigente y fotografía de hasta 31 días. Se informa fecha, versión de regla y fuente. Las evaluaciones se recalculan al consultar y no mantienen historial persistente.
+La sección Renda fixa agrupa alertas calculadas por vencimiento, cobertura insuficiente y evaluación bloqueada. La ventana de vencimientos es de 90 días y exige coincidencia inequívoca con una posición vigente y fotografía de hasta 31 días. Se informa fecha, versión de regla y fuente. Al consultar se calcula y guarda la evaluación; el historial permite consultar las 20 evaluaciones más recientes y sus alertas. Repetir los mismos datos no crea duplicados.

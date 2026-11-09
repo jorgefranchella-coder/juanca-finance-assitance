@@ -35,6 +35,7 @@ class PortfolioStub(BaseHTTPRequestHandler):
                      'market_value_cents': '999999', 'quantity': '1', 'price_as_of': '2026-10-23'},
                 ],
             },
+            '/v1/alert-evaluations': {'evaluations': []},
             '/v1/fixed-income-projection': {'positions': [], 'mode': 'shadow', 'authoritative': False},
             '/v1/position-identities/acquisition-reconciliation': {'positions': [
                 {'owner': 'Jorge', 'institution': 'BTG', 'custody_account_id': 'acct-petr', 'instrument_code': 'PETR4',
@@ -139,6 +140,17 @@ class CutoverAuthorityGatewayTests(unittest.TestCase):
         self.assertEqual(status, 200); self.assertEqual(portfolio['mode'], 'postgres'); self.assertTrue(portfolio['authoritative'])
         status, projection = self.request('GET', '/api/shadow/fixed-income-projection')
         self.assertEqual(status, 200); self.assertEqual(projection['mode'], 'postgres'); self.assertTrue(projection['authoritative'])
+
+    def test_alert_evaluation_routes_forward_actor_and_respect_freeze(self):
+        path = '/api/shadow/alert-evaluations'
+        status, body = self.request('GET', path)
+        self.assertEqual(status, 200); self.assertEqual(body['evaluations'], [])
+        status, body = self.request('POST', path, {})
+        self.assertEqual(status, 201); self.assertTrue(body['saved'])
+        self.assertIn(('POST', '/v1/alert-evaluations', 'fixture-user'), PortfolioStub.calls)
+        self.authority.write_text(json.dumps({'mode': 'freeze'}))
+        status, _body = self.request('POST', path, {})
+        self.assertEqual(status, 423)
 
     def test_photo_clarification_routes_read_and_authenticated_actor(self):
         path = '/api/shadow/evidence/photos/11111111-1111-4111-8111-111111111111/clarifications'

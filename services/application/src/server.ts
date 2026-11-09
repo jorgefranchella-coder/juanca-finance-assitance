@@ -1,3 +1,4 @@
+import {evaluateCurrentAlerts,listAlertEvaluations} from './alert-evaluations.ts';
 import {readRuntimeAuthority} from './runtime-authority.ts';
 import {listPhotoClarifications,recordPhotoClarification} from './photo-clarifications.ts';
 import {reviewCounts} from './review-counts.ts';
@@ -51,6 +52,8 @@ const server=createServer(async(req,res)=>{
    if(process.env.JUANCA_CONFIRMATIONS_WRITABLE!=='true')throw new Conflict('SHADOW_READ_ONLY',405);
    reply(200,await completeQuoteRefreshFollowUp(db,config.household_id,String(req.headers['x-juanca-actor']??''),quoteFollowUp[1]));return;
   }
+  if(url.pathname==='/v1/alert-evaluations'&&req.method==='GET'){reply(200,await listAlertEvaluations(db,config.household_id));return;}
+  if(url.pathname==='/v1/alert-evaluations'&&req.method==='POST'){const authority=await readRuntimeAuthority();if(authority.mode!=='postgres')throw new Conflict('AUTHORITY_NOT_POSTGRES',409);reply(200,await evaluateCurrentAlerts(db,config.household_id,String(req.headers['x-juanca-actor']??'')));return;}
   if(url.pathname==='/v1/fixed-income-projection'&&req.method==='GET'){reply(200,await fixedIncomeProjection(db,config.household_id));return;}
   if(url.pathname==='/v1/fixed-income-terms'&&req.method==='GET'){reply(200,await listFixedIncomeContractTerms(db,config.household_id));return;}
   if(url.pathname==='/v1/fixed-income-terms'&&req.method==='POST'){

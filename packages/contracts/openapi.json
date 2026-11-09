@@ -19,6 +19,10 @@
     }
   },
   "paths": {
+    "/v1/alert-evaluations": {
+      "get": {"security":[{"bearerAuth":[]}],"summary":"List the 20 most recent saved alert evaluations", "responses":{"200":{"description":"Evaluation history with alerts, rule version and portfolio version"}}},
+      "post": {"security":[{"bearerAuth":[]}],"summary":"Evaluate server-side portfolio evidence and save an immutable deduplicated result", "parameters":[{"name":"X-Juanca-Actor","in":"header","required":true,"schema":{"type":"string"}}],"responses":{"200":{"description":"Saved or identical previously saved evaluation"},"403":{"description":"Actor has no review permission"},"409":{"description":"Portfolio changed or PostgreSQL is not authoritative"}}}
+    },
     "/v1/reconciliation/external/snapshots/{document_id}/publish": {
       "post": {
         "security": [{"bearerAuth": []}],

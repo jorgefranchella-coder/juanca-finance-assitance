@@ -1,3 +1,4 @@
+import {persistAlertEvaluation,listAlertEvaluations} from '../src/alert-evaluations.ts';
 import {test,before,after} from 'node:test';
 import {ingestAvenueConfirmationResult,ingestAvenueStatementResult,ingestPensionResult} from '../src/ingestion-bridge.ts';
 import {prepareAvenueTradeProposals} from '../src/avenue-trade-proposals.ts';
@@ -735,4 +736,15 @@ test('photo clarifications are owner-scoped, immutable, versioned and idempotent
  const read=await listPhotoClarifications(db,h,id);assert.equal(read.clarifications.length,4);assert.equal(read.clarifications[1].supersedes_id,first.clarification_id);assert.equal(read.portfolio_changed,false);assert.equal(read.evidence_status,'awaiting_review');
  await assert.rejects(()=>listPhotoClarifications(db,other,id),/NOT_FOUND/);await assert.rejects(()=>recordPhotoClarification(db,h,actor,id,{...body,request_key:'clarification-no-plan',metadata:{fund_name:'Fondo'}}),/PLAN_REQUIRED/);
  await assert.rejects(()=>db.query('UPDATE app.photo_evidence_clarifications SET provenance=$3 WHERE household_id=$1 AND id=$2',[h,first.clarification_id,'changed']),/PHOTO_CLARIFICATION_IMMUTABLE/);
+});
+
+
+test('alert evaluations persist immutable evidence and deduplicate identical inputs',async()=>{
+ const f=await fixture();const version=hash(randomUUID());await db.query("INSERT INTO app.portfolio_versions(household_id,id,facts_revision,market_revision,calculation_version,effective_as_of,known_at,view) VALUES($1,$2,0,'market','test','2026-11-09',now(),'{}')",[f.h,version]);const input={evaluated_on:'2026-11-09',portfolio_version:version,positions:[],projections:[]};
+ await assert.rejects(()=>persistAlertEvaluation(db,f.h,'unknown',input),(e:unknown)=>e instanceof Conflict&&e.code==='FORBIDDEN');
+ const [first,replay]=await Promise.all([persistAlertEvaluation(db,f.h,f.actor,input),persistAlertEvaluation(db,f.h,f.actor,input)]);assert.equal(first.evaluation_id,replay.evaluation_id);assert.equal([first.replayed,replay.replayed].filter(Boolean).length,1);
+ const later=await persistAlertEvaluation(db,f.h,f.actor,{...input,evaluated_on:'2026-11-10'});assert.notEqual(first.evaluation_id,later.evaluation_id);
+ const list=await listAlertEvaluations(db,f.h);assert.equal(list.evaluations.length,2);assert.deepEqual(list.evaluations[0].alerts,[]);
+ await assert.rejects(()=>db.query('UPDATE app.alert_evaluations SET alerts=$3 WHERE household_id=$1 AND id=$2',[f.h,first.evaluation_id,'[]']));
+ await assert.rejects(()=>db.query('DELETE FROM app.alert_evaluations WHERE household_id=$1 AND id=$2',[f.h,first.evaluation_id]));
 });

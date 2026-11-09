@@ -127,6 +127,7 @@ SHADOW_ROUTES = {
     '/api/shadow/reviews/counts': {'GET'},
     '/api/shadow/positions': {'GET'},
     '/api/shadow/fixed-income-projection': {'GET'},
+    '/api/shadow/alert-evaluations': {'GET', 'POST'},
     '/api/shadow/fixed-income-terms': {'GET', 'POST'},
     '/api/shadow/conversations/family/messages': {'GET', 'POST'},
     '/api/shadow/evidence/text': {'GET', 'POST'},
@@ -295,6 +296,7 @@ class Gateway(BaseHTTPRequestHandler):
                     SHADOW_POSITION_ACQUISITIONS.fullmatch(path) or
                     path == '/api/shadow/confirmations' and self.command == 'POST' or
                     path == '/api/shadow/fixed-income-terms' and self.command == 'POST' or
+                    path == '/api/shadow/alert-evaluations' and self.command == 'POST' or
                     SHADOW_CONFIRMATION_DECISION.fullmatch(path) or
                     SHADOW_PHOTO_CLARIFICATIONS.fullmatch(path) or
                     path == '/api/shadow/proposals' and self.command == 'POST' or
