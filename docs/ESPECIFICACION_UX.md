@@ -160,3 +160,6 @@ Cuando la proyección usa fechas futuras estimadas de calendario, el detalle del
 
 
 La sección Renda fixa agrupa alertas calculadas por vencimiento, cobertura insuficiente y evaluación bloqueada. La ventana de vencimientos es de 90 días y exige coincidencia inequívoca con una posición vigente y fotografía de hasta 31 días. Se informa fecha, versión de regla y fuente. Al consultar se calcula y guarda la evaluación; el historial permite consultar las 20 evaluaciones más recientes y sus alertas. Repetir los mismos datos no crea duplicados.
+
+
+En Projeções se pueden nombrar y guardar escenarios, abrir cualquier versión y comparar sus resultados con los supuestos editados. Guardar sobre un escenario agrega una versión; crear otro inicia una historia independiente. Se distingue capital manual de cartera completa vinculada, con método y advertencia de estimación visibles.

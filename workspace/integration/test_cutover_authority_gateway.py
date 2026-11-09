@@ -36,6 +36,7 @@ class PortfolioStub(BaseHTTPRequestHandler):
                 ],
             },
             '/v1/alert-evaluations': {'evaluations': []},
+            '/v1/planning-scenarios': {'versions': []},
             '/v1/fixed-income-projection': {'positions': [], 'mode': 'shadow', 'authoritative': False},
             '/v1/position-identities/acquisition-reconciliation': {'positions': [
                 {'owner': 'Jorge', 'institution': 'BTG', 'custody_account_id': 'acct-petr', 'instrument_code': 'PETR4',
@@ -140,6 +141,18 @@ class CutoverAuthorityGatewayTests(unittest.TestCase):
         self.assertEqual(status, 200); self.assertEqual(portfolio['mode'], 'postgres'); self.assertTrue(portfolio['authoritative'])
         status, projection = self.request('GET', '/api/shadow/fixed-income-projection')
         self.assertEqual(status, 200); self.assertEqual(projection['mode'], 'postgres'); self.assertTrue(projection['authoritative'])
+
+    def test_planning_scenarios_route_checks_actor_and_freeze(self):
+        path = '/api/shadow/planning-scenarios'
+        status, body = self.request('GET', path)
+        self.assertEqual(status, 200); self.assertEqual(body['versions'], [])
+        self.assertIn(('GET', '/v1/planning-scenarios', 'fixture-user'), PortfolioStub.calls)
+        status, _body = self.request('POST', path, {'name': 'fixture'})
+        self.assertEqual(status, 201)
+        self.assertIn(('POST', '/v1/planning-scenarios', 'fixture-user'), PortfolioStub.calls)
+        self.authority.write_text(json.dumps({'mode': 'freeze'}))
+        status, _body = self.request('POST', path, {'name': 'fixture'})
+        self.assertEqual(status, 423)
 
     def test_alert_evaluation_routes_forward_actor_and_respect_freeze(self):
         path = '/api/shadow/alert-evaluations'

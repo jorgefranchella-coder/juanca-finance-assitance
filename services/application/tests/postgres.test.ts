@@ -1,3 +1,4 @@
+import {savePlanningScenario,listPlanningScenarios} from '../src/planning-scenarios.ts';
 import {persistAlertEvaluation,listAlertEvaluations} from '../src/alert-evaluations.ts';
 import {test,before,after} from 'node:test';
 import {ingestAvenueConfirmationResult,ingestAvenueStatementResult,ingestPensionResult} from '../src/ingestion-bridge.ts';
@@ -747,4 +748,23 @@ test('alert evaluations persist immutable evidence and deduplicate identical inp
  const list=await listAlertEvaluations(db,f.h);assert.equal(list.evaluations.length,2);assert.deepEqual(list.evaluations[0].alerts,[]);
  await assert.rejects(()=>db.query('UPDATE app.alert_evaluations SET alerts=$3 WHERE household_id=$1 AND id=$2',[f.h,first.evaluation_id,'[]']));
  await assert.rejects(()=>db.query('DELETE FROM app.alert_evaluations WHERE household_id=$1 AND id=$2',[f.h,first.evaluation_id]));
+});
+
+
+test('planning scenarios persist versions with isolation, idempotency and reproducible assumptions',async()=>{
+ const f=await fixture(),other=await fixture();const assumptions={starting_minor:100000,annual_return_pct:10,inflation_pct:5,years:2},body={name:'Fixture',assumptions,source_kind:'manual',portfolio_version:null};
+ const before=(await db.query('SELECT facts_revision FROM app.household_state WHERE household_id=$1',[f.h])).rows[0].facts_revision;const holdingsBefore=(await db.query('SELECT count(*)::int n FROM app.holdings WHERE household_id=$1',[f.h])).rows[0].n;
+ await assert.rejects(()=>savePlanningScenario(db,f.h,'unknown','scenario-fixture-0',body),(e:unknown)=>e instanceof Conflict&&e.code==='FORBIDDEN');
+ const a=await savePlanningScenario(db,f.h,f.actor,'scenario-fixture-1',body),replay=await savePlanningScenario(db,f.h,f.actor,'scenario-fixture-1',body);assert.equal(a.id,replay.id);assert.equal(replay.replayed,true);assert.equal(a.result.nominal_minor,121000);
+ const b=await savePlanningScenario(db,f.h,f.actor,'scenario-fixture-2',{...body,scenario_id:a.scenario_id,expected_revision:1,assumptions:{...assumptions,years:3}});assert.equal(b.revision,2);
+ await assert.rejects(()=>savePlanningScenario(db,f.h,f.actor,'scenario-fixture-3',{...body,scenario_id:a.scenario_id,expected_revision:1}),(e:unknown)=>e instanceof Conflict&&e.code==='SCENARIO_REVISION_CONFLICT');
+ await assert.rejects(()=>savePlanningScenario(db,other.h,other.actor,'scenario-fixture-4',{...body,scenario_id:a.scenario_id,expected_revision:2}),(e:unknown)=>e instanceof Conflict&&e.code==='SCENARIO_REVISION_CONFLICT');
+ const pv=hash(randomUUID());await db.query("INSERT INTO app.portfolio_versions(household_id,id,facts_revision,market_revision,calculation_version,effective_as_of,known_at,view) VALUES($1,$2,0,'market','test','2026-11-09',now(),$3)",[f.h,pv,{valuation_complete:true,total_value_cents:100000}]);
+ const linked=await savePlanningScenario(db,f.h,f.actor,'scenario-fixture-p',{...body,source_kind:'portfolio',portfolio_version:pv});assert.equal(linked.revision,1);
+ await assert.rejects(()=>savePlanningScenario(db,f.h,f.actor,'scenario-fixture-q',{...body,source_kind:'portfolio',portfolio_version:pv,assumptions:{...assumptions,starting_minor:99999}}),(e:unknown)=>e instanceof Conflict&&e.code==='PORTFOLIO_REFERENCE_MISMATCH');
+ await assert.rejects(()=>savePlanningScenario(db,other.h,other.actor,'scenario-fixture-r',{...body,source_kind:'portfolio',portfolio_version:pv}));
+ assert.equal((await listPlanningScenarios(db,other.h,other.actor)).versions.length,0);const versions=(await listPlanningScenarios(db,f.h,f.actor)).versions;assert.equal(versions.length,3);assert.equal(versions.find(v=>v.scenario_id===a.scenario_id&&v.revision===1).result.nominal_minor,121000);
+ await assert.rejects(()=>db.query('UPDATE app.planning_scenario_versions SET name=$3 WHERE household_id=$1 AND id=$2',[f.h,a.id,'changed']));
+ await assert.rejects(()=>db.query('DELETE FROM app.planning_scenario_versions WHERE household_id=$1 AND id=$2',[f.h,a.id]));
+ assert.equal((await db.query('SELECT facts_revision FROM app.household_state WHERE household_id=$1',[f.h])).rows[0].facts_revision,before);assert.equal((await db.query('SELECT count(*)::int n FROM app.holdings WHERE household_id=$1',[f.h])).rows[0].n,holdingsBefore);
 });

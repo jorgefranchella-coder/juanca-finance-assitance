@@ -3,7 +3,8 @@
 import { KeyboardEvent, useEffect, useState } from "react";
 import { DashboardMetrics } from "./DashboardData";
 import FixedIncomeProjection from "./FixedIncomeProjection";
-import { DataImportPanel, ProjectionPanel, RecommendationsPanel } from "./InteractiveWorkspace";
+import { DataImportPanel, RecommendationsPanel } from "./InteractiveWorkspace";
+import PlanningScenarios from "./PlanningScenarios";
 import TransactionChat from "./TransactionChat";
 import JuancaChat from "./JuancaChat";
 import SiteTools from "./SiteTools";
@@ -98,7 +99,7 @@ export default function TabbedWorkspace() {
         {active === "juanca" && <JuancaChat />}
         {active === "imports" && <DataImportPanel />}
         {active === "fixed-income" && <><CalculatedAlerts /><FixedIncomeProjection endpoint="/api/shadow/fixed-income-projection" shadow /></>}
-        {active === "projections" && <ProjectionPanel />}
+        {active === "projections" && <PlanningScenarios />}
         {active === "recommendations" && <RecommendationsPanel />}
       </section>
     </section>

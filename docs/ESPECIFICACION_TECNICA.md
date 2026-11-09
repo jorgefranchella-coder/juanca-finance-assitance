@@ -316,3 +316,6 @@ Las alertas de renta fija cotejan la identidad de custodia con una afirmación B
 
 
 La herramienta MCP `consultar_vencimientos` valida sus argumentos en el despachador: acepta `propietario` y el alias portugués explícito `proprietario`, rechaza claves desconocidas y titulares contradictorios, y comprueba el filtro devuelto antes de responder. Una consulta familiar deja ambos campos vacíos. Las pruebas usan el despachador FastMCP real y una cartera sintética con titulares intercalados.
+
+
+La migración 041 guarda versiones inmutables de escenarios de planificación por familia y actor. `nominal-real-v1` proyecta capital en BRL con retorno e inflación anuales constantes, horizonte de 1–80 años y redondeo a centavos; no modela impuestos, costos ni flujos. La fuente es manual no verificada o una versión de cartera con valoración completa cuyo total coincide con el capital. La API exige membresía e idempotencia, impide sobrescribir versiones concurrentes y nunca altera posiciones o eventos.

@@ -128,6 +128,7 @@ SHADOW_ROUTES = {
     '/api/shadow/positions': {'GET'},
     '/api/shadow/fixed-income-projection': {'GET'},
     '/api/shadow/alert-evaluations': {'GET', 'POST'},
+    '/api/shadow/planning-scenarios': {'GET', 'POST'},
     '/api/shadow/fixed-income-terms': {'GET', 'POST'},
     '/api/shadow/conversations/family/messages': {'GET', 'POST'},
     '/api/shadow/evidence/text': {'GET', 'POST'},
@@ -301,6 +302,8 @@ class Gateway(BaseHTTPRequestHandler):
                     SHADOW_PHOTO_CLARIFICATIONS.fullmatch(path) or
                     path == '/api/shadow/proposals' and self.command == 'POST' or
                     SHADOW_PROPOSAL_COMMAND.fullmatch(path)) and self.command == 'POST':
+                headers['X-Juanca-Actor'] = CONFIG['user_id']
+            if path == '/api/shadow/planning-scenarios':
                 headers['X-Juanca-Actor'] = CONFIG['user_id']
             if self.headers.get('Content-Type'):
                 headers['Content-Type'] = self.headers['Content-Type']

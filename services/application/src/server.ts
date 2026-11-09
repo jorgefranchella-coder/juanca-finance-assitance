@@ -1,3 +1,4 @@
+import {listPlanningScenarios,savePlanningScenario} from './planning-scenarios.ts';
 import {evaluateCurrentAlerts,listAlertEvaluations} from './alert-evaluations.ts';
 import {readRuntimeAuthority} from './runtime-authority.ts';
 import {listPhotoClarifications,recordPhotoClarification} from './photo-clarifications.ts';
@@ -52,6 +53,8 @@ const server=createServer(async(req,res)=>{
    if(process.env.JUANCA_CONFIRMATIONS_WRITABLE!=='true')throw new Conflict('SHADOW_READ_ONLY',405);
    reply(200,await completeQuoteRefreshFollowUp(db,config.household_id,String(req.headers['x-juanca-actor']??''),quoteFollowUp[1]));return;
   }
+  if(url.pathname==='/v1/planning-scenarios'&&req.method==='GET'){reply(200,await listPlanningScenarios(db,config.household_id,String(req.headers['x-juanca-actor']??'')));return;}
+  if(url.pathname==='/v1/planning-scenarios'&&req.method==='POST'){const authority=await readRuntimeAuthority();if(authority.mode!=='postgres')throw new Conflict('AUTHORITY_NOT_POSTGRES',409);reply(201,await savePlanningScenario(db,config.household_id,String(req.headers['x-juanca-actor']??''),String(req.headers['idempotency-key']??''),await readJson(req)));return;}
   if(url.pathname==='/v1/alert-evaluations'&&req.method==='GET'){reply(200,await listAlertEvaluations(db,config.household_id));return;}
   if(url.pathname==='/v1/alert-evaluations'&&req.method==='POST'){const authority=await readRuntimeAuthority();if(authority.mode!=='postgres')throw new Conflict('AUTHORITY_NOT_POSTGRES',409);reply(200,await evaluateCurrentAlerts(db,config.household_id,String(req.headers['x-juanca-actor']??'')));return;}
   if(url.pathname==='/v1/fixed-income-projection'&&req.method==='GET'){reply(200,await fixedIncomeProjection(db,config.household_id));return;}

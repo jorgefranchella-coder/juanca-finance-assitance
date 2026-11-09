@@ -101,7 +101,7 @@ El escenario parte del valor de la posición en su última fotografía, con fech
 
 ## 6. Pendientes de producto
 
-El corte a PostgreSQL se completó el 24/10/2026. Las 29 diferencias del delta congelado fueron cubiertas por decisiones explícitas y permanecen como diferencias aceptadas entre la copia D1/R2 y la autoridad nueva. Mejoras posteriores: resolver confirmaciones B3 históricas que sigan abiertas, completar identidades/costos de adquisición cuando haya evidencia, y desarrollar escenarios guardados y alertas calculadas, y completar las fuentes contractuales y de índices aún faltantes. Ninguna implica revertir la autoridad.
+El corte a PostgreSQL se completó el 24/10/2026. Las 29 diferencias del delta congelado fueron cubiertas por decisiones explícitas y permanecen como diferencias aceptadas entre la copia D1/R2 y la autoridad nueva. Mejoras posteriores: resolver confirmaciones B3 históricas que sigan abiertas, completar identidades/costos de adquisición cuando haya evidencia, ampliar las alertas y escenarios implementados, y completar las fuentes contractuales y de índices aún faltantes. Ninguna implica revertir la autoridad.
 
 ## 7. Estado verificable de capacidades (P0-02)
 
@@ -118,7 +118,7 @@ Esta matriz describe disponibilidad, no certifica aceptación integral. Una capa
 | Corrección integral con historial y publicación | Parcialmente vigente | Snapshots aprobados actualizan la cartera; conciliaciones históricas pendientes continúan en Revisiones |
 | Proyección contractual | Implementada y desplegada | Requiere condiciones y flujos con evidencia, identidad de custodia y cobertura de calendario e índices; impuestos y pagos no documentados no se inventan. Validación aislada registrada el 01/11/2026; continuidad DI 2027 pendiente en #7. |
 | Alertas calculadas | Vigente, alcance inicial | Renta fija evalúa vencimiento y cobertura, conserva fuentes y evaluaciones inmutables en PostgreSQL y bloquea datos no verificables. No envía mensajes ni ejecuta operaciones. |
-| Escenarios guardados | Pendiente | La simulación visible no implica persistencia ni versionado; seguimiento #3. |
+| Escenarios guardados | Implementado y desplegado | Las proyecciones BRL guardan supuestos, resultados y versiones inmutables, comparables con una nueva simulación. El capital puede ser manual o vinculado a una cartera de valoración completa. |
 
 **Registro de validación (08/11/2026):** sobre el código de proyección y autoridad de `b7e7adc`, pasaron 31 pruebas sintéticas de autoridad, tasa fija, índices, cupones, amortizaciones, cobertura incompleta y convención DI/252. Son pruebas del cálculo y del diagnóstico, no una certificación de los contratos o importes reales. La activación productiva de la interfaz contractual se verificó el 01/11/2026 y está detallada en la especificación técnica. Los issues #1 y #2 fueron cerrados por decisión del usuario; su cierre no constituye una validación adicional. La continuidad DI se sigue en #7, y escenarios y alertas en #3 y #4. El estado del OCR HEIC se sigue en el historial de #5, cerrado; no se presume por ello una nueva prueba de documentos reales.
 

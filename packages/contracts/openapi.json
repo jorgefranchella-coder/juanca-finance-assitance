@@ -19,6 +19,10 @@
     }
   },
   "paths": {
+    "/v1/planning-scenarios": {
+      "get": {"security":[{"bearerAuth":[]}],"summary":"List saved scenario versions for an authorized household member", "parameters":[{"name":"X-Juanca-Actor","in":"header","required":true,"schema":{"type":"string"}}],"responses":{"200":{"description":"Saved immutable scenario versions"},"403":{"description":"Actor is not a household member"}}},
+      "post": {"security":[{"bearerAuth":[]}],"summary":"Create a scenario or append a version without changing portfolio facts", "parameters":[{"name":"X-Juanca-Actor","in":"header","required":true,"schema":{"type":"string"}},{"name":"Idempotency-Key","in":"header","required":true,"schema":{"type":"string"}}],"responses":{"201":{"description":"Saved or idempotently replayed version"},"403":{"description":"Actor is not authorized"},"409":{"description":"Stale scenario version or mismatched portfolio reference"},"422":{"description":"Invalid assumptions"}}}
+    },
     "/v1/alert-evaluations": {
       "get": {"security":[{"bearerAuth":[]}],"summary":"List the 20 most recent saved alert evaluations", "responses":{"200":{"description":"Evaluation history with alerts, rule version and portfolio version"}}},
       "post": {"security":[{"bearerAuth":[]}],"summary":"Evaluate server-side portfolio evidence and save an immutable deduplicated result", "parameters":[{"name":"X-Juanca-Actor","in":"header","required":true,"schema":{"type":"string"}}],"responses":{"200":{"description":"Saved or identical previously saved evaluation"},"403":{"description":"Actor has no review permission"},"409":{"description":"Portfolio changed or PostgreSQL is not authoritative"}}}
