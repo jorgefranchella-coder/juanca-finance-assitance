@@ -313,3 +313,6 @@ Las fotos HEIC pueden procesarse mediante una conversión temporal a PNG y OCR l
 
 
 Las alertas de renta fija cotejan la identidad de custodia con una afirmación B3 vinculada: requiere interpretación observada sin revisión pendiente, vencimiento y cantidad coincidentes y documento con fecha anterior o igual a la fotografía. La respuesta conserva documento, fila y fecha de la fuente; una interpretación observada no equivale a una revisión humana. Si el vínculo es ambiguo, posterior o incompleto, el vencimiento queda bloqueado. La migración 040 conserva en PostgreSQL evaluaciones inmutables con fecha, versión de regla, versión de cartera, evidencia y alertas; una huella de entradas evita duplicados. La API calcula con fuentes del servidor y rechaza cambios de versión de cartera durante el cálculo. El historial expone las 20 evaluaciones más recientes.
+
+
+La herramienta MCP `consultar_vencimientos` valida sus argumentos en el despachador: acepta `propietario` y el alias portugués explícito `proprietario`, rechaza claves desconocidas y titulares contradictorios, y comprueba el filtro devuelto antes de responder. Una consulta familiar deja ambos campos vacíos. Las pruebas usan el despachador FastMCP real y una cartera sintética con titulares intercalados.

@@ -377,13 +377,27 @@ def _compact_maturities(projection, owner, horizon, category, cutoff, limit, cur
 
 
 @mcp.tool()
-def consultar_vencimientos(propietario: str = '', horizonte_dias: int = 365, categoria: str = 'futuros', fecha_corte: str = '', limite: int = 20, cursor: str = '') -> dict:
-    """Próximos vencimientos de renta fija sin volcar calendarios de proyección. propietario: Jorge, Julia o vacío; horizonte_dias: 1–3650; categoria: futuros (desde fecha_corte inclusive), vencidos o sin_fecha; fecha_corte AAAA-MM-DD (por defecto hoy en São Paulo); limite: 1–50. Para más resultados repite exactamente los parámetros y pasa siguiente_cursor. Si no hay proyección contractual no inventes el importe; la fecha conocida sigue visible. Para preguntas en español o portugués usa esta herramienta, no inventes vistas de consultar_patrimonio."""
+def consultar_vencimientos(propietario: str = '', horizonte_dias: int = 365, categoria: str = 'futuros', fecha_corte: str = '', limite: int = 20, cursor: str = '', proprietario: str = '') -> dict:
+    """Próximos vencimientos de renta fija sin volcar calendarios de proyección. propietario: Jorge, Julia o vacío; horizonte_dias: 1–3650; categoria: futuros (desde fecha_corte inclusive), vencidos o sin_fecha; fecha_corte AAAA-MM-DD (por defecto hoy en São Paulo); limite: 1–50. Para más resultados repite exactamente los parámetros y pasa siguiente_cursor. Si no hay proyección contractual no inventes el importe; la fecha conocida sigue visible. Para preguntas en español o portugués usa esta herramienta, no inventes vistas de consultar_patrimonio. Conserva los nombres de parámetros del contrato sin traducirlos; proprietario se admite solo como alias explícito. Antes de afirmar que la respuesta corresponde a un titular comprueba que filtro.titular coincida; si no coincide vuelve a consultar correctamente o informa el problema. Para una consulta familiar deja ambos campos vacíos."""
+    if propietario and proprietario and propietario != proprietario:
+        raise ValueError('Los parámetros propietario y proprietario indican titulares distintos; vuelve a consultar con un solo titular')
+    propietario = propietario or proprietario
     if authority_mode() != 'postgres':
         raise ValueError('No se pudo confirmar la autoridad PostgreSQL para consultar vencimientos')
     cutoff = fecha_corte or datetime.now(ZoneInfo('America/Sao_Paulo')).date().isoformat()
     result = api('/api/shadow/fixed-income-projection')
-    return _compact_maturities(result, propietario, horizonte_dias, categoria, cutoff, limite, cursor)
+    response = _compact_maturities(result, propietario, horizonte_dias, categoria, cutoff, limite, cursor)
+    if response.get('filtro', {}).get('titular') != (propietario or None):
+        raise ValueError('El filtro de titular no coincide con la consulta; vuelve a intentarlo')
+    return response
+
+
+# FastMCP's default argument model ignores extra keys; this financial query must fail closed.
+if getattr(mcp, '_tool_manager', None) is not None:
+    _maturity_tool = mcp._tool_manager.get_tool('consultar_vencimientos')
+    _maturity_tool.fn_metadata.arg_model.model_config['extra'] = 'forbid'
+    _maturity_tool.fn_metadata.arg_model.model_rebuild(force=True)
+    _maturity_tool.parameters = _maturity_tool.fn_metadata.arg_model.model_json_schema(by_alias=True)
 
 
 @mcp.tool()
