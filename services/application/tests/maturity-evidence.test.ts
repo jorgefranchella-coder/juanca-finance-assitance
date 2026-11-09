@@ -1,0 +1,7 @@
+import {test} from 'node:test';import assert from 'node:assert/strict';import {maturityEvidence} from '../src/maturity-evidence.ts';
+const item={maturity_date:'2027-02-01',reference_date:'2026-10-01',quantity:2};
+const source={assertion_status:'observed',interpretation_status:'parsed',assertion_raw:{Vencimento:'01/02/2027'},assertion_quantity:'2',assertion_id:'assertion',assertion_document_id:'document',assertion_sheet:'Renda Fixa',assertion_row:2,assertion_reference_date:'2026-10-01'};
+test('requires matching linked assertion and retains exact provenance',()=>{assert.deepEqual(maturityEvidence(item,source),{maturity_review_status:'clear',maturity_source_id:'document',maturity_assertion_id:'assertion',maturity_source_locator:'Renda Fixa · fila 2',maturity_source_date:'2026-10-01'});});
+test('does not accept pending review, mismatches, or missing evidence',()=>{assert.equal(maturityEvidence(item,{...source,interpretation_status:'needs_review'}).maturity_review_status,'pending');for(const bad of [null,{...source,assertion_status:'needs_review'},{...source,assertion_quantity:'3'},{...source,assertion_reference_date:'2026-10-02'},{...source,assertion_raw:{Vencimento:'02/02/2027'}},{...source,assertion_id:null}])assert.notEqual(maturityEvidence(item,bad).maturity_review_status,'clear');});
+
+test('allows an older linked observation while preserving its date',()=>assert.equal(maturityEvidence(item,{...source,assertion_reference_date:'2026-09-01'}).maturity_source_date,'2026-09-01'));

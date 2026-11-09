@@ -1,3 +1,4 @@
+import {maturityEvidence} from './maturity-evidence.ts';
 import type pg from 'pg';
 import {buildFixedIncomeProjectionItems,type FixedIncomeGroup,type CostBasisPoint} from './fixed-income-projection.ts';
 import {calculateContractProjection,type ContractTerms} from './fixed-income-contract.ts';
@@ -37,12 +38,12 @@ export async function fixedIncomeProjection(db:pg.Pool,household:string){
  for(const row of archived.rows as ArchivedRow[]){const i=row.import;if(i.status!=='processed'||!['positions','pension_statement'].includes(String(i.file_type))||row.record.record_kind!=='position')continue;
   const item=payload(row),asset=String(item.asset_class??'');if(!fixedClasses.has(asset))continue;
   const owner=String(item.owner??i.owner??''),instrument=code(item.instrument_code||item.product_name),raw=(item.raw&&typeof item.raw==='object'?item.raw:{}) as Record<string,unknown>,issuer=String(item.issuer??raw.Emissor??raw.Emisor??'').trim();
-  const date=String(item.reference_date??i.reference_date??''),quantity=number(item.quantity),maturityDate=isoDate(item.maturity_date)??'',maturityReviewStatus=item.requires_review===true||row.record.needs_review===true?'pending':item.requires_review===false&&row.record.needs_review!==true?'clear':'unknown',maturitySourceId=String(i.id??''),value=valuation(item),derived=value.unit_price>0?value.unit_price:quantity>0?value.market_value_cents/100/quantity:0;
+  const date=String(item.reference_date??i.reference_date??''),quantity=number(item.quantity),maturityDate=isoDate(item.maturity_date)??'',value=valuation(item),derived=value.unit_price>0?value.unit_price:quantity>0?value.market_value_cents/100/quantity:0;
   if(!owner||!instrument||!/^\d{4}-\d{2}-\d{2}$/.test(date)||quantity<=0||derived<=0)continue;
   const currency=String(item.currency??'BRL'),institution=String(item.institution??'').trim(),account=item.account==null||!String(item.account).trim()?null:String(item.account).trim(),key=JSON.stringify([owner,institution,account,instrument,currency]),isCurrent=latest.get(`${i.owner}\0${i.file_type}`)?.id===String(i.id),observation={date,unitPrice:derived,source:value.price_source};
   const current=groups.get(key);
-  if(!current)groups.set(key,{owner,account,instrumentCode:instrument,productName:String(item.product_name??instrument),institution,issuer,assetClass:asset,currency,quantity,maturityDate,latestDate:date,currentUnitPrice:derived,currentValueCents:value.market_value_cents,priceSource:value.price_source,observations:[observation],isCurrent,maturityReviewStatus,maturitySourceId});
-  else{current.observations.push(observation);if(date>=current.latestDate)Object.assign(current,{quantity,maturityDate,latestDate:date,currentUnitPrice:derived,currentValueCents:value.market_value_cents,priceSource:value.price_source,productName:String(item.product_name??instrument),institution,account,isCurrent,issuer,currency,maturityReviewStatus,maturitySourceId});}
+  if(!current)groups.set(key,{owner,account,instrumentCode:instrument,productName:String(item.product_name??instrument),institution,issuer,assetClass:asset,currency,quantity,maturityDate,latestDate:date,currentUnitPrice:derived,currentValueCents:value.market_value_cents,priceSource:value.price_source,observations:[observation],isCurrent});
+  else{current.observations.push(observation);if(date>=current.latestDate)Object.assign(current,{quantity,maturityDate,latestDate:date,currentUnitPrice:derived,currentValueCents:value.market_value_cents,priceSource:value.price_source,productName:String(item.product_name??instrument),institution,account,isCurrent,issuer,currency});}
  }
  const movements=await db.query(`WITH pairs AS (
     SELECT DISTINCT ON (i.original::jsonb->>'id',r.original::jsonb->>'id') i.original::jsonb AS import,r.original::jsonb AS record
@@ -124,10 +125,16 @@ export async function fixedIncomeProjection(db:pg.Pool,household:string){
  const items=buildFixedIncomeProjectionItems(groups.values(),[...costMap.values()]),covered=items.filter(item=>item.projected_value_cents!==null),total=items.reduce((sum,item)=>sum+item.current_value_cents,0),coveredCurrent=covered.reduce((sum,item)=>sum+item.current_value_cents,0),coveredProjected=covered.reduce((sum,item)=>sum+(item.projected_value_cents??0),0);
  const contracts=await db.query(`SELECT p.id AS position_id,p.instrument_code,p.currency,o.display_name AS owner,ci.canonical_name AS institution,ca.external_reference AS account,
    (COALESCE(ir.custody_account_id,p.custody_account_id) IS NOT NULL) AS custody_identity_resolved,
+   a.id AS assertion_id,a.document_id AS assertion_document_id,a.source_sheet AS assertion_sheet,a.source_row AS assertion_row,
+   a.quantity::text AS assertion_quantity,a.raw_row AS assertion_raw,a.interpretation_status AS assertion_status,
+   d.effective_as_of::text AS assertion_reference_date,interpretation.status AS interpretation_status,
    t.method,t.interest_treatment,t.indexer_relation,t.indexer,t.annual_rate_pct::text,t.indexer_assumption_pct::text,t.tax_rate_pct::text,t.schedule_confirmed,t.payment_schedule,t.calculation_basis,t.calendar_code,t.scenario_source,t.scenario_as_of::text,t.source_document_id,t.source_locator,t.revision
    FROM app.position_identities p JOIN app.owners o ON o.household_id=p.household_id AND o.id=p.owner_id JOIN app.custody_institutions ci ON ci.id=p.institution_id
    LEFT JOIN LATERAL (SELECT custody_account_id FROM app.position_identity_resolutions x WHERE x.household_id=p.household_id AND x.position_id=p.id ORDER BY revision DESC LIMIT 1) ir ON true
    LEFT JOIN app.custody_accounts ca ON ca.household_id=p.household_id AND ca.id=COALESCE(ir.custody_account_id,p.custody_account_id)
+   LEFT JOIN app.source_assertions a ON a.household_id=p.household_id AND a.id=p.source_assertion_id
+   LEFT JOIN app.source_documents d ON d.household_id=a.household_id AND d.id=a.document_id
+   LEFT JOIN LATERAL (SELECT status FROM app.source_interpretations si WHERE si.household_id=a.household_id AND si.assertion_id=a.id ORDER BY si.interpreted_at DESC,si.parser_version DESC LIMIT 1) interpretation ON true
    LEFT JOIN LATERAL (SELECT * FROM app.fixed_income_contract_terms x WHERE x.household_id=p.household_id AND x.position_id=p.id ORDER BY revision DESC LIMIT 1) t ON true
    WHERE p.household_id=$1`,[household]);
  const today=new Intl.DateTimeFormat('en-CA',{timeZone:'America/Sao_Paulo',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());
@@ -137,6 +144,7 @@ export async function fixedIncomeProjection(db:pg.Pool,household:string){
  for(const item of items){
    const candidates=contracts.rows.filter(p=>p.custody_identity_resolved&&p.owner===item.owner&&institutionCode(p.institution)===institutionCode(item.institution)&&code(p.instrument_code)===code(item.instrument_code)&&p.currency===item.currency&&(!item.account||!p.account||String(p.account)===String(item.account)));
    const matched=candidates.length===1?candidates[0]:null;
+   Object.assign(item,maturityEvidence(item,matched));
    let contractual;
    if(!matched)contractual={status:'incomplete',missing:[candidates.length?'identidad de cuenta inequívoca':'posición de custodia vinculada'],version:'contract-projection-v1',calendar:[],gross_maturity_cents:null,net_maturity_cents:null,gross_cashflows_cents:null,net_cashflows_cents:null};
    else if(!matched.method)contractual={status:'incomplete',missing:['condiciones contractuales documentadas'],version:'contract-projection-v1',calendar:[],gross_maturity_cents:null,net_maturity_cents:null,gross_cashflows_cents:null,net_cashflows_cents:null,position_id:matched.position_id};
