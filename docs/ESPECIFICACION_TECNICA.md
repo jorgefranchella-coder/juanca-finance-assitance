@@ -10,7 +10,7 @@
 
 > Actualización individual de saldo por foto desplegada el 02/11/2026: el OCR sugiere campos sin aprobarlos, la creación del snapshot valida titular y disponibilidad de la foto y la enlaza de forma transaccional. Una actualización por plan copia los demás desde la última evidencia publicada, con referencia a la afirmación y la fecha original; exige igual base de valoración y comprueba la suma de los planes históricos. Al aprobar se valida que la fuente siga siendo la última publicada, se respeta la fecha de cada plan y se bloquea la operación si hay movimientos posteriores incompatibles. La publicación verifica que todos los planes de una posición histórica agrupada estén presentes antes de retirarla.
 
-**Estado de referencia:** 24 de octubre de 2026. PostgreSQL es la autoridad productiva activa mediante el gateway; D1/R2 se mantiene como recuperación y sus rutas de escritura financiera están bloqueadas. La [especificación funcional](ESPECIFICACION_FUNCIONAL.md) describe reglas de negocio y la [especificación UX](ESPECIFICACION_UX.md), el comportamiento visible.
+**Autoridad vigente:** PostgreSQL es la autoridad productiva activa mediante el gateway desde el 24 de octubre de 2026; D1/R2 se mantiene como recuperación y sus rutas de escritura financiera están bloqueadas. La [especificación funcional](ESPECIFICACION_FUNCIONAL.md) describe reglas de negocio y la [especificación UX](ESPECIFICACION_UX.md), el comportamiento visible.
 
 ## 1. Componentes y autoridad
 

@@ -1,9 +1,9 @@
 {
   "openapi": "3.1.0",
   "info": {
-    "title": "Juanca application shadow API",
+    "title": "Juanca application API",
     "version": "0.24.0",
-    "description": "Shadow API: immutable portfolio, guided conversation, evidence and reconciliation, plus idempotent proposal review/application commands. It is not the financial authority."
+    "description": "Application API for versioned portfolio, guided conversation, evidence, reconciliation and idempotent review commands. Operational authority is determined by the gateway configuration and reported separately by readiness."
   },
   "servers": [
     {

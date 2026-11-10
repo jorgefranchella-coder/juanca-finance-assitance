@@ -113,7 +113,7 @@ La matriz productiva expande años y emisores y muestra referencia por título, 
 
 | Requisito | Presentación requerida |
 |---|---|
-| P0-01 | En renta fija, mostrar título, custodio y cuenta declarada; indicar cuando falta cuenta. Las adquisiciones separadas por cuenta siguen pendientes |
+| P0-01 | En renta fija, mostrar título, custodio y cuenta declarada; indicar cuando falta cuenta. Las adquisiciones pueden registrarse por cuenta; las identidades o costos ambiguos permanecen pendientes de evidencia |
 | P0-02 | En carga/revisión, explicar si el resultado actualiza la cartera o registra evidencia pendiente; evitar términos internos como D1 o PostgreSQL en la tarea del usuario |
 | P0-03 | Detalle muestra tasa histórica, intervalo, cantidad de observaciones, confianza y fuentes usadas, incluida la compra B3 cuando su identidad y cantidad se confirman; advierte mezcla MTM/curva. En Revisões, una conciliación de solo lectura contrasta las compras brutas registradas con el snapshot B3 y explica sus límites. Un costo con fuente de hoja no verificada aparece como excluido, conserva su referencia de celda y no alimenta la tasa hasta confirmar el mapeo. Fechas de emisión/compra/liquidación y conflictos de adquisición siguen pendientes |
 | P0-04 | Encabezados distinguen «Saldo al cierre» y «Vencimientos del período»; año parcial indica fecha de corte y flujos no se presentan como reinversión |
