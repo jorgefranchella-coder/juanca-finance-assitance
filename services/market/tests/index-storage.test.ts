@@ -7,7 +7,7 @@ import {pool as marketPool} from '../src/db.ts';
 import {fetchBcbSelicDaily} from '../src/bcb-selic.ts';
 import {listSelicObservations,storeSelicImport,listDiObservations,storeDiImport} from '../src/index-storage.ts';
 import {listCalendar,storeCalendar} from '../src/calendar-storage.ts';
-import {verifyB3DiCalendar2026,storeVerifiedB3Di2026} from '../src/b3-di-calendar-2026.ts';
+import {verifyB3DiCalendar2026,storeVerifiedB3Di2026,verifyB3DiCalendars,storeVerifiedB3DiBatches,CONFIRMED_CALENDARS} from '../src/b3-di-calendar-2026.ts';
 import {accumulateBusiness252} from '../../application/src/business-252.ts';
 
 const database='juanca_test_'+randomUUID().replaceAll('-',''),admin=appPool('jorge','postgres'),migrator=appPool('jorge',database),db=marketPool('juanca_market',database);
@@ -74,4 +74,18 @@ test('automatic DI import rejects changed confirmed rates and keeps the old obse
  const first=await make('13.65'),changed=await make('13.66');assert.equal(first.status,'complete');assert.equal(changed.status,'complete');if(first.status!=='complete'||changed.status!=='complete')return;
  await storeVerifiedB3Di2026(db,first);await assert.rejects(()=>storeVerifiedB3Di2026(db,changed),/EXISTING_DI_DATA_DISAGREEMENT/);
  assert.equal((await listDiObservations(db,'2026-11-03','2026-11-03')).observations[0].rate_pct,'13.65');
+});
+
+
+test('cross-year batches replay atomically and their provenance supports projection',async()=>{
+ const calendars={...CONFIRMED_CALENDARS,2027:{year:2027,source_uri:'https://example.test/2027',source_revision:'fixture-2027',closed:new Set(['2027-01-01'])}};
+ const verified=await verifyB3DiCalendars({from:'2026-12-31',to:'2027-01-04',as_of:'2027-01-05'},{calendars,fetcher:async(from,to)=>({provider:'B3_DI_FTP',source_uri:'ftp://fixture-cross-year',requested_from:from,requested_to:to,version:(from.startsWith('2026')?'e':'f').repeat(64),observations:[{date:from.startsWith('2026')?from:to,rate_pct:'13.65',unit:'annual_effective_252',indexer:'CDI',source_uri:'ftp://fixture-cross-year',version:(from.startsWith('2026')?'e':'f').repeat(64)}]})});
+ assert.equal(verified.status,'complete');if(verified.status!=='complete')return;
+ const broken=structuredClone(verified.batches);broken[1].data.observations[0].rate_pct='999.00';await assert.rejects(()=>storeVerifiedB3DiBatches(db,broken));
+ assert.equal((await listCalendar(db,'b3-di','2026-12-31','2026-12-31')).coverage,'missing');assert.equal((await listDiObservations(db,'2026-12-31','2026-12-31')).observations.length,0);
+ const first=await storeVerifiedB3DiBatches(db,verified.batches),replay=await storeVerifiedB3DiBatches(db,verified.batches);assert.deepEqual(first.map(x=>x.calendar_replayed),[false,false]);assert.deepEqual(replay.map(x=>[x.calendar_replayed,x.index_replayed]),[[true,true],[true,true]]);
+ const calendar=await listCalendar(db,'b3-di','2026-12-31','2027-01-04');assert.equal(calendar.coverage,'declared');assert.equal(calendar.calendar?.sources.length,2);assert.ok(calendar.calendar?.sources.some(s=>s.source_uri==='https://example.test/2027'));
+ const observations=await listDiObservations(db,'2026-12-31','2026-12-31');const projection=accumulateBusiness252({from:'2026-12-30',to:'2027-01-04',observed_through:'2026-12-31',calendar:calendar.calendar!,observations:observations.observations,relation:'multiplier',contract_rate_pct:'100',future_assumption:{annual_rate_pct:'12',source:'fixture:projection',as_of:'2026-12-31'}});assert.equal(projection.status,'complete');assert.deepEqual(projection.days.map(d=>d.kind),['observed','projected']);
+ const insufficient=await listCalendar(db,'b3-di','2026-12-31','2027-01-05');assert.equal(insufficient.coverage,'missing');
+ const count=Number((await db.query('SELECT count(*) AS n FROM market.calendar_imports')).rows[0].n);const conflict=structuredClone(verified.batches);conflict[0].calendar.source_revision+='; new fixture';conflict[1].calendar.days[0].business_day=true;await assert.rejects(()=>storeVerifiedB3DiBatches(db,conflict),/EXISTING_DI_DATA_DISAGREEMENT/);assert.equal(Number((await db.query('SELECT count(*) AS n FROM market.calendar_imports')).rows[0].n),count);assert.equal((await listCalendar(db,'b3-di','2027-01-01','2027-01-01')).calendar?.days[0].business_day,false);
 });

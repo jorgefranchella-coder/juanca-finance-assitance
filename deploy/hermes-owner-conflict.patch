@@ -1,0 +1,568 @@
+--- a/gateway/status.py
++++ b/gateway/status.py
+@@ -11,6 +11,7 @@
+ concurrently under distinct configurations).
+ """
+ 
++import errno
+ import hashlib
+ import json
+ import logging
+@@ -492,6 +493,19 @@
+     return None
+ 
+ 
++def _command_line_has_profile_selector(command: str) -> bool:
++    """Return whether argv explicitly selects a profile."""
++    try:
++        tokens = shlex.split(command, posix=False)
++    except ValueError:
++        tokens = command.split()
++    for token in tokens:
++        normalized = token.strip("\"'").lower()
++        if normalized in ("--profile", "-p") or normalized.startswith(("--profile=", "-p=")):
++            return True
++    return False
++
++
+ def _command_line_belongs_to_profile(command: str, profile_home: Path) -> bool:
+     """Return True when a gateway command line belongs to ``profile_home``.
+ 
+@@ -550,14 +564,36 @@
+     persisted record so cross-platform behavior is preserved.
+     """
+     live_cmdline = _read_process_cmdline(pid)
++    recorded_home = record.get("hermes_home")
++    recorded_home_matches = (
++        isinstance(recorded_home, str)
++        and expected_home is not None
++        and _same_hermes_home(recorded_home, expected_home)
++    )
++    if expected_home is not None and recorded_home is not None and not recorded_home_matches:
++        return False
++
+     if live_cmdline:
+         if not looks_like_gateway_runtime_command_line(live_cmdline):
+             return False
+-        if expected_home is not None and not _command_line_belongs_to_profile(
+-            live_cmdline, expected_home
+-        ):
+-            return False
++        # Newer runtime records persist the resolved HERMES_HOME at startup.
++        # This is essential for a named-profile service whose generic/bare argv
++        # contains no --profile selector. Older records have no home field, so
++        # retain the argv-based profile check as a conservative fallback.
++        if expected_home is not None:
++            if recorded_home_matches:
++                # The persisted home admits bare argv for named profiles, but
++                # an explicit selector must agree with that same home.
++                if (
++                    _command_line_has_profile_selector(live_cmdline)
++                    and not _command_line_belongs_to_profile(live_cmdline, expected_home)
++                ):
++                    return False
++            elif not _command_line_belongs_to_profile(live_cmdline, expected_home):
++                return False
+         return True
++    if expected_home is not None and not recorded_home_matches:
++        return False
+     return _record_looks_like_gateway(record)
+ 
+ 
+@@ -644,6 +680,68 @@
+     return _read_pid_record(lock_path or _get_gateway_lock_path())
+ 
+ 
++def get_gateway_runtime_lock_owner_pid(
++    lock_path: Optional[Path] = None,
++    *,
++    expected_home: Optional[Path] = None,
++) -> Optional[int]:
++    """Identify the live Hermes process recorded as the lock owner.
++
++    Call only after an OS lock attempt reported contention. Reading the lock
++    record is non-mutating; validation checks PID reuse, gateway command line,
++    and the recorded HERMES_HOME. Unknown or incomplete owners return None.
++    """
++    resolved_lock_path = lock_path or _get_gateway_lock_path()
++    record = _read_gateway_lock_record(resolved_lock_path)
++    pid = _pid_from_record(record)
++    if record is None or pid is None or not _pid_exists(pid):
++        return None
++
++    home = Path(expected_home) if expected_home is not None else resolved_lock_path.parent
++    recorded_home = record.get("hermes_home")
++    if not isinstance(recorded_home, str) or not _same_hermes_home(recorded_home, home):
++        return None
++
++    recorded_start = record.get("start_time")
++    current_start = _get_process_start_time(pid)
++    if recorded_start is not None and current_start is not None and recorded_start != current_start:
++        return None
++    if not _record_matches_live_gateway_pid(record, pid, expected_home=home):
++        return None
++    return pid
++
++
++def get_gateway_pid_file_owner_pid(
++    pid_path: Optional[Path] = None,
++    *,
++    expected_home: Optional[Path] = None,
++) -> Optional[int]:
++    """Return a live, profile-matching gateway recorded in the PID file.
++
++    This is used only after an O_EXCL PID-file collision. It reads without
++    cleaning or replacing the file and verifies process start time, command
++    line, and the expected HERMES_HOME before treating it as an owner.
++    """
++    resolved_pid_path = pid_path or _get_pid_path()
++    record = _read_pid_record(resolved_pid_path)
++    pid = _pid_from_record(record)
++    if record is None or pid is None or not _pid_exists(pid):
++        return None
++
++    home = Path(expected_home) if expected_home is not None else resolved_pid_path.parent
++    recorded_home = record.get("hermes_home")
++    if not isinstance(recorded_home, str) or not _same_hermes_home(recorded_home, home):
++        return None
++
++    recorded_start = record.get("start_time")
++    current_start = _get_process_start_time(pid)
++    if recorded_start is not None and current_start is not None and recorded_start != current_start:
++        return None
++    if not _record_matches_live_gateway_pid(record, pid, expected_home=home):
++        return None
++    return pid
++
++
+ def _pid_from_record(record: Optional[dict[str, Any]]) -> Optional[int]:
+     if not record:
+         return None
+@@ -681,25 +779,23 @@
+ 
+ 
+ def _cleanup_invalid_pid_path(pid_path: Path, *, cleanup_stale: bool) -> None:
+-    """Delete a stale gateway PID file (and its sibling lock metadata).
+-
+-    Called from ``get_running_pid()`` after the runtime lock has already been
+-    confirmed inactive, so the on-disk metadata is known to belong to a dead
+-    process.  Unlike ``remove_pid_file()`` (which defensively refuses to delete
+-    a PID file whose ``pid`` field differs from ``os.getpid()`` to protect
+-    ``--replace`` handoffs), this path force-unlinks both files so the next
+-    startup sees a clean slate.
++    """Remove stale PID metadata only after confirming the sibling lock is free.
++
++    The lock path is never unlinked: an unlocked check can race a new process
++    acquiring the inode, and removing it would let another process lock a new
++    inode concurrently. If lock state cannot be checked, preserve both files.
+     """
+     if not cleanup_stale:
+         return
++    try:
++        if is_gateway_runtime_lock_active(_get_gateway_lock_path(pid_path)):
++            return
++    except OSError:
++        return
+     _clear_running_pid_cache()
+     try:
+         pid_path.unlink(missing_ok=True)
+-    except Exception:
+-        pass
+-    try:
+-        _get_gateway_lock_path(pid_path).unlink(missing_ok=True)
+-    except Exception:
++    except OSError:
+         pass
+ 
+ 
+@@ -715,19 +811,35 @@
+ 
+ 
+ def _try_acquire_file_lock(handle) -> bool:
+-    try:
+-        if _IS_WINDOWS:
+-            handle.seek(0, os.SEEK_END)
+-            if handle.tell() == 0:
+-                handle.write("\n")
+-                handle.flush()
+-            handle.seek(_WINDOWS_LOCK_OFFSET)
++    """Return False only when the OS proves another process holds the lock.
++
++    Permission and I/O failures are raised so the gateway can log them and
++    leave with its ordinary retryable status instead of masquerading as an
++    owner conflict.
++    """
++    if _IS_WINDOWS:
++        handle.seek(0, os.SEEK_END)
++        if handle.tell() == 0:
++            handle.write("\n")
++            handle.flush()
++        handle.seek(_WINDOWS_LOCK_OFFSET)
++        try:
+             msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+-        else:
++        except OSError as exc:
++            # The Windows CRT reports a held byte-range lock as EACCES.
++            if exc.errno in (errno.EACCES, errno.EAGAIN, errno.EWOULDBLOCK):
++                return False
++            raise
++    else:
++        try:
+             fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+-        return True
+-    except (BlockingIOError, OSError):
+-        return False
++        except OSError as exc:
++            # flock contention is EAGAIN/EWOULDBLOCK; EACCES/EIO and other
++            # failures are not proof of a live competing gateway.
++            if exc.errno in (errno.EAGAIN, errno.EWOULDBLOCK):
++                return False
++            raise
++    return True
+ 
+ 
+ def _pid_exists(pid: int) -> bool:
+@@ -863,8 +975,10 @@
+ def acquire_gateway_runtime_lock() -> bool:
+     """Claim the cross-process runtime lock for the gateway.
+ 
+-    Unlike the PID file, the lock is owned by the live process itself. If the
+-    process dies abruptly, the OS releases the lock automatically.
++    Returns False only for proven OS lock contention. Open, directory,
++    permission and lock I/O errors propagate so callers can report them and
++    use the normal retryable exit status. This function never removes a lock
++    path: the lock is a kernel-held descriptor, not a stale-file marker.
+     """
+     global _gateway_lock_handle
+     if _gateway_lock_handle is not None:
+@@ -872,26 +986,21 @@
+ 
+     path = _get_gateway_lock_path()
+     path.parent.mkdir(parents=True, exist_ok=True)
+-    try:
+-        handle = open(path, "a+", encoding="utf-8")
+-    except PermissionError:
+-        # Stale root-owned lock file from a previous launchd Background
+-        # session that ran as root (same failure mode handled in
+-        # is_gateway_runtime_lock_active).  The parent directory owner can
+-        # unlink files even when they don't own them, so remove the stale
+-        # lock and retry once with a fresh file.
+-        try:
+-            path.unlink()
+-        except OSError:
+-            return False
+-        try:
+-            handle = open(path, "a+", encoding="utf-8")
+-        except OSError:
+-            return False
+-    if not _try_acquire_file_lock(handle):
++    handle = open(path, "a+", encoding="utf-8")
++    try:
++        acquired = _try_acquire_file_lock(handle)
++    except BaseException:
++        handle.close()
++        raise
++    if not acquired:
+         handle.close()
+         return False
+-    _write_gateway_lock_record(handle)
++    try:
++        _write_gateway_lock_record(handle)
++    except BaseException:
++        _release_file_lock(handle)
++        handle.close()
++        raise
+     _gateway_lock_handle = handle
+     _clear_running_pid_cache()
+     return True
+@@ -922,18 +1031,8 @@
+     if not resolved_lock_path.exists():
+         return False
+ 
+-    try:
+-        handle = open(resolved_lock_path, "a+", encoding="utf-8")
+-    except PermissionError:
+-        # Stale root-owned lock file from a previous launchd Background
+-        # session that ran as root.  The parent directory owner can unlink
+-        # files even when they don't own them, so remove the stale lock
+-        # and report inactive — the new process will create a fresh one.
+-        try:
+-            resolved_lock_path.unlink()
+-        except OSError:
+-            pass
+-        return False
++    # Permission errors propagate: an unreadable lock is unknown, not inactive.
++    handle = open(resolved_lock_path, "a+", encoding="utf-8")
+     try:
+         if _try_acquire_file_lock(handle):
+             _release_file_lock(handle)
+@@ -2007,6 +2106,7 @@
+     pid_path: Optional[Path] = None,
+     *,
+     cleanup_stale: bool = True,
++    expected_home: Optional[Path] = None,
+ ) -> Optional[int]:
+     """Return the PID of a running gateway instance, or ``None``.
+ 
+@@ -2018,7 +2118,7 @@
+     lock_active = is_gateway_runtime_lock_active(resolved_lock_path)
+     if not lock_active:
+         if pid_path is None:
+-            runtime_pid = get_runtime_status_running_pid()
++            runtime_pid = get_runtime_status_running_pid(expected_home=expected_home)
+             if runtime_pid is not None:
+                 return runtime_pid
+         _cleanup_invalid_pid_path(resolved_pid_path, cleanup_stale=cleanup_stale)
+@@ -2040,12 +2140,14 @@
+         if recorded_start is not None and current_start is not None and current_start != recorded_start:
+             continue
+ 
+-        if _record_matches_live_gateway_pid(record, pid):
++        if _record_matches_live_gateway_pid(record, pid, expected_home=expected_home):
+             return pid
+ 
+-    _cleanup_invalid_pid_path(resolved_pid_path, cleanup_stale=cleanup_stale)
++    # The lock is active but none of its records match this requested profile.
++    # Preserve both files: they may describe a legitimate bare-argv process
++    # whose HERMES_HOME selects the named profile, or an unrecognized lock owner.
+     if pid_path is None:
+-        runtime_pid = get_runtime_status_running_pid()
++        runtime_pid = get_runtime_status_running_pid(expected_home=expected_home)
+         if runtime_pid is not None:
+             return runtime_pid
+     return None
+--- a/gateway/run.py
++++ b/gateway/run.py
+@@ -23797,7 +23797,7 @@
+         remove_pid_file,
+         terminate_pid,
+     )
+-    existing_pid = get_running_pid()
++    existing_pid = get_running_pid(expected_home=get_hermes_home())
+     if existing_pid is not None and existing_pid != os.getpid():
+         if replace:
+             existing_start_time = get_process_start_time(existing_pid)
+@@ -23944,7 +23944,7 @@
+                 f"   or 'hermes gateway stop' to kill it first.\n"
+                 f"   Or use 'hermes gateway run --replace' to auto-replace.\n"
+             )
+-            return False
++            raise SystemExit(GATEWAY_FATAL_CONFIG_EXIT_CODE)
+ 
+     # Sync bundled skills on gateway start (fast -- skips unchanged)
+     try:
+@@ -24164,24 +24164,59 @@
+     # cleanly before touching any external service.
+     import atexit
+     from gateway.status import write_pid_file, remove_pid_file, get_running_pid
+-    _current_pid = get_running_pid()
++    _current_pid = get_running_pid(expected_home=get_hermes_home())
+     if _current_pid is not None and _current_pid != os.getpid():
+         logger.error(
+             "Another gateway instance (PID %d) started during our startup. "
+             "Exiting to avoid double-running.", _current_pid
+         )
++        raise SystemExit(GATEWAY_FATAL_CONFIG_EXIT_CODE)
++    try:
++        lock_acquired = acquire_gateway_runtime_lock()
++    except OSError:
++        logger.exception(
++            "Could not open or acquire the gateway runtime lock; startup will retry."
++        )
+         return False
+-    if not acquire_gateway_runtime_lock():
++    if not lock_acquired:
++        from gateway.status import get_gateway_runtime_lock_owner_pid
++        try:
++            lock_owner_pid = get_gateway_runtime_lock_owner_pid()
++        except OSError:
++            logger.exception(
++                "Could not verify the gateway runtime lock owner; startup will retry."
++            )
++            return False
++        if lock_owner_pid is not None and lock_owner_pid != os.getpid():
++            logger.error(
++                "Gateway runtime lock is held by verified Hermes gateway PID %d. Exiting to avoid a duplicate.",
++                lock_owner_pid,
++            )
++            raise SystemExit(GATEWAY_FATAL_CONFIG_EXIT_CODE)
+         logger.error(
+-            "Gateway runtime lock is already held by another instance. Exiting."
++            "Gateway runtime lock is contended but no live Hermes owner could be verified; startup will retry."
+         )
+         return False
+     try:
+         write_pid_file()
+     except FileExistsError:
+         release_gateway_runtime_lock()
++        from gateway.status import get_gateway_pid_file_owner_pid
++        try:
++            pid_owner = get_gateway_pid_file_owner_pid(expected_home=get_hermes_home())
++        except OSError:
++            logger.exception(
++                "PID file was created concurrently and its owner could not be verified; startup will retry."
++            )
++            return False
++        if pid_owner is not None and pid_owner != os.getpid():
++            logger.error(
++                "PID file race exposed verified Hermes gateway PID %d. Exiting to avoid a duplicate.",
++                pid_owner,
++            )
++            raise SystemExit(GATEWAY_FATAL_CONFIG_EXIT_CODE)
+         logger.error(
+-            "PID file race lost to another gateway instance. Exiting."
++            "PID file creation collided without a verifiable live Hermes owner; startup will retry."
+         )
+         return False
+     atexit.register(remove_pid_file)
+--- a/tests/gateway/test_status.py
++++ b/tests/gateway/test_status.py
+@@ -3,6 +3,7 @@
+ import json
+ import os
+ import sys
++import pytest
+ import time
+ from pathlib import Path
+ from types import SimpleNamespace
+@@ -1999,111 +2000,65 @@
+ 
+ 
+ class TestPermissionErrorOnLockFile:
+-    """Stale root-owned lock files from launchd Background sessions must not
+-    crash the gateway on restart (issue #42685)."""
+-
+-    def test_permission_error_on_lock_file_returns_false_and_removes(self, tmp_path, monkeypatch):
+-        """When the lock file is not writable (root-owned), the function should
+-        remove the stale file and report the lock as inactive."""
++    def test_permission_error_does_not_unlink_lock_file(self, tmp_path, monkeypatch):
+         monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+         lock_path = tmp_path / "gateway.lock"
+         lock_path.write_text("stale", encoding="utf-8")
+-
+         real_open = open
+ 
+-        def deny_write(path, *args, **kwargs):
++        def deny_open(path, *args, **kwargs):
+             if str(path) == str(lock_path):
+                 raise PermissionError(13, "Permission denied", str(path))
+             return real_open(path, *args, **kwargs)
+ 
+-        monkeypatch.setattr("builtins.open", deny_write)
+-
+-        result = status.is_gateway_runtime_lock_active(lock_path)
+-        assert result is False
+-        assert not lock_path.exists(), "stale root-owned lock file should be removed"
+-
+-    def test_permission_error_unlink_failure_still_returns_false(self, tmp_path, monkeypatch):
+-        """Even if unlinking the stale lock file fails (e.g. directory not writable),
+-        the function should still return False to allow startup."""
++        monkeypatch.setattr("builtins.open", deny_open)
++        with pytest.raises(PermissionError):
++            status.is_gateway_runtime_lock_active(lock_path)
++        assert lock_path.read_text(encoding="utf-8") == "stale"
++
++    def test_permission_and_unlink_errors_preserve_lock_without_unlink_attempt(self, tmp_path, monkeypatch):
+         monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+         lock_path = tmp_path / "gateway.lock"
+         lock_path.write_text("stale", encoding="utf-8")
+-
+         real_open = open
+-
+-        def deny_write(path, *args, **kwargs):
++        real_unlink = Path.unlink
++        unlink_calls = []
++
++        def deny_open(path, *args, **kwargs):
+             if str(path) == str(lock_path):
+                 raise PermissionError(13, "Permission denied", str(path))
+             return real_open(path, *args, **kwargs)
+ 
+-        real_unlink = Path.unlink
+-
+         def deny_unlink(self, *args, **kwargs):
+-            if str(self) == str(lock_path):
+-                raise OSError(13, "Permission denied", str(self))
++            if self == lock_path:
++                unlink_calls.append(self)
++                raise OSError(5, "injected unlink failure", str(self))
+             return real_unlink(self, *args, **kwargs)
+ 
+-        monkeypatch.setattr("builtins.open", deny_write)
++        monkeypatch.setattr("builtins.open", deny_open)
+         monkeypatch.setattr(Path, "unlink", deny_unlink)
+-
+-        result = status.is_gateway_runtime_lock_active(lock_path)
+-        assert result is False
+-
+-    def test_acquire_gateway_runtime_lock_recovers_from_permission_error(self, tmp_path, monkeypatch):
+-        """acquire_gateway_runtime_lock must survive a stale root-owned lock
+-        file: unlink it and retry with a fresh file instead of crashing."""
++        with pytest.raises(PermissionError):
++            status.is_gateway_runtime_lock_active(lock_path)
++        with pytest.raises(PermissionError):
++            status.acquire_gateway_runtime_lock()
++        assert unlink_calls == []
++        assert lock_path.read_text(encoding="utf-8") == "stale"
++
++    def test_acquire_permission_error_is_propagated_without_removal(self, tmp_path, monkeypatch):
+         monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+         lock_path = status._get_gateway_lock_path()
+-        lock_path.parent.mkdir(parents=True, exist_ok=True)
+         lock_path.write_text("stale", encoding="utf-8")
+-
+         real_open = open
+ 
+-        def deny_write(path, *args, **kwargs):
+-            # Simulate a root-owned file: opening fails while the ORIGINAL
+-            # stale file is still on disk; after unlink, the fresh file the
+-            # retry creates opens fine.
+-            if (
+-                str(path) == str(lock_path)
+-                and lock_path.exists()
+-                and lock_path.read_text(encoding="utf-8") == "stale"
+-            ):
+-                raise PermissionError(13, "Permission denied", str(path))
+-            return real_open(path, *args, **kwargs)
+-
+-        monkeypatch.setattr("builtins.open", deny_write)
+-
+-        try:
+-            assert status.acquire_gateway_runtime_lock() is True
+-        finally:
+-            status.release_gateway_runtime_lock()
+-
+-    def test_acquire_gateway_runtime_lock_gives_up_when_unlink_denied(self, tmp_path, monkeypatch):
+-        """If the stale lock cannot even be unlinked, acquisition fails
+-        cleanly (returns False) rather than raising."""
+-        monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+-        lock_path = status._get_gateway_lock_path()
+-        lock_path.parent.mkdir(parents=True, exist_ok=True)
+-        lock_path.write_text("stale", encoding="utf-8")
+-
+-        real_open = open
+-
+-        def deny_write(path, *args, **kwargs):
++        def deny_open(path, *args, **kwargs):
+             if str(path) == str(lock_path):
+                 raise PermissionError(13, "Permission denied", str(path))
+             return real_open(path, *args, **kwargs)
+ 
+-        real_unlink = Path.unlink
+-
+-        def deny_unlink(self, *args, **kwargs):
+-            if str(self) == str(lock_path):
+-                raise OSError(13, "Permission denied", str(self))
+-            return real_unlink(self, *args, **kwargs)
+-
+-        monkeypatch.setattr("builtins.open", deny_write)
+-        monkeypatch.setattr(Path, "unlink", deny_unlink)
+-
+-        assert status.acquire_gateway_runtime_lock() is False
++        monkeypatch.setattr("builtins.open", deny_open)
++        with pytest.raises(PermissionError):
++            status.acquire_gateway_runtime_lock()
++        assert lock_path.read_text(encoding="utf-8") == "stale"
+ 
+ 
+ class TestNormalizeUpdatedAt:

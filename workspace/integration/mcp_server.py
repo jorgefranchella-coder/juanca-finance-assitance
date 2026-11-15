@@ -617,6 +617,12 @@ def decidir_transaccion(propuesta_id: str, accion: str) -> dict:
     return api('/api/transactions/proposals/' + quote(propuesta_id, safe=''), {'action': accion})
 
 @mcp.tool()
+def leer_enlace_documental(url: str) -> dict:
+    """Lee localmente un PDF HTTPS; no importa el documento ni valida identidad o autorización del titular o del enlace. No envíes enlaces sensibles a buscadores u otros servicios."""
+    from document_fetch import retrieve
+    return retrieve(url)
+
+@mcp.tool()
 def importar_documento(ruta: str, fuente: str, propietario: str, tipo: str = '', fecha_referencia: str = '') -> dict:
     """En PostgreSQL incorpora B3, Avenue o previsión como evidencia documental para revisión; aún no publica una posición automáticamente. Usar solo por pedido del usuario."""
     if fuente not in ('b3','avenue','pension'):

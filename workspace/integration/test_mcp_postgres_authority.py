@@ -16,9 +16,13 @@ def load_mcp_server():
     class FastMCP:
         def __init__(self, name):
             self.name = name
+            self.registered_tools = {}
 
         def tool(self):
-            return lambda function: function
+            def register(function):
+                self.registered_tools[function.__name__] = function
+                return function
+            return register
 
         def run(self, **kwargs):
             pass
@@ -34,7 +38,7 @@ def load_mcp_server():
 
         def read_text(path, *args, **kwargs):
             if path.name == 'credentials.json' and path.parent == module_path.parent:
-                return json.dumps({'token': 'test-token', 'user_id': 'test-family'})
+                return json.dumps({'token': 'fixture-token', 'user_id': 'test-family'})
             return original_read_text(path, *args, **kwargs)
 
         with patch.object(Path, 'read_text', read_text):
@@ -73,11 +77,11 @@ class PostgresMCPTest(unittest.TestCase):
             payload = {'mode': 'postgres', 'authoritative': True}
         elif path == '/api/shadow/evidence/text':
             payload = {'id': 'evidence-1', 'interpretation': {'interpretation_status': 'parsed_review', 'fields': {
-                'side': 'buy', 'instrument_code': 'PETR4', 'quantity': '2', 'unit_price': '30',
-                'currency': 'BRL', 'trade_date': '2026-10-23', 'fees_minor': '0'}}}
+                'side': 'buy', 'instrument_code': 'TEST3', 'quantity': '2', 'unit_price': '30',
+                'currency': 'BRL', 'trade_date': '2025-01-15', 'fees_minor': '0'}}}
         elif path == '/api/shadow/portfolio':
             payload = {'positions': [{'owner': 'Jorge', 'owner_id': 'owner-1', 'account_id': 'account-1',
-                'identity_status': 'known', 'instrument_code': 'PETR4', 'currency': 'BRL', 'quantity': '10',
+                'identity_status': 'known', 'instrument_code': 'TEST3', 'currency': 'BRL', 'quantity': '10',
                 'institution': 'Fixture Custodian'}]}
         elif path == '/api/shadow/accounts':
             payload = {'accounts': [{'id': 'account-1', 'owner_id': 'owner-1', 'owner': 'Jorge', 'identity_status': 'known'}]}
@@ -105,7 +109,7 @@ class PostgresMCPTest(unittest.TestCase):
 
     def test_text_trade_uses_postgres_evidence_and_creates_pending_proposal(self):
         with patch.object(mcp_server, 'urlopen', self.fake_urlopen):
-            result = mcp_server.proponer_transaccion('Jorge', 'Compré 2 PETR4 a R$ 30 el 23/10/2026')
+            result = mcp_server.proponer_transaccion('Jorge', 'Compré 2 TEST3 a R$ 30,00 el 15/01/2025')
         self.assertTrue(result['evidence_recorded'])
         self.assertTrue(result['proposal_created'])
         self.assertFalse(result['portfolio_changed'])
@@ -121,20 +125,20 @@ class PostgresMCPTest(unittest.TestCase):
 
     def test_sale_lists_only_accounts_that_hold_the_asset_and_waits_for_selection(self):
         positions = [
-            {'owner': 'Jorge', 'owner_id': 'owner-1', 'account_id': 'account-a', 'identity_status': 'known', 'instrument_code': 'CSAN3', 'currency': 'BRL', 'quantity': '4', 'institution': 'Itaú'},
-            {'owner': 'Jorge', 'owner_id': 'owner-1', 'account_id': 'account-b', 'identity_status': 'known', 'instrument_code': 'CSAN3', 'currency': 'BRL', 'quantity': '8', 'institution': 'BTG'},
-            {'owner': 'Jorge', 'owner_id': 'owner-1', 'account_id': 'account-c', 'identity_status': 'known', 'instrument_code': 'PETR4', 'currency': 'BRL', 'quantity': '100', 'institution': 'Avenue'},
+            {'owner': 'Jorge', 'owner_id': 'owner-1', 'account_id': 'account-a', 'identity_status': 'known', 'instrument_code': 'MOCK3', 'currency': 'BRL', 'quantity': '4', 'institution': 'Custodian A'},
+            {'owner': 'Jorge', 'owner_id': 'owner-1', 'account_id': 'account-b', 'identity_status': 'known', 'instrument_code': 'MOCK3', 'currency': 'BRL', 'quantity': '8', 'institution': 'Custodian B'},
+            {'owner': 'Jorge', 'owner_id': 'owner-1', 'account_id': 'account-c', 'identity_status': 'known', 'instrument_code': 'TEST3', 'currency': 'BRL', 'quantity': '100', 'institution': 'Custodian C'},
         ]
         def urlopen(request, timeout=0):
             self.requests.append(request)
             path = request.full_url.removeprefix(mcp_server.BASE)
             if path == '/api/authority': payload = {'mode': 'postgres'}
-            elif path == '/api/shadow/evidence/text': payload = {'intake_id': 'evidence-csan', 'interpretation': {'interpretation_status': 'parsed_review', 'fields': {'side': 'sell', 'instrument_code': 'CSAN3', 'quantity': '8', 'unit_price': '2.73', 'currency': 'BRL', 'trade_date': '2026-10-27', 'fees_minor': '0'}}}
+            elif path == '/api/shadow/evidence/text': payload = {'intake_id': 'evidence-sale-fixture', 'interpretation': {'interpretation_status': 'parsed_review', 'fields': {'side': 'sell', 'instrument_code': 'MOCK3', 'quantity': '8', 'unit_price': '2.73', 'currency': 'BRL', 'trade_date': '2025-01-15', 'fees_minor': '0'}}}
             elif path == '/api/shadow/portfolio': payload = {'positions': positions}
             else: payload = {'proposal_id': 'proposal-1'}
             return FakeResponse(payload)
         with patch.object(mcp_server, 'urlopen', urlopen):
-            result = mcp_server.proponer_transaccion('Jorge', 'Venda executada: 8 ações de CSAN3 por R$ 2,73 em 27/10/2026')
+            result = mcp_server.proponer_transaccion('Jorge', 'Venda executada: 8 ações de MOCK3 por R$ 2,73 em 15/01/2025')
         self.assertTrue(result['needs_account_selection'])
         self.assertEqual([item['account_id'] for item in result['alternatives']], ['account-a', 'account-b'])
         self.assertFalse(result['proposal_created'])
@@ -145,12 +149,12 @@ class PostgresMCPTest(unittest.TestCase):
             self.requests.append(request)
             path = request.full_url.removeprefix(mcp_server.BASE)
             if path == '/api/authority': payload = {'mode': 'postgres'}
-            elif path == '/api/shadow/evidence/text': payload = {'intake_id': 'evidence-csan', 'interpretation': {'interpretation_status': 'parsed_review', 'fields': {'side': 'sell', 'instrument_code': 'CSAN3', 'quantity': '8', 'unit_price': '2.73', 'currency': 'BRL', 'trade_date': '2026-10-27', 'fees_minor': '0'}}}
-            elif path == '/api/shadow/portfolio': payload = {'positions': [{'owner': 'Jorge', 'owner_id': 'owner-1', 'account_id': 'account-1', 'identity_status': 'known', 'instrument_code': 'CSAN3', 'currency': 'BRL', 'quantity': '10', 'institution': 'Itaú'}]}
+            elif path == '/api/shadow/evidence/text': payload = {'intake_id': 'evidence-sale-fixture', 'interpretation': {'interpretation_status': 'parsed_review', 'fields': {'side': 'sell', 'instrument_code': 'MOCK3', 'quantity': '8', 'unit_price': '2.73', 'currency': 'BRL', 'trade_date': '2025-01-15', 'fees_minor': '0'}}}
+            elif path == '/api/shadow/portfolio': payload = {'positions': [{'owner': 'Jorge', 'owner_id': 'owner-1', 'account_id': 'account-1', 'identity_status': 'known', 'instrument_code': 'MOCK3', 'currency': 'BRL', 'quantity': '10', 'institution': 'Custodian A'}]}
             else: payload = {'proposal_id': 'proposal-1'}
             return FakeResponse(payload)
         with patch.object(mcp_server, 'urlopen', urlopen):
-            result = mcp_server.proponer_transaccion('Jorge', 'Venta ejecutada: 8 acciones de CSAN3 por R$ 2,73 el 27/10/2026', 'account-1', 'photo-uuid')
+            result = mcp_server.proponer_transaccion('Jorge', 'Venta ejecutada: 8 acciones de MOCK3 por R$ 2,73 el 15/01/2025', 'account-1', 'photo-uuid')
         self.assertTrue(result['proposal_created'])
         self.assertFalse(result['portfolio_changed'])
         proposal_request = next(request for request in self.requests if request.full_url.endswith('/api/shadow/proposals'))
@@ -201,7 +205,7 @@ class PostgresMCPTest(unittest.TestCase):
     def test_compiled_pension_bundle_is_submitted_once_as_complete_snapshot(self):
         with patch.object(mcp_server, 'urlopen', self.fake_urlopen):
             result = mcp_server.registrar_snapshot_previdencia(
-                'Jorge', 'BTG Pactual', '2026-10-24', 'bruto',
+                'Jorge', 'Fixture Custodian B', '2025-01-15', 'bruto',
                 json.dumps([{'numero': '244090', 'produto': 'PGBL', 'fund_name': 'Access A',
                              'cnpj': '12.345.678/0001-99', 'isin': 'BR123', 'codigo_anbima': 'ANBIMA1',
                              'saldo_bruto': 1200.50, 'saldo_liquido': 1000.25, 'regime_tributario': 'Regressivo'},
@@ -215,7 +219,7 @@ class PostgresMCPTest(unittest.TestCase):
         self.assertTrue(request.full_url.endswith('/api/shadow/reconciliation/external/manual-snapshots'))
         body = json.loads(request.data)
         self.assertEqual(body['owner'], 'Jorge')
-        self.assertEqual(body['institution'], 'BTG Pactual')
+        self.assertEqual(body['institution'], 'Fixture Custodian B')
         self.assertEqual(body['valuation_basis'], 'gross')
         self.assertEqual(body['plans'][0]['fund_cnpj'], '12.345.678/0001-99')
         self.assertEqual(body['plans'][0]['plan_number'], '244090')
@@ -229,7 +233,7 @@ class PostgresMCPTest(unittest.TestCase):
         plan = {'numero':'244090','produto':'PGBL','fondo':'Fundo A','cnpj':'12345678000199',
                 'saldo_bruto':'237000.25','saldo_liquido':'182798.00','regime_tributario':'Regressivo'}
         with patch.object(mcp_server, 'urlopen', self.fake_urlopen):
-            result = mcp_server.registrar_snapshot_previdencia('Jorge','BTG Pactual','2026-11-02','bruto',
+            result = mcp_server.registrar_snapshot_previdencia('Jorge','Fixture Custodian B','2026-11-02','bruto',
                 json.dumps([plan]),'[]',alcance='parcial',identidade_pendente=True)
         body=json.loads(self.requests[-1].data)
         self.assertEqual(body['update_scope'],'plans')
@@ -297,7 +301,7 @@ class CurrentPortfolioEvidenceTest(unittest.TestCase):
         with patch.object(mcp_server, 'api', return_value={'positions': [], 'mode': 'shadow', 'authoritative': False}):
             self.assertFalse(mcp_server.consultar_patrimonio('positions')['values_verified'])
         payload = {'mode': 'postgres', 'authoritative': True, 'positions': [
-            {'owner': 'Jorge', 'asset_class': 'private_pension', 'reference_date': '2026-10-20', 'currency': 'BRL'},
+            {'owner': 'Jorge', 'asset_class': 'private_pension', 'reference_date': '2025-01-15', 'currency': 'BRL'},
             {'owner': 'Julia', 'asset_class': 'private_pension', 'reference_date': '2026-11-01', 'currency': 'BRL'}]}
         with patch.object(mcp_server, 'api', return_value=payload):
             result = mcp_server.consultar_patrimonio('positions', propietario='Julia', clase='private_pension')
@@ -322,12 +326,12 @@ class MaturityQueriesTest(unittest.TestCase):
         for n in range(120):
             items.append({'owner': 'Jorge' if n % 2 == 0 else 'Julia', 'instrument_code': f'CDB{n:03}',
                           'institution': 'Fixture', 'account': 'account', 'currency': 'BRL',
-                          'maturity_date': '2027-01-15', 'reference_date': '2026-10-01',
+                          'maturity_date': '2027-01-15', 'reference_date': '2025-01-15',
                           'contractual': {'status': 'incomplete', 'missing': ['tasa'], 'calendar': ['x' * 3000]},
                           'observations': ['x' * 100]})
         items.extend([{'owner': 'Jorge', 'instrument_code': 'OLD', 'maturity_date': '2026-01-01'},
                       {'owner': 'Jorge', 'instrument_code': 'NO_DATE', 'maturity_date': ''}])
-        return {'items': items, 'reference_date': '2026-10-01'}
+        return {'items': items, 'reference_date': '2025-01-15'}
 
     def test_compact_pages_order_owner_and_missing_projection(self):
         projection = self.fixture()
@@ -403,7 +407,7 @@ class PhotoClarificationTest(unittest.TestCase):
         photo='11111111-1111-4111-8111-111111111111';sent=[]
         def fake(path,payload=None,**kwargs):
             if path.endswith('/clarifications'):
-                return {'clarifications':[{'id':'a','scope':'evidence','revision':1,'metadata':{'reference_date':'2026-11-02','institution':'BTG'}},
+                return {'clarifications':[{'id':'a','scope':'evidence','revision':1,'metadata':{'reference_date':'2026-11-02','institution':'Custodian B'}},
                   {'id':'b','scope':'plan:100','revision':1,'metadata':{'plan_number':'100','fund_name':'Fondo','fund_cnpj':'12345678000100'}},
                   {'id':'c','scope':'plan:200','revision':1,'metadata':{'plan_number':'200','fund_name':'Fondo','fund_cnpj':'12345678000100'}}]}
             if path.endswith('/manual-snapshots'):
@@ -412,4 +416,4 @@ class PhotoClarificationTest(unittest.TestCase):
         plans=[{'plan_number':p,'product_name':'PGBL','gross_balance':'100','net_balance':'90','tax_regime':'regressive'} for p in ('100','200')]
         with patch.object(mcp_server,'authority_mode',return_value='postgres'),patch.object(mcp_server,'api',side_effect=fake):
             result=mcp_server.registrar_snapshot_previdencia('Jorge','','','gross',json.dumps(plans),json.dumps([{'kind':'manual_photo','upload_id':photo}]))
-        self.assertFalse(result['portfolio_changed']);self.assertEqual(sent[0]['reference_date'],'2026-11-02');self.assertEqual(sent[0]['institution'],'BTG');self.assertEqual([p['fund'] for p in sent[0]['plans']],['Fondo','Fondo']);self.assertEqual(len(sent[0]['evidence_refs']),4)
+        self.assertFalse(result['portfolio_changed']);self.assertEqual(sent[0]['reference_date'],'2026-11-02');self.assertEqual(sent[0]['institution'],'Custodian B');self.assertEqual([p['fund'] for p in sent[0]['plans']],['Fondo','Fondo']);self.assertEqual(len(sent[0]['evidence_refs']),4)
